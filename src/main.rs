@@ -142,7 +142,39 @@ extern "C" fn process_cb(nframes: u32, arg: *mut c_void) -> i32 {
     0
 }
 
+static SHUTDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn on_signal(_sig: i32) {
+    SHUTDOWN.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+extern "C" {
+    fn signal(sig: i32, handler: usize) -> usize;
+}
+
+/// Legt die virtuellen Knoten an bzw. raeumt sie ab. Damit haengen die Geraete
+/// am Leben der Engine: laeuft die Engine, gibt es sie; wird sie beendet,
+/// verschwinden sie wieder. VM8_NO_WIRE=1 schaltet das ab.
+fn wire(richtung: &str) {
+    if std::env::var("VM8_NO_WIRE").is_ok() {
+        return;
+    }
+    let script = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("../../scripts/vm8-wire.sh")))
+        .unwrap_or_else(|| std::path::PathBuf::from("scripts/vm8-wire.sh"));
+    let _ = std::process::Command::new("bash")
+        .arg(&script)
+        .arg(richtung)
+        .status();
+}
+
 fn main() {
+    // SIGINT/SIGTERM nur als Merker: die Aufraeumarbeit macht die Hauptschleife.
+    unsafe {
+        signal(2, on_signal as usize);
+        signal(15, on_signal as usize);
+    }
     let mut client_name = String::from("vm8");
     let mut listen = String::from("127.0.0.1:8770");
     let mut args = std::env::args().skip(1);
@@ -287,9 +319,14 @@ fn main() {
         });
     }
 
-    loop {
-        thread::sleep(std::time::Duration::from_secs(60));
+    wire("up");
+
+    while !SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
+        thread::sleep(std::time::Duration::from_millis(250));
     }
+
+    eprintln!("beende: virtuelle Geraete werden entfernt");
+    wire("down");
 }
 
 /// Wendet ein Makro-Kommando der Form `strip 0 gain -6` an.

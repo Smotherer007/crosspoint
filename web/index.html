@@ -210,7 +210,8 @@
   .meter .fill{
     position:absolute;left:0;right:0;bottom:0;height:0;
     background:linear-gradient(to top,#1fbf78 0%,#63df5c 55%,#e8d24b 80%,#ff5b4d 100%);
-    transition:height .22s linear;
+    /* 40 Frames/s brauchen keine Glättung: 0,22 s Nachlauf wirkte träge */
+    transition:height .04s linear;
   }
   .meter .leds{
     position:absolute;inset:0;pointer-events:none;opacity:.55;
@@ -218,7 +219,7 @@
   }
   .meter .peak{
     position:absolute;left:0;right:0;height:2px;bottom:0;background:#f2f9ff;
-    opacity:0;transition:bottom .1s linear,opacity .4s;
+    opacity:0;transition:bottom .04s linear,opacity .4s;
   }
   .fader{
     appearance:none;-webkit-appearance:none;flex:0 0 26px;width:26px;height:100%;margin:0;
@@ -1629,13 +1630,106 @@
     }
   }
 
+  /* ---------- Pegel: WebSocket mit 40 Hz, Polling als Rückfall ----------
+     Die Pegel kommen nicht mehr abgefragt, sondern geschoben: der Server
+     schickt 40 Frames/s über /ws/levels. Klappt das nicht (alter Server,
+     Netzfehler), läuft die alte HTTP-Abfrage mit 120 ms weiter – die
+     Anzeige selbst bleibt in beiden Fällen dieselbe.                      */
+  const lvz = { ws: null, modus: "start", frames: 0, poll: null, aus: false, retry: null };
+  window.__wsFrames = 0;
+  window.__wsMode = "start";
+
+  function lvPollStart() {
+    lvPollStop();
+    lvz.modus = "polling";
+    window.__wsMode = "polling";
+    const hol = () => {
+      if (lvz.modus !== "polling") return;
+      api("/api/levels").then(applyLevels).catch(() => {});
+    };
+    hol();
+    lvz.poll = setInterval(hol, 120);
+  }
+
+  function lvPollStop() {
+    if (lvz.poll) {
+      clearInterval(lvz.poll);
+      lvz.poll = null;
+    }
+  }
+
+  function lvWsStart() {
+    if (lvz.aus) return;
+    if (lvz.retry) {
+      clearTimeout(lvz.retry);
+      lvz.retry = null;
+    }
+    let ws;
+    try {
+      ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/levels");
+    } catch (e) {
+      lvz.modus = "aus";
+      lvPollStart();
+      return;
+    }
+    lvz.ws = ws;
+    // Kommt binnen 2,5 s kein offener Kanal, gilt der Weg als gescheitert.
+    const wache = setTimeout(() => {
+      if (ws.readyState !== 1) {
+        try { ws.close(); } catch (e) {}
+      }
+    }, 2500);
+
+    ws.onopen = () => {
+      clearTimeout(wache);
+      lvPollStop();
+      lvz.modus = "ws";
+      window.__wsMode = "ws";
+      setStatus(true);
+    };
+    ws.onmessage = (ev) => {
+      let lv;
+      try { lv = JSON.parse(ev.data); } catch (e) { return; }
+      lvz.frames++;
+      window.__wsFrames = lvz.frames;
+      applyLevels(lv);
+    };
+    ws.onclose = () => {
+      clearTimeout(wache);
+      if (lvz.ws === ws) lvz.ws = null;
+      if (lvz.aus) {
+        window.__wsMode = "aus";
+        return;
+      }
+      // Ab jetzt sofort Polling, und alle 8 s ein neuer Versuch.
+      lvz.modus = "aus";
+      lvPollStart();
+      lvz.retry = setTimeout(() => {
+        lvz.retry = null;
+        lvWsStart();
+      }, 8000);
+    };
+  }
+
+  // Messhilfen: erzwingen den einen oder anderen Weg (für tests/latency_test.py)
+  window.__lvForcePoll = () => {
+    lvz.aus = true;
+    try { if (lvz.ws) lvz.ws.close(); } catch (e) {}
+    lvPollStart();
+  };
+  window.__lvForceWs = () => {
+    lvz.aus = false;
+    lvPollStop();
+    lvWsStart();
+  };
+
   function setStatus(ok) {
     const s = $("status");
     s.classList.toggle("off", !ok);
     $("statusTxt").textContent = ok ? "ONLINE" : "OFFLINE";
   }
 
-  /* ---------- Polling (2×/s) ---------- */
+  /* ---------- Zustand: weiterhin per HTTP (120 ms), Pegel per WebSocket ---------- */
   let busy = false;
   async function tick() {
     if (busy) return;
@@ -1646,8 +1740,6 @@
       if (!built) build(st);
       applyState(st);
       pflegeEingaenge();
-      const lv = await api("/api/levels");
-      applyLevels(lv);
       setStatus(true);
     } catch (e) {
       setStatus(false);
@@ -1670,6 +1762,7 @@
 
   tick();
   setInterval(tick, 120);
+  lvWsStart();
 })();
 </script>
 <script>

@@ -72,7 +72,12 @@ up)
   done
 
   for bus in A1 A2 A3 A4 A5; do
+    # A1 haengt standardmaessig am Standardgeraet, damit ein frisch gestarteter
+    # Mixer sofort hoerbar ist.
     var="VM8_$bus"; target="${!var:-}"
+    if [ -z "$target" ] && [ "$bus" = "A1" ]; then
+      target="$(pactl get-default-sink 2>/dev/null || true)"
+    fi
     if [ -n "$target" ]; then
       link "$CLIENT:bus${bus}_L" "$target:playback_FL"
       link "$CLIENT:bus${bus}_R" "$target:playback_FR"
