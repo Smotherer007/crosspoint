@@ -86,6 +86,11 @@ jobs:
         with:
           tool: cargo-deb,cargo-generate-rpm
 
+      - name: JACK-Bibliothek
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libjack-jackd2-dev
+
       - name: Bauen
         run: cargo build --release --locked
 
@@ -96,7 +101,8 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
             org.freedesktop.Sdk.Extension.rust-stable//25.08
-          flatpak-builder --user --repo=repo --force-clean build-dir flatpak/de.weppelmann.Crosspoint.yml
+          flatpak-builder --user --repo=repo --force-clean --disable-rofiles-fuse \
+            build-dir flatpak/de.weppelmann.Crosspoint.yml
           flatpak build-bundle repo "crosspoint-${VERSION}-x86_64.flatpak" de.weppelmann.Crosspoint
 
       - name: Tarball
