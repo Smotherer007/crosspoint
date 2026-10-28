@@ -204,7 +204,7 @@ fn handle(
             let action = s("action").unwrap_or_default();
             let host = s("host").unwrap_or_else(|| "127.0.0.1".into());
             let port = v.get("port").and_then(|x| x.as_f64()).unwrap_or(6980.0) as u32;
-            let stream_name = s("stream").unwrap_or_else(|| "vm8busA1".into());
+            let stream_name = s("stream").unwrap_or_else(|| "crosspointbusA1".into());
             let out = match action.as_str() {
                 "start" => match vban.set(&host, port, &stream_name) {
                     Ok(()) => {

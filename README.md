@@ -1,4 +1,4 @@
-# vm8-linux
+# crosspoint
 
 Nachbau der VoiceMeeter-Signalkette in Rust: 8 Streifen × 8 Busse, auf PipeWire/JACK,
 ohne Kernelmodul und ohne Fremd-Crates. Kein Code, keine Ressourcen, keine Strings aus
@@ -38,13 +38,13 @@ Voraussetzungen: `pipewire`, `pipewire-jack`, `pactl`, `cargo`. Keine `-devel`-P
 
 ```bash
 cargo build --release
-./target/release/vm8-engine                 # UI auf http://127.0.0.1:8770/
-VM8_A1=<pipewire-sink> ./scripts/vm8-wire.sh up
+./target/release/crosspoint-engine                 # UI auf http://127.0.0.1:8770/
+CROSSPOINT_A1=<pipewire-sink> ./scripts/crosspoint-wire.sh up
 ```
 
-`vm8-wire.sh up` legt `vm8_in_1..3` (Anwendungen spielen hinein → Streifen 6..8) und
-`vm8_out_B1..3` (Anwendungen nehmen auf ← Busse B1..B3) als `null-sink` an. Die
-Hardware-Busse A1..A5 kommen über `VM8_A1` … `VM8_A5`.
+`crosspoint-wire.sh up` legt `crosspoint_in_1..3` (Anwendungen spielen hinein → Streifen 6..8) und
+`crosspoint_out_B1..3` (Anwendungen nehmen auf ← Busse B1..B3) als `null-sink` an. Die
+Hardware-Busse A1..A5 kommen über `CROSSPOINT_A1` … `CROSSPOINT_A5`.
 
 ## Steuer-API
 

@@ -81,7 +81,7 @@ impl Default for VbanKonfig {
         VbanKonfig {
             host: "127.0.0.1".to_string(),
             port: vban::DEFAULT_PORT,
-            stream: "vm8busA1".to_string(),
+            stream: "crosspointbusA1".to_string(),
         }
     }
 }
@@ -196,7 +196,7 @@ impl Default for VbanControl {
 }
 
 impl VbanControl {
-    /// Aus (Standard), Ziel 127.0.0.1:6980, Stream `vm8busA1`, kein Fehler.
+    /// Aus (Standard), Ziel 127.0.0.1:6980, Stream `crosspointbusA1`, kein Fehler.
     pub fn new() -> VbanControl {
         VbanControl::mit_konfig(VbanKonfig::default())
     }
@@ -434,14 +434,14 @@ fn verbinde(k: &VbanKonfig) -> Result<Sender, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Empfangsweg (VBAN -> SPSC-Ring -> JACK-Ports vm8:vban_L/R)
+// Empfangsweg (VBAN -> SPSC-Ring -> JACK-Ports crosspoint:vban_L/R)
 // ---------------------------------------------------------------------------
 //
 // Ein eigener Thread liest ein nicht blockierendes `UdpSocket`, prüft den
 // Header und legt die Nutzdaten als Stereo-Samples in einen [`Ring`]. Der
 // JACK-Callback zieht von dort und schreibt in die beiden Zusatzports
 // `vban_L`/`vban_R`; diese lassen sich wie ein Hardware-Eingang per
-// `pw-link vm8:vban_L vm8:strip1_L` auf einen Streifen legen.
+// `pw-link crosspoint:vban_L crosspoint:strip1_L` auf einen Streifen legen.
 //
 // Festlegungen:
 //
@@ -1023,9 +1023,9 @@ mod tests {
         let k = VbanKonfig::default();
         assert_eq!(k.host, "127.0.0.1");
         assert_eq!(k.port, 6980);
-        assert_eq!(k.stream, "vm8busA1");
+        assert_eq!(k.stream, "crosspointbusA1");
         assert!(k.pruefe().is_ok(), "Standardkonfig muss gültig sein");
-        assert_eq!(k.anzeige(), "127.0.0.1:6980/vm8busA1");
+        assert_eq!(k.anzeige(), "127.0.0.1:6980/crosspointbusA1");
     }
 
     #[test]
@@ -1042,35 +1042,35 @@ mod tests {
 
         let c = ctl();
         let alt = c.konfig();
-        assert!(c.set("127.0.0.1", 0, "vm8busA1").is_err());
+        assert!(c.set("127.0.0.1", 0, "crosspointbusA1").is_err());
         assert!(!c.letzter_fehler().is_empty(), "Fehler muss abgelegt sein");
         assert!(c.letzter_fehler().contains("0"), "Meldung nennt den Port");
         assert_eq!(c.konfig(), alt, "alte Konfig bleibt bei Fehler stehen");
 
-        assert!(c.set("127.0.0.1", 70000, "vm8busA1").is_err());
+        assert!(c.set("127.0.0.1", 70000, "crosspointbusA1").is_err());
         assert_eq!(c.konfig(), alt);
     }
 
     #[test]
     fn stream_zu_lang_und_mit_leerzeichen_wird_abgelehnt() {
         // 16 Zeichen: ein Zeichen über der Grenze des Headerfelds.
-        assert_eq!("vm8busA1Toolange".len(), MAX_STREAM + 1);
-        assert!(pruefe_stream("vm8busA1Toolange").is_err());
+        assert_eq!("crosspointbusA1Toolange".len(), MAX_STREAM + 1);
+        assert!(pruefe_stream("crosspointbusA1Toolange").is_err());
         assert!(pruefe_stream("").is_err(), "leerer Stream ist ungültig");
-        assert!(pruefe_stream("vm8 bus").is_err(), "Leerzeichen ist verboten");
-        assert!(pruefe_stream("vm8busA1\t").is_err(), "Tab ist verboten");
-        assert!(pruefe_stream("vm8busä1").is_err(), "Nicht-ASCII ist verboten");
-        assert!(pruefe_stream("vm8busA1").is_ok());
+        assert!(pruefe_stream("crosspoint bus").is_err(), "Leerzeichen ist verboten");
+        assert!(pruefe_stream("crosspointbusA1\t").is_err(), "Tab ist verboten");
+        assert!(pruefe_stream("crosspointbusä1").is_err(), "Nicht-ASCII ist verboten");
+        assert!(pruefe_stream("crosspointbusA1").is_ok());
         // Genau 15 Zeichen ist die Obergrenze.
         assert!(pruefe_stream("abcdefghijklmno").is_ok());
         assert_eq!("abcdefghijklmno".len(), MAX_STREAM);
 
         let c = ctl();
         let alt = c.konfig();
-        let err = c.set("127.0.0.1", 6980, "vm8busA1Toolange").unwrap_err();
+        let err = c.set("127.0.0.1", 6980, "crosspointbusA1Toolange").unwrap_err();
         assert!(err.contains("16"), "Meldung nennt die Länge: {err}");
         assert_eq!(c.konfig(), alt);
-        assert!(c.set("127.0.0.1", 6980, "vm8 bus").is_err());
+        assert!(c.set("127.0.0.1", 6980, "crosspoint bus").is_err());
         assert_eq!(c.konfig(), alt);
     }
 
@@ -1107,7 +1107,7 @@ mod tests {
         }
         assert!(j.contains("\"enabled\":true"), "{j}");
         assert!(j.contains("\"port\":6980"), "{j}");
-        assert!(j.contains("\"stream\":\"vm8busA1\""), "{j}");
+        assert!(j.contains("\"stream\":\"crosspointbusA1\""), "{j}");
         assert!(j.contains("\"gesendete_frames\":4711"), "{j}");
         assert!(j.contains("\"letzter_fehler\":\"testfehler\""), "{j}");
 
@@ -1131,7 +1131,7 @@ mod tests {
         let frames = ring.pop(&mut out).expect("Block im Ring");
         assert_eq!(frames, BLOCK_FRAMES, "Ring liefert 1024 Stereo-Frames");
 
-        let frame = rahmen_aus_block("vm8busA1", SampleRate::Hz48000, 7, &out[..frames * 2])
+        let frame = rahmen_aus_block("crosspointbusA1", SampleRate::Hz48000, 7, &out[..frames * 2])
             .expect("Frame");
         assert_eq!(frame.sample_frames(), 1024, "1024 Frames je Kanal");
         assert_eq!(frame.sample_count(), 2048, "2048 Einzelwerte (stereo)");
@@ -1152,7 +1152,7 @@ mod tests {
     #[test]
     fn ungerader_block_wird_abgelehnt() {
         let block = vec![0.0f32; 3];
-        assert!(rahmen_aus_block("vm8busA1", SampleRate::Hz48000, 0, &block).is_err());
+        assert!(rahmen_aus_block("crosspointbusA1", SampleRate::Hz48000, 0, &block).is_err());
     }
 
     #[test]
@@ -1173,7 +1173,7 @@ mod tests {
 
         // Der Frame trägt genau diesen Zähler.
         let block = vec![0.0f32; 4];
-        let f = rahmen_aus_block("vm8busA1", SampleRate::Hz48000, als_zaehler(u64::MAX), &block)
+        let f = rahmen_aus_block("crosspointbusA1", SampleRate::Hz48000, als_zaehler(u64::MAX), &block)
             .expect("Frame");
         assert_eq!(f.frame_counter(), u32::MAX);
         let back = AudioFrame::parse(&f.encode().expect("encode")).expect("parse");
@@ -1229,7 +1229,7 @@ mod tests {
         let port = rx.local_addr().expect("local_addr").port();
 
         let c = Arc::new(VbanControl::new());
-        c.set("127.0.0.1", u32::from(port), "vm8busA1")
+        c.set("127.0.0.1", u32::from(port), "crosspointbusA1")
             .expect("konfig");
         let ring = Arc::new(Ring::new(8, BLOCK_FRAMES));
 
@@ -1247,7 +1247,7 @@ mod tests {
             .recv_frame()
             .expect("empfangen")
             .expect("Paket innerhalb von 2 s");
-        assert_eq!(frame.header().stream_name, "vm8busA1");
+        assert_eq!(frame.header().stream_name, "crosspointbusA1");
         assert_eq!(frame.sample_frames(), BLOCK_FRAMES);
         assert_eq!(frame.samples_f32().expect("f32")[..2], [0.25f32, -0.25f32]);
         // Der Empfänger kann das Datagramm bereits haben, während der
@@ -1269,7 +1269,7 @@ mod tests {
 
     #[test]
     fn loopback_literal_loest_ohne_dns_auf() {
-        let k = VbanKonfig::neu("127.0.0.1", 6980, "vm8busA1");
+        let k = VbanKonfig::neu("127.0.0.1", 6980, "crosspointbusA1");
         let a = k.aufloesen().expect("Literal");
         assert_eq!(a.port(), 6980);
         assert!(a.ip().is_loopback());

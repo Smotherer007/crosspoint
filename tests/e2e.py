@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Akustische Ende-zu-Ende-Prüfung der vm8-Engine.
+"""Akustische Ende-zu-Ende-Prüfung der crosspoint-Engine.
 
 Spielt einen 1-kHz-Sinus (-6 dBFS) in einen Test-Sink, lässt ihn durch Streifen 1
 und Bus A1 laufen und misst den Bus-Ausgang. Erwartet:
@@ -10,7 +10,7 @@ und Bus A1 laufen und misst den Bus-Ausgang. Erwartet:
   Routing A1->A2  -> Pegel wandert (API-Pegel A1 weg, A2 da)
   EQ-Boost +12 dB -> lauter als trocken
 
-Voraussetzung: ./target/release/vm8-engine läuft.
+Voraussetzung: ./target/release/crosspoint-engine läuft.
 """
 import json
 import math
@@ -23,10 +23,10 @@ import time
 import urllib.request
 import wave
 
-API = os.environ.get("VM8_API", "http://127.0.0.1:8770")
-CLIENT = os.environ.get("VM8_CLIENT", "vm8")
+API = os.environ.get("CROSSPOINT_API", "http://127.0.0.1:8770")
+CLIENT = os.environ.get("CROSSPOINT_CLIENT", "crosspoint")
 SR, HZ, DB = 48000, 1000.0, -6.0
-TMP = tempfile.mkdtemp(prefix="vm8-e2e-")
+TMP = tempfile.mkdtemp(prefix="crosspoint-e2e-")
 ok_all = True
 
 
@@ -78,10 +78,10 @@ def measure(sink_in, sink_out, secs=2.4, wav=None):
     rec = os.path.join(TMP, "rec.wav")
     if os.path.exists(rec):
         os.unlink(rec)
-    sh(f"pw-record --target 0 -P 'node.name=vm8cap' --rate {SR} --channels 2 {rec} >/dev/null 2>&1 &")
+    sh(f"pw-record --target 0 -P 'node.name=crosspointcap' --rate {SR} --channels 2 {rec} >/dev/null 2>&1 &")
     time.sleep(0.8)
-    sh(f"pw-link {sink_out}:monitor_FL vm8cap:input_FL")
-    sh(f"pw-link {sink_out}:monitor_FR vm8cap:input_FR")
+    sh(f"pw-link {sink_out}:monitor_FL crosspointcap:input_FL")
+    sh(f"pw-link {sink_out}:monitor_FR crosspointcap:input_FR")
     sh(f"pw-play --target {sink_in} --rate {SR} {wav or os.path.join(TMP, 'sine.wav')} >/dev/null 2>&1 &")
     time.sleep(secs)
     sh("pkill -x pw-record")
@@ -105,12 +105,12 @@ def main():
         return 2
 
     write_sine(os.path.join(TMP, "sine.wav"))
-    make_sink("vm8_e2e_in", "VM8 E2E In")
-    make_sink("vm8_e2e_out", "VM8 E2E Out")
-    sh(f"pw-link vm8_e2e_in:monitor_FL {CLIENT}:strip1_L")
-    sh(f"pw-link vm8_e2e_in:monitor_FR {CLIENT}:strip1_R")
-    sh(f"pw-link {CLIENT}:busA1_L vm8_e2e_out:playback_FL")
-    sh(f"pw-link {CLIENT}:busA1_R vm8_e2e_out:playback_FR")
+    make_sink("crosspoint_e2e_in", "CROSSPOINT E2E In")
+    make_sink("crosspoint_e2e_out", "CROSSPOINT E2E Out")
+    sh(f"pw-link crosspoint_e2e_in:monitor_FL {CLIENT}:strip1_L")
+    sh(f"pw-link crosspoint_e2e_in:monitor_FR {CLIENT}:strip1_R")
+    sh(f"pw-link {CLIENT}:busA1_L crosspoint_e2e_out:playback_FL")
+    sh(f"pw-link {CLIENT}:busA1_R crosspoint_e2e_out:playback_FR")
     time.sleep(0.4)
 
     # Grundzustand: nur Streifen 1 auf A1, alles andere aus
@@ -126,25 +126,25 @@ def main():
     setp("bus", 0, "limiter", 0)
 
     print("1) Durchgang 0 dB")
-    check("Bus A1", measure("vm8_e2e_in", "vm8_e2e_out"), DB)
+    check("Bus A1", measure("crosspoint_e2e_in", "crosspoint_e2e_out"), DB)
 
     print("2) Streifen-Gain -12 dB")
     setp("strip", 0, "gain", -12)
     time.sleep(0.2)
-    check("Bus A1", measure("vm8_e2e_in", "vm8_e2e_out"), DB - 12)
+    check("Bus A1", measure("crosspoint_e2e_in", "crosspoint_e2e_out"), DB - 12)
 
     print("3) Mute")
     setp("strip", 0, "gain", 0)
     setp("strip", 0, "mute", 1)
     time.sleep(0.2)
-    check("Bus A1", measure("vm8_e2e_in", "vm8_e2e_out"), -140.0, tol=1.0)
+    check("Bus A1", measure("crosspoint_e2e_in", "crosspoint_e2e_out"), -140.0, tol=1.0)
 
     print("4) Routing A1 -> A2")
     setp("strip", 0, "mute", 0)
     setp("strip", 0, "send0", 0)
     setp("strip", 0, "send1", 1)
     time.sleep(0.2)
-    sh(f"pw-play --target vm8_e2e_in --rate {SR} {os.path.join(TMP, 'sine.wav')} >/dev/null 2>&1 &")
+    sh(f"pw-play --target crosspoint_e2e_in --rate {SR} {os.path.join(TMP, 'sine.wav')} >/dev/null 2>&1 &")
     time.sleep(1.2)
     lv = api("/api/levels")
     sh("pkill -x pw-play")
@@ -165,11 +165,11 @@ def main():
     # leiserer Sinus, sonst clippt der Boost bei voller Aussteuerung
     quiet = os.path.join(TMP, "sine_q.wav")
     write_sine(quiet, db=-24.0)
-    check("Bus A1 mit EQ", measure("vm8_e2e_in", "vm8_e2e_out", wav=quiet), -12.0, tol=1.5)
+    check("Bus A1 mit EQ", measure("crosspoint_e2e_in", "crosspoint_e2e_out", wav=quiet), -12.0, tol=1.5)
     setp("strip", 0, "eq", 0)
 
     print("\nGesamtergebnis:", "bestanden" if ok_all else "FEHLGESCHLAGEN")
-    print("Aufräumen: for i in $(pactl list short modules | awk '/vm8_e2e/{print $1}'); do pactl unload-module $i; done")
+    print("Aufräumen: for i in $(pactl list short modules | awk '/crosspoint_e2e/{print $1}'); do pactl unload-module $i; done")
     return 0 if ok_all else 1
 
 

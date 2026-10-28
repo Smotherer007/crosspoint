@@ -119,7 +119,7 @@ def main():
                           "sink": sink, "quelle": quelle}))
         return 2
 
-    tmp = tempfile.mkdtemp(prefix="vm8-loop-")
+    tmp = tempfile.mkdtemp(prefix="crosspoint-loop-")
     ton = os.path.join(tmp, "ton.wav")
     auf = os.path.join(tmp, "aufnahme.wav")
     ton_schreiben(ton, args.freq, args.sekunden)

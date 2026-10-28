@@ -1,4 +1,4 @@
-//! vm8 — Nachbau der VoiceMeeter-Signalkette in Rust.
+//! crosspoint — Nachbau der VoiceMeeter-Signalkette in Rust.
 //!
 //! Dieses Modul ist das **Parametermodell**: es bildet 1:1 die Attributnamen ab,
 //! die VoiceMeeter 8 (3.1.3.0) in seiner Konfigurationsdatei schreibt (siehe

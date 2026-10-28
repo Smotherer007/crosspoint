@@ -239,8 +239,8 @@ def main():
     shot = cdp.call("Page.captureScreenshot", {"format": "png"})
     data = shot.get("result", {}).get("data")
     if data:
-        open("/tmp/vm8-ui-test.png", "wb").write(base64.b64decode(data))
-        print("Screenshot: /tmp/vm8-ui-test.png")
+        open("/tmp/crosspoint-ui-test.png", "wb").write(base64.b64decode(data))
+        print("Screenshot: /tmp/crosspoint-ui-test.png")
 
     print("\nGesamtergebnis:", "bestanden" if ok_all else f"FEHLGESCHLAGEN ({', '.join(fails)})")
     return 0 if ok_all else 1

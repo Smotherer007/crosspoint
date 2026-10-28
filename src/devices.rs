@@ -5,11 +5,11 @@
 //! `pw-link` her, die Ports stehen im Graphen:
 //!
 //! ```text
-//! vm8:busA1_L  ->  <sink>:playback_FL
-//! vm8:busA1_R  ->  <sink>:playback_FR
+//! crosspoint:busA1_L  ->  <sink>:playback_FL
+//! crosspoint:busA1_R  ->  <sink>:playback_FR
 //! ```
 //!
-//! Der Mixer heißt in der Graph-Sicht `vm8` (siehe `engine`/`jack`); die
+//! Der Mixer heißt in der Graph-Sicht `crosspoint` (siehe `engine`/`jack`); die
 //! Sink-Ports heißen je Gerät `<sink>:playback_FL`/`_FR`.
 //!
 //! Quelle der Wahrheit ist [`crate::pw`]: Knoten, Ports und bestehende Links
@@ -39,13 +39,13 @@ pub use crate::pw::{Call, FakeRunner, RealRunner};
 pub const HARDWARE_BUSES: [&str; 5] = ["A1", "A2", "A3", "A4", "A5"];
 
 /// Client-Name des Mixers in der PipeWire-Graph-Sicht.
-pub const CLIENT: &str = "vm8";
+pub const CLIENT: &str = "crosspoint";
 
 /// Kanalpaar eines Busses: Port-Suffix am Mixer -> Port-Suffix am Sink.
 const CHANNELS: [(&str, &str); 2] = [("L", "playback_FL"), ("R", "playback_FR")];
 
 /// Unterverzeichnis + Dateiname der gespeicherten Zuordnung.
-const CONFIG_DIR: &str = "vm8-linux";
+const CONFIG_DIR: &str = "crosspoint";
 const CONFIG_FILE: &str = "devices.json";
 
 // ---------------------------------------------------------------------------
@@ -123,13 +123,13 @@ pub fn normalisiere_bus(bus: &str) -> Result<String, String> {
     }
 }
 
-/// Mixer-Port eines Bus-Kanals, z. B. `vm8:busA1_L`.
+/// Mixer-Port eines Bus-Kanals, z. B. `crosspoint:busA1_L`.
 pub fn bus_port(bus: &str, kanal: &str) -> String {
     format!("{CLIENT}:bus{bus}_{kanal}")
 }
 
-/// Speicherort der Zuordnung: `$XDG_CONFIG_HOME/vm8-linux/devices.json`,
-/// sonst `~/.config/vm8-linux/devices.json`.
+/// Speicherort der Zuordnung: `$XDG_CONFIG_HOME/crosspoint/devices.json`,
+/// sonst `~/.config/crosspoint/devices.json`.
 pub fn default_path() -> PathBuf {
     let basis = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -391,7 +391,7 @@ mod tests {
     use crate::pw::tests::DUMP;
 
     fn tmp_path(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("vm8-devices-{}-{tag}.json", std::process::id()))
+        std::env::temp_dir().join(format!("crosspoint-devices-{}-{tag}.json", std::process::id()))
     }
 
     fn fake() -> FakeRunner {
@@ -406,7 +406,7 @@ mod tests {
     fn sinks_kommen_aus_dem_graphen_mit_voller_beschreibung() {
         let liste = list_sinks(&fake()).unwrap();
         assert_eq!(liste.len(), 3, "{liste:?}");
-        // Alphabetisch nach Anzeigename: Corsair, Navi, VM8-Output-B1.
+        // Alphabetisch nach Anzeigename: Corsair, Navi, CROSSPOINT-Output-B1.
         assert_eq!(liste[0].name, CORSAIR);
         assert_eq!(liste[0].desc, "Corsair HS80 RGB USB Gaming Headset Analoges Stereo");
         assert_eq!(liste[0].id, 443);
@@ -414,7 +414,7 @@ mod tests {
         assert_eq!(liste[1].name, HDMI);
         assert_eq!(liste[1].desc, "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 3) [AG326UD]");
         // Eigene virtuelle Sinks sind echte Ausgabegeräte des Graphen.
-        assert_eq!(liste[2].name, "vm8_out_B1");
+        assert_eq!(liste[2].name, "crosspoint_out_B1");
     }
 
     #[test]
@@ -447,15 +447,15 @@ mod tests {
         let mut map = DeviceMap::new(&pfad);
         let fake = fake();
 
-        // Im Graphen hängt bereits vm8:busA1_L -> playback_FL (Link 500).
+        // Im Graphen hängt bereits crosspoint:busA1_L -> playback_FL (Link 500).
         map.assign(&fake, "A1", CORSAIR).unwrap();
         let zeilen = fake.lines();
         assert_eq!(
             &zeilen[1..4],
             &[
-                format!("pw-link -d vm8:busA1_L {CORSAIR}:playback_FL"),
-                format!("pw-link vm8:busA1_L {CORSAIR}:playback_FL"),
-                format!("pw-link vm8:busA1_R {CORSAIR}:playback_FR"),
+                format!("pw-link -d crosspoint:busA1_L {CORSAIR}:playback_FL"),
+                format!("pw-link crosspoint:busA1_L {CORSAIR}:playback_FL"),
+                format!("pw-link crosspoint:busA1_R {CORSAIR}:playback_FR"),
             ],
             "erst den echten Link lösen, dann verbinden: {zeilen:?}"
         );
@@ -495,7 +495,7 @@ mod tests {
         // Ein pw-dump, ein pw-link -d auf den einzigen vorhandenen Link.
         assert_eq!(neu.len(), 2, "{neu:?}");
         assert_eq!(neu[0].program, "pw-dump");
-        assert_eq!(neu[1].line(), format!("pw-link -d vm8:busA1_L {CORSAIR}:playback_FL"));
+        assert_eq!(neu[1].line(), format!("pw-link -d crosspoint:busA1_L {CORSAIR}:playback_FL"));
         assert!(map.get("A1").is_none());
 
         // Zweites clear: kein Eintrag mehr, im Graphen nichts mehr -> nur der Dump.
@@ -519,8 +519,8 @@ mod tests {
             zeilen,
             vec![
                 "pw-dump".to_string(),
-                format!("pw-link -d vm8:busA2_L {CORSAIR}:playback_FL"),
-                format!("pw-link -d vm8:busA2_R {CORSAIR}:playback_FR"),
+                format!("pw-link -d crosspoint:busA2_L {CORSAIR}:playback_FL"),
+                format!("pw-link -d crosspoint:busA2_R {CORSAIR}:playback_FR"),
             ]
         );
         let _ = std::fs::remove_file(&pfad);
@@ -537,8 +537,8 @@ mod tests {
         map.assign(&fake, "A3", CORSAIR).unwrap();
         let zeilen = fake.lines();
         assert_eq!(zeilen.len(), 3, "{zeilen:?}");
-        assert_eq!(zeilen[1], format!("pw-link vm8:busA3_L {CORSAIR}:playback_FL"));
-        assert_eq!(zeilen[2], format!("pw-link vm8:busA3_R {CORSAIR}:playback_FR"));
+        assert_eq!(zeilen[1], format!("pw-link crosspoint:busA3_L {CORSAIR}:playback_FL"));
+        assert_eq!(zeilen[2], format!("pw-link crosspoint:busA3_R {CORSAIR}:playback_FR"));
         assert!(map.get("A3").is_some());
         let _ = std::fs::remove_file(&pfad);
     }
@@ -651,10 +651,10 @@ mod tests {
 
     #[test]
     fn ports_und_standardpfad() {
-        assert_eq!(bus_port("A1", "L"), "vm8:busA1_L");
-        assert_eq!(bus_port("A5", "R"), "vm8:busA5_R");
+        assert_eq!(bus_port("A1", "L"), "crosspoint:busA1_L");
+        assert_eq!(bus_port("A5", "R"), "crosspoint:busA5_R");
         assert_eq!(Sink::new(CORSAIR, "x").port("playback_FL"), format!("{CORSAIR}:playback_FL"));
         let pfad = default_path();
-        assert!(pfad.ends_with("vm8-linux/devices.json"), "{}", pfad.display());
+        assert!(pfad.ends_with("crosspoint/devices.json"), "{}", pfad.display());
     }
 }

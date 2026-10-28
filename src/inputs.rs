@@ -57,7 +57,7 @@ impl Source {
 /// Ist der Knoten Teil des Mixers selbst? Dann taugt er nicht als Eingang.
 pub fn ist_eigen(name: &str) -> bool {
     let name = name.trim();
-    name == "vm8" || name.starts_with("vm8_") || name.starts_with("vm8:")
+    name == "crosspoint" || name.starts_with("crosspoint_") || name.starts_with("crosspoint:")
 }
 
 /// Kanonischer Name: ein altes `…​.monitor` gehört zum Sink davor.
@@ -67,7 +67,7 @@ pub fn kanonisch(name: &str) -> String {
 }
 
 /// Quellen aus dem Graphen: Aufnahmegeräte und – auf Wunsch – die Monitore der
-/// Ausgabegeräte. Eigene `vm8*`-Knoten bleiben außen vor, sonst böte sich der
+/// Ausgabegeräte. Eigene `crosspoint*`-Knoten bleiben außen vor, sonst böte sich der
 /// Mixer selbst als Eingang an.
 pub fn quellen(graph: &Graph, mit_monitoren: bool) -> Vec<Source> {
     let mut liste: Vec<Source> = graph
@@ -133,10 +133,10 @@ pub fn strip_ports(strip: usize) -> Result<(String, String, String, String), Str
         return Err(format!("Streifen {strip} hat keinen Hardware-Eingang (1..{MAX_HW_STRIPS})"));
     }
     Ok((
-        format!("vm8:strip{strip}_L"),
-        format!("vm8:strip{strip}_R"),
-        format!("vm8:strip{strip}_L"),
-        format!("vm8:strip{strip}_R"),
+        format!("crosspoint:strip{strip}_L"),
+        format!("crosspoint:strip{strip}_R"),
+        format!("crosspoint:strip{strip}_L"),
+        format!("crosspoint:strip{strip}_R"),
     ))
 }
 
@@ -180,14 +180,14 @@ pub fn link_source(
 // Merkliste (nur Namen)
 // ---------------------------------------------------------------------------
 
-/// Speicherort der Streifen-Zuordnung: `$VM8_INPUTS_FILE` (Tests), sonst
-/// `~/.config/vm8-linux/inputs.conf`.
+/// Speicherort der Streifen-Zuordnung: `$CROSSPOINT_INPUTS_FILE` (Tests), sonst
+/// `~/.config/crosspoint/inputs.conf`.
 pub fn mapping_path() -> PathBuf {
-    if let Some(p) = std::env::var_os("VM8_INPUTS_FILE").filter(|p| !p.is_empty()) {
+    if let Some(p) = std::env::var_os("CROSSPOINT_INPUTS_FILE").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".config/vm8-linux").join(CONFIG_FILE)
+    PathBuf::from(home).join(".config/crosspoint").join(CONFIG_FILE)
 }
 
 /// Gelesene Zuordnung: Streife 1..5 -> technischer Name der Quelle.
@@ -233,7 +233,7 @@ fn save_mapping_mit(pfad: &std::path::Path, strip: usize, source: Option<&str>) 
 /// Verbindet einen Streifen mit einer Quelle (bzw. löst die Verbindung).
 ///
 /// Vorher werden **alle** Links getrennt, die laut Graph in die beiden
-/// Streifenports hineinführen – auch fremde (z. B. `vm8:vban_L`). Danach werden
+/// Streifenports hineinführen – auch fremde (z. B. `crosspoint:vban_L`). Danach werden
 /// die echten Ports der Quelle verbunden.
 pub fn assign(runner: &dyn CommandRunner, strip: usize, source: Option<&str>) -> Result<(), String> {
     assign_mit(runner, &mapping_path(), strip, source)
@@ -322,7 +322,7 @@ pub fn status_json_mit(
 
     // Echte Verbindungen an den Streifenports – Ist-Zustand statt Merkliste.
     let streifen: Vec<String> = (1..=MAX_HW_STRIPS)
-        .flat_map(|i| [format!("vm8:strip{i}_L"), format!("vm8:strip{i}_R")])
+        .flat_map(|i| [format!("crosspoint:strip{i}_L"), format!("crosspoint:strip{i}_R")])
         .collect();
     let links: Vec<Value> = graph
         .as_ref()
@@ -360,7 +360,7 @@ mod tests {
     use crate::pw::tests::DUMP;
 
     fn tmp_path(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("vm8-inputs-{}-{tag}.conf", std::process::id()))
+        std::env::temp_dir().join(format!("crosspoint-inputs-{}-{tag}.conf", std::process::id()))
     }
 
     fn fake(text: &str) -> FakeRunner {
@@ -387,7 +387,7 @@ mod tests {
 
         let mit = quellen(&Graph::parse(DUMP).unwrap(), true);
         let monitore: Vec<&Source> = mit.iter().filter(|q| q.is_monitor).collect();
-        // Corsair und HDMI haben Monitorports; vm8_out_B1 auch – ist aber eigen.
+        // Corsair und HDMI haben Monitorports; crosspoint_out_B1 auch – ist aber eigen.
         assert_eq!(monitore.len(), 2, "{mit:?}");
         assert_eq!(
             monitore[0].desc,
@@ -408,11 +408,11 @@ mod tests {
     fn eigene_knoten_und_streams_werden_ausgeblendet() {
         let graph = Graph::parse(DUMP).unwrap();
         let mit = quellen(&graph, true);
-        assert!(mit.iter().all(|q| !q.name.starts_with("vm8")), "{mit:?}");
+        assert!(mit.iter().all(|q| !q.name.starts_with("crosspoint")), "{mit:?}");
         assert!(mit.iter().all(|q| q.name != "Chromium"), "Stream ist keine Quelle");
-        assert!(ist_eigen("vm8"));
-        assert!(ist_eigen("vm8_in_1"));
-        assert!(ist_eigen("vm8:strip1_L"));
+        assert!(ist_eigen("crosspoint"));
+        assert!(ist_eigen("crosspoint_in_1"));
+        assert!(ist_eigen("crosspoint:strip1_L"));
         assert!(!ist_eigen("alsa_input.usb"));
     }
 
@@ -461,9 +461,9 @@ mod tests {
         let aufrufe = f.lines();
         // Im Graphen hängt das Mikrofon schon an strip1_L (Link 501) – erst lösen.
         assert_eq!(aufrufe[0], "pw-dump");
-        assert_eq!(aufrufe[1], format!("pw-link -d {MONO}:capture_MONO vm8:strip1_L"));
-        assert_eq!(aufrufe[2], format!("pw-link {MONO}:capture_MONO vm8:strip1_L"));
-        assert_eq!(aufrufe[3], format!("pw-link {MONO}:capture_MONO vm8:strip1_R"));
+        assert_eq!(aufrufe[1], format!("pw-link -d {MONO}:capture_MONO crosspoint:strip1_L"));
+        assert_eq!(aufrufe[2], format!("pw-link {MONO}:capture_MONO crosspoint:strip1_L"));
+        assert_eq!(aufrufe[3], format!("pw-link {MONO}:capture_MONO crosspoint:strip1_R"));
         assert_eq!(std::fs::read_to_string(&pfad).unwrap(), format!("1={MONO}\n"));
         let _ = std::fs::remove_file(&pfad);
     }
@@ -479,7 +479,7 @@ mod tests {
                "info": {"props": {"media.class": "Audio/Source", "node.name": "alsa_input.usb-mic",
                                   "node.description": "USB-Mikrofon"}}},
               {"id": 2, "type": "PipeWire:Interface:Node",
-               "info": {"props": {"node.name": "vm8"}}},
+               "info": {"props": {"node.name": "crosspoint"}}},
               {"id": 3, "type": "PipeWire:Interface:Port",
                "info": {"direction": "output", "props": {"node.id": 1, "port.name": "capture_FL"}}},
               {"id": 4, "type": "PipeWire:Interface:Port",
@@ -497,9 +497,9 @@ mod tests {
         );
         assign_mit(&f, &pfad, 2, Some("alsa_input.usb-mic")).unwrap();
         let zeilen = f.lines();
-        assert_eq!(zeilen[1], "pw-link -d vm8:vban_L vm8:strip2_L", "{zeilen:?}");
-        assert!(zeilen.contains(&"pw-link alsa_input.usb-mic:capture_FL vm8:strip2_L".to_string()));
-        assert!(zeilen.contains(&"pw-link alsa_input.usb-mic:capture_FR vm8:strip2_R".to_string()));
+        assert_eq!(zeilen[1], "pw-link -d crosspoint:vban_L crosspoint:strip2_L", "{zeilen:?}");
+        assert!(zeilen.contains(&"pw-link alsa_input.usb-mic:capture_FL crosspoint:strip2_L".to_string()));
+        assert!(zeilen.contains(&"pw-link alsa_input.usb-mic:capture_FR crosspoint:strip2_R".to_string()));
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -513,7 +513,7 @@ mod tests {
         let f = fake(DUMP);
         assign_mit(&f, &pfad, 3, None).unwrap();
         let aufrufe = f.lines();
-        assert!(!aufrufe.iter().any(|z| z.contains("pw-link vm8")), "{aufrufe:?}");
+        assert!(!aufrufe.iter().any(|z| z.contains("pw-link crosspoint")), "{aufrufe:?}");
         assert!(std::fs::read_to_string(&pfad).unwrap().is_empty(), "Eintrag entfernt");
         let _ = std::fs::remove_file(&pfad);
     }
@@ -558,7 +558,7 @@ mod tests {
         let links = wert.get("links").unwrap().as_arr().unwrap();
         assert_eq!(links.len(), 1, "{links:?}");
         assert_eq!(links[0].get("von").unwrap(), &Value::str(format!("{MONO}:capture_MONO")));
-        assert_eq!(links[0].get("nach").unwrap(), &Value::str("vm8:strip1_L"));
+        assert_eq!(links[0].get("nach").unwrap(), &Value::str("crosspoint:strip1_L"));
 
         // Ohne pw-dump bleibt das JSON gültig und meldet den Fehler.
         let kaputt = FakeRunner::new().with_failure("pw-dump");

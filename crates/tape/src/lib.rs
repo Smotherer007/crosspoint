@@ -2,10 +2,10 @@
 //!
 //! Eigenstaendiges Crate (nur `std`, keine externen Abhaengigkeiten), das
 //! interleaved f32-Audiobloecke als WAV auf Platte schreibt. Es kennt keine
-//! Typen des Haupt-Crates `vm8`; die Anbindung passiert ausschliesslich ueber
+//! Typen des Haupt-Crates `crosspoint`; die Anbindung passiert ausschliesslich ueber
 //! die unten dokumentierte API mit primitiven Typen.
 //!
-//! ## Integrations-API (fuer vm8)
+//! ## Integrations-API (fuer crosspoint)
 //!
 //! ```text
 //! start(path, sample_rate, channels, format) -> Result<(), TapeError>

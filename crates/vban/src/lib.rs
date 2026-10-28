@@ -2,7 +2,7 @@
 //!
 //! Eigenstaendiges Crate (Rust 2021, nur `std`) fuer das VBAN-Protokoll von
 //! VB-Audio: Header kodieren/dekodieren, Audio-Frames bauen und ueber UDP
-//! senden/empfangen. Bewusst **keine** Abhaengigkeit auf `vm8` oder andere
+//! senden/empfangen. Bewusst **keine** Abhaengigkeit auf `crosspoint` oder andere
 //! Workspace-Typen – spaetere Integration als Workspace-Member ist damit
 //! unkritisch.
 //!

@@ -1,15 +1,15 @@
-//! vm8-engine – Einstiegspunkt: JACK-Client, Parameter, Steuer-API.
+//! crosspoint-engine – Einstiegspunkt: JACK-Client, Parameter, Steuer-API.
 
 use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
-use vm8::engine::{EngineDsp, Io, Params};
-use vm8::macros_io::MacroControl;
-use vm8::vban_io::{VbanControl, VbanRecvControl};
-use vm8::jack::{self, Jack, Port};
-use vm8::{BUSES, BUS_NAMES, STRIPS};
+use crosspoint::engine::{EngineDsp, Io, Params};
+use crosspoint::macros_io::MacroControl;
+use crosspoint::vban_io::{VbanControl, VbanRecvControl};
+use crosspoint::jack::{self, Jack, Port};
+use crosspoint::{BUSES, BUS_NAMES, STRIPS};
 
 struct Rt {
     params: Arc<Params>,
@@ -18,10 +18,10 @@ struct Rt {
     outs: [[*mut Port; 2]; BUSES],
     /// Ausgangspaare für empfangenes VBAN-Audio (`vban_L`/`vban_R`).
     vban_out: [*mut Port; 2],
-    tape: Arc<vm8::tape_io::TapeControl>,
+    tape: Arc<crosspoint::tape_io::TapeControl>,
     vban: Arc<VbanControl>,
-    vban_ring: Arc<vm8::tape_io::Ring>,
-    vban_recv_ring: Arc<vm8::tape_io::Ring>,
+    vban_ring: Arc<crosspoint::tape_io::Ring>,
+    vban_recv_ring: Arc<crosspoint::tape_io::Ring>,
     /// Blockpuffer für den VBAN-Eingang (fest, keine Allokation im Callback).
     vban_buf: Vec<f32>,
     vban_pos: usize,
@@ -154,15 +154,15 @@ extern "C" {
 
 /// Legt die virtuellen Knoten an bzw. raeumt sie ab. Damit haengen die Geraete
 /// am Leben der Engine: laeuft die Engine, gibt es sie; wird sie beendet,
-/// verschwinden sie wieder. VM8_NO_WIRE=1 schaltet das ab.
+/// verschwinden sie wieder. CROSSPOINT_NO_WIRE=1 schaltet das ab.
 fn wire(richtung: &str) {
-    if std::env::var("VM8_NO_WIRE").is_ok() {
+    if std::env::var("CROSSPOINT_NO_WIRE").is_ok() {
         return;
     }
     let script = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("../../scripts/vm8-wire.sh")))
-        .unwrap_or_else(|| std::path::PathBuf::from("scripts/vm8-wire.sh"));
+        .and_then(|p| p.parent().map(|d| d.join("../../scripts/crosspoint-wire.sh")))
+        .unwrap_or_else(|| std::path::PathBuf::from("scripts/crosspoint-wire.sh"));
     let _ = std::process::Command::new("bash")
         .arg(&script)
         .arg(richtung)
@@ -175,7 +175,7 @@ fn main() {
         signal(2, on_signal as usize);
         signal(15, on_signal as usize);
     }
-    let mut client_name = String::from("vm8");
+    let mut client_name = String::from("crosspoint");
     let mut listen = String::from("127.0.0.1:8770");
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -183,7 +183,7 @@ fn main() {
             "--client" => client_name = args.next().unwrap_or(client_name),
             "--listen" => listen = args.next().unwrap_or(listen),
             "-h" | "--help" => {
-                println!("vm8-engine [--client NAME] [--listen ADDR] [--headless]");
+                println!("crosspoint-engine [--client NAME] [--listen ADDR] [--headless]");
                 println!("  startet die Engine und die Web-UI auf 127.0.0.1:8770");
                 return;
             }
@@ -195,14 +195,14 @@ fn main() {
     }
 
     let params = Arc::new(Params::new(48_000.0, 512));
-    let ring = Arc::new(vm8::tape_io::Ring::new(8, 2048));
-    let tape = Arc::new(vm8::tape_io::TapeControl::new(ring.clone(), 2048));
+    let ring = Arc::new(crosspoint::tape_io::Ring::new(8, 2048));
+    let tape = Arc::new(crosspoint::tape_io::TapeControl::new(ring.clone(), 2048));
     let vban = Arc::new(VbanControl::new());
-    let vban_ring = Arc::new(vm8::tape_io::Ring::new(8, 2048));
+    let vban_ring = Arc::new(crosspoint::tape_io::Ring::new(8, 2048));
     let vban_recv = Arc::new(VbanRecvControl::new());
-    let vban_recv_ring = Arc::new(vm8::tape_io::Ring::new(
+    let vban_recv_ring = Arc::new(crosspoint::tape_io::Ring::new(
         16,
-        vm8::vban_io::RECV_BLOCK_FRAMES,
+        crosspoint::vban_io::RECV_BLOCK_FRAMES,
     ));
     let macroctl = Arc::new(MacroControl::new());
     let rt: &'static mut Rt = Box::leak(Box::new(Rt {
@@ -215,7 +215,7 @@ fn main() {
         vban: vban.clone(),
         vban_ring: vban_ring.clone(),
         vban_recv_ring: vban_recv_ring.clone(),
-        vban_buf: vec![0.0f32; vm8::vban_io::RECV_BLOCK_FRAMES * 2],
+        vban_buf: vec![0.0f32; crosspoint::vban_io::RECV_BLOCK_FRAMES * 2],
         vban_pos: 0,
         vban_len: 0,
         scratch: vec![0.0f32; 2048 * 2],
@@ -252,8 +252,8 @@ fn main() {
     }
     // Zusatz-Ausgänge für empfangenes VBAN-Audio. Sie werden wie ein
     // Hardware-Eingang per pw-link auf einen Streifen gelegt, z. B.
-    //   pw-link vm8:vban_L vm8:strip1_L
-    //   pw-link vm8:vban_R vm8:strip1_R
+    //   pw-link crosspoint:vban_L crosspoint:strip1_L
+    //   pw-link crosspoint:vban_R crosspoint:strip1_R
     rt.vban_out = [
         jack.port_out("vban_L").expect("Port"),
         jack.port_out("vban_R").expect("Port"),
@@ -271,15 +271,15 @@ fn main() {
         println!("  bus{}_L / bus{}_R", BUS_NAMES[b], BUS_NAMES[b]);
     }
     println!("  vban_L / vban_R (VBAN-Eingang, /api/vban/recv)");
-    println!("\nVerdrahtung: scripts/vm8-wire.sh up\n");
+    println!("\nVerdrahtung: scripts/crosspoint-wire.sh up\n");
 
     let preset = preset_path();
     let tape_dir = preset.with_file_name("tape");
     let _ = std::fs::create_dir_all(&tape_dir);
-    vm8::tape_io::spawn_writer(tape.clone(), tape_dir, jack.sample_rate);
+    crosspoint::tape_io::spawn_writer(tape.clone(), tape_dir, jack.sample_rate);
 
-    vm8::vban_io::spawn_sender(vban.clone(), vban_ring.clone(), jack.sample_rate);
-    vm8::vban_io::spawn_empfaenger(vban_recv.clone(), vban_recv_ring.clone());
+    crosspoint::vban_io::spawn_sender(vban.clone(), vban_ring.clone(), jack.sample_rate);
+    crosspoint::vban_io::spawn_empfaenger(vban_recv.clone(), vban_recv_ring.clone());
 
     // Macro-Kommandos aus der UI auf die Parameter anwenden.
     let params_mac = params.clone();
@@ -292,7 +292,7 @@ fn main() {
     });
 
     let devices = Arc::new(std::sync::Mutex::new(
-        vm8::devices::DeviceMap::load_default(),
+        crosspoint::devices::DeviceMap::load_default(),
     ));
 
     {
@@ -304,7 +304,7 @@ fn main() {
         let macro_ui = macroctl.clone();
         let dev_ui = devices.clone();
         thread::spawn(move || {
-            if let Err(e) = vm8::http::serve(
+            if let Err(e) = crosspoint::http::serve(
                 listen_owned,
                 params_ui,
                 preset,
@@ -322,13 +322,13 @@ fn main() {
     wire("up");
 
     // Beenden, wenn die Oberflaeche verschwindet (Fenster zu) - dann raeumt die
-    // Engine ihre virtuellen Geraete ab. VM8_KEEP_RUNNING=1 schaltet das ab,
+    // Engine ihre virtuellen Geraete ab. CROSSPOINT_KEEP_RUNNING=1 schaltet das ab,
     // z. B. fuer Dauerbetrieb ohne Fenster.
-    let leerlauf_grenze: u64 = std::env::var("VM8_IDLE_MS")
+    let leerlauf_grenze: u64 = std::env::var("CROSSPOINT_IDLE_MS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(30_000);
-    let dauerbetrieb = std::env::var("VM8_KEEP_RUNNING").is_ok();
+    let dauerbetrieb = std::env::var("CROSSPOINT_KEEP_RUNNING").is_ok();
 
     // Aufpasser: verschwinden die virtuellen Geraete von aussen (z. B. weil
     // jemand aufgeraeumt hat), legt die Engine sie wieder an.
@@ -341,14 +341,14 @@ fn main() {
             let vorhanden = std::process::Command::new("pactl")
                 .args(["list", "short", "sinks"])
                 .output()
-                .map(|o| String::from_utf8_lossy(&o.stdout).contains("vm8_in_1"))
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains("crosspoint_in_1"))
                 .unwrap_or(true);
             if !vorhanden {
                 eprintln!("virtuelle Geraete fehlen - lege sie neu an");
                 wire("up");
             }
         }
-        if !dauerbetrieb && vm8::http::leerlauf_ms() > leerlauf_grenze {
+        if !dauerbetrieb && crosspoint::http::leerlauf_ms() > leerlauf_grenze {
             eprintln!("keine Oberflaeche seit {} ms - beende", leerlauf_grenze);
             break;
         }
@@ -390,5 +390,5 @@ fn apply_macro_command(params: &Params, cmd: &str) {
 
 fn preset_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".config/vm8-linux/preset.json")
+    PathBuf::from(home).join(".config/crosspoint/preset.json")
 }

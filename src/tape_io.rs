@@ -323,7 +323,7 @@ fn stamm_name(sel: &[usize], ch: usize, seq: u32) -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    format!("vm8-tape-{label}-{ms}-{seq:03}")
+    format!("crosspoint-tape-{label}-{ms}-{seq:03}")
 }
 
 /// Öffnet die nächste Datei; `false`, wenn das fehlschlägt (Status gesetzt).
@@ -480,7 +480,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let dir = std::env::temp_dir().join(format!("vm8-tape-{name}-{nanos}"));
+        let dir = std::env::temp_dir().join(format!("crosspoint-tape-{name}-{nanos}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("Testverzeichnis");
         dir

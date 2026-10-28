@@ -34,7 +34,7 @@
 //!   * Die API schreibt direkt in [`Params`]; es gibt keinen zweiten,
 //!     gespiegelten Parametersatz, der auseinanderlaufen könnte.
 //!   * Als Gerätetyp meldet sich das Pult als **Potato** (8 Streifen, 8 Busse)
-//!     — das ist die Konfiguration, die `vm8` tatsächlich abbildet.
+//!     — das ist die Konfiguration, die `crosspoint` tatsächlich abbildet.
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
@@ -352,7 +352,7 @@ impl RemoteApi {
     /// `VBVMR_GetMidiMessage`: **nicht implementiert**, liefert immer 0.
     ///
     /// Das Original schleust hier MIDI-CC/Mackie-Control-Meldungen in die
-    /// Konsole; vm8 hat keinen MIDI-Eingang. 0 bedeutet dort „keine Nachricht".
+    /// Konsole; crosspoint hat keinen MIDI-Eingang. 0 bedeutet dort „keine Nachricht".
     pub fn get_midi_message(&self) -> i32 {
         0
     }

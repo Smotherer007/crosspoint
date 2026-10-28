@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# vm8-wire.sh – virtuelle Ein-/Ausgänge anlegen und mit dem Mixer verbinden.
-#   ./scripts/vm8-wire.sh up|down|status
+# crosspoint-wire.sh – virtuelle Ein-/Ausgänge anlegen und mit dem Mixer verbinden.
+#   ./scripts/crosspoint-wire.sh up|down|status
 set -uo pipefail
-CLIENT="${VM8_CLIENT:-vm8}"
-RUNDIR="${XDG_RUNTIME_DIR:-/tmp}/vm8"
+CLIENT="${CROSSPOINT_CLIENT:-crosspoint}"
+RUNDIR="${XDG_RUNTIME_DIR:-/tmp}/crosspoint"
 MODFILE="$RUNDIR/modules"
 mkdir -p "$RUNDIR"
 
@@ -50,36 +50,36 @@ sink() {
 
 case "${1:-up}" in
 up)
-  for i in 1 2 3; do sink "vm8_in_$i" "VM8-Input-$i"; done
-  for b in B1 B2 B3; do sink "vm8_out_$b" "VM8-Output-$b"; done
+  for i in 1 2 3; do sink "crosspoint_in_$i" "CROSSPOINT-Input-$i"; done
+  for b in B1 B2 B3; do sink "crosspoint_out_$b" "CROSSPOINT-Output-$b"; done
   sleep 0.5
   for i in 1 2 3; do
     s=$((5 + i))
-    link "vm8_in_$i:monitor_FL" "$CLIENT:strip${s}_L"
-    link "vm8_in_$i:monitor_FR" "$CLIENT:strip${s}_R"
+    link "crosspoint_in_$i:monitor_FL" "$CLIENT:strip${s}_L"
+    link "crosspoint_in_$i:monitor_FR" "$CLIENT:strip${s}_R"
   done
   for b in B1 B2 B3; do
-    link "$CLIENT:bus${b}_L" "vm8_out_$b:playback_FL"
-    link "$CLIENT:bus${b}_R" "vm8_out_$b:playback_FR"
+    link "$CLIENT:bus${b}_L" "crosspoint_out_$b:playback_FL"
+    link "$CLIENT:bus${b}_R" "crosspoint_out_$b:playback_FR"
   done
   # Aufnahmeseite sichtbar machen: je virtueller Eingang und je virtueller
   # Bus-Ausgabe eine echte Quelle.
   for i in 1 2 3; do
-    mic "vm8_mic_in_$i" "vm8_in_$i.monitor" "VM8-Input-$i"
+    mic "crosspoint_mic_in_$i" "crosspoint_in_$i.monitor" "CROSSPOINT-Input-$i"
   done
   for b in B1 B2 B3; do
-    mic "vm8_mic_$b" "vm8_out_$b.monitor" "VM8-Output-$b"
+    mic "crosspoint_mic_$b" "crosspoint_out_$b.monitor" "CROSSPOINT-Output-$b"
   done
 
   for bus in A1 A2 A3 A4 A5; do
     # Kein Autopilot: ein Bus wird nur verbunden, wenn ein Ziel gesetzt ist
-    # (VM8_A1.. oder die Geraeteauswahl in der Oberflaeche).
-    var="VM8_$bus"; target="${!var:-}"
+    # (CROSSPOINT_A1.. oder die Geraeteauswahl in der Oberflaeche).
+    var="CROSSPOINT_$bus"; target="${!var:-}"
     if [ -n "$target" ]; then
       link "$CLIENT:bus${bus}_L" "$target:playback_FL"
       link "$CLIENT:bus${bus}_R" "$target:playback_FR"
     else
-      echo "  Bus $bus: kein Ziel gesetzt (VM8_$bus=<sink>)" >&2
+      echo "  Bus $bus: kein Ziel gesetzt (CROSSPOINT_$bus=<sink>)" >&2
     fi
   done
   ;;
@@ -92,7 +92,7 @@ down)
   # einem Absturz oder wenn die Liste geloescht wurde. Sonst bleiben die
   # virtuellen Geraete nach dem Schliessen im System stehen.
   n=0
-  for id in $(pactl list short modules | awk -F'\t' '/sink_name=vm8|source_name=vm8/{print $1}'); do
+  for id in $(pactl list short modules | awk -F'\t' '/sink_name=crosspoint|source_name=crosspoint/{print $1}'); do
     pactl unload-module "$id" 2>/dev/null && { echo "  Modul $id entfernt (Nachzuegler)"; n=$((n+1)); }
   done
   [ "$n" -eq 0 ] && [ ! -f "$MODFILE" ] && echo "  nichts zu entfernen" >&2

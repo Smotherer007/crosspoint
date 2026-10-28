@@ -51,12 +51,12 @@ use macros::json::Wert;
 use macros::{Action, Bank, Button, Engine, Input, MAX_BUTTONS};
 
 /// Ordnername unter `$XDG_CONFIG_HOME` bzw. `~/.config`.
-pub const KONFIG_ORDNER: &str = "vm8-linux";
+pub const KONFIG_ORDNER: &str = "crosspoint";
 
 /// Dateiname der Tastenbelegung.
 pub const MAKROS_DATEI: &str = "macros.json";
 
-/// Standardablage: `~/.config/vm8-linux/macros.json` (bzw. `$XDG_CONFIG_HOME`).
+/// Standardablage: `~/.config/crosspoint/macros.json` (bzw. `$XDG_CONFIG_HOME`).
 pub fn standard_pfad() -> PathBuf {
     let basis = match std::env::var_os("XDG_CONFIG_HOME") {
         Some(p) if !p.is_empty() => PathBuf::from(p),
@@ -380,7 +380,7 @@ mod tests {
     fn testpfad() -> PathBuf {
         static N: AtomicU32 = AtomicU32::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("vm8-macros-io-{}-{n}.json", std::process::id()))
+        std::env::temp_dir().join(format!("crosspoint-macros-io-{}-{n}.json", std::process::id()))
     }
 
     fn taste(name: &str, state: ButtonState, actions: Vec<Action>) -> Button {

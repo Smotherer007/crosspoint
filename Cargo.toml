@@ -1,11 +1,11 @@
 [package]
-name = "vm8"
+name = "crosspoint"
 version = "0.1.0"
 edition = "2021"
 description = "VoiceMeeter-Nachbau in Rust: Parametermodell und Mixer-Kern"
 
 [lib]
-name = "vm8"
+name = "crosspoint"
 path = "src/lib.rs"
 
 [dependencies]
@@ -14,7 +14,7 @@ vban = { path = "crates/vban" }
 macros = { path = "crates/macros" }
 
 [[bin]]
-name = "vm8-engine"
+name = "crosspoint-engine"
 path = "src/main.rs"
 
 [workspace]

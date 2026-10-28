@@ -10,5 +10,5 @@ name = "tape"
 path = "src/lib.rs"
 
 # Bewusst keine Abhaengigkeiten: das Crate bleibt eigenstaendig und
-# unabhaengig von vm8. Nur die Standardbibliothek.
+# unabhaengig von crosspoint. Nur die Standardbibliothek.
 [dependencies]

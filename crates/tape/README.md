@@ -3,7 +3,7 @@
 Tape-Recorder fuer den Mixer: schreibt interleaved f32-Audiobloecke als WAV.
 
 Eigenstaendiges Crate (Rust 2021, **keine** externen Abhaengigkeiten, keine
-Typen aus `vm8`). Anbindung spaeter ausschliesslich ueber primitive Typen.
+Typen aus `crosspoint`). Anbindung spaeter ausschliesslich ueber primitive Typen.
 
 | Eigenschaft | Umsetzung |
 | --- | --- |

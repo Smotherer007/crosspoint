@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
-# vm8-launch.sh – Engine starten und die Oberflaeche als eigenes Fenster oeffnen.
+# crosspoint-launch.sh – Engine starten und die Oberflaeche als eigenes Fenster oeffnen.
 #
 # Fenstererkennung ohne KWin: Brave laeuft fuer den Mixer mit eigenem Profil und
 # eigenem Debug-Port (Vorgabe 9223). Damit ist eindeutig feststellbar, ob das
 # Fenster offen ist - und die Engine wird beendet, sobald es verschwindet.
 #
-#   VM8_DEBUG_PORT   Port der Fenstererkennung (Vorgabe 9223)
-#   VM8_START_GRACE  Sekunden, die das Fenster zum Erscheinen hat (Vorgabe 25)
+#   CROSSPOINT_DEBUG_PORT   Port der Fenstererkennung (Vorgabe 9223)
+#   CROSSPOINT_START_GRACE  Sekunden, die das Fenster zum Erscheinen hat (Vorgabe 25)
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 URL="http://127.0.0.1:8770/"
-PORT="${VM8_DEBUG_PORT:-9223}"
-GRACE="${VM8_START_GRACE:-25}"
-PROFIL="${XDG_CONFIG_HOME:-$HOME/.config}/vm8-browser"
+PORT="${CROSSPOINT_DEBUG_PORT:-9223}"
+GRACE="${CROSSPOINT_START_GRACE:-25}"
+PROFIL="${XDG_CONFIG_HOME:-$HOME/.config}/crosspoint-browser"
 
 alive()   { curl -s -o /dev/null --max-time 1 "$URL/api/state"; }
 fenster() { curl -s --max-time 1 "http://127.0.0.1:$PORT/json/list" 2>/dev/null | grep -c 8770; }
 
 beende_engine() {
-  pkill -x vm8-engine 2>/dev/null || true
-  for _ in $(seq 1 30); do [ "$(ps -eo comm | grep -c '^vm8-engine')" = 0 ] && break; sleep 0.2; done
+  pkill -x crosspoint-engine 2>/dev/null || true
+  for _ in $(seq 1 30); do [ "$(ps -eo comm | grep -c '^crosspoint-engine')" = 0 ] && break; sleep 0.2; done
   echo "Engine beendet, virtuelle Geraete entfernt" >&2
 }
 
 if ! alive; then
   cd "$DIR" || exit 1
-  setsid ./target/release/vm8-engine >/tmp/vm8.log 2>&1 &
+  setsid ./target/release/crosspoint-engine >crosspoint-engine.log 2>&1 &
   for _ in $(seq 1 60); do alive && break; sleep 0.25; done
 fi
 
 if ! alive; then
-  echo "Engine antwortet nicht – siehe /tmp/vm8.log" >&2
+  echo "Engine antwortet nicht – siehe crosspoint-engine.log" >&2
   exit 1
 fi
 

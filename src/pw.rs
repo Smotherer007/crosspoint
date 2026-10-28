@@ -121,7 +121,7 @@ impl FakeRunner {
         self.calls.borrow().clone()
     }
 
-    /// Aufgezeichnete Aufrufe als Zeilen, z. B. `pw-link -d vm8:busA1_L …`.
+    /// Aufgezeichnete Aufrufe als Zeilen, z. B. `pw-link -d crosspoint:busA1_L …`.
     pub fn lines(&self) -> Vec<String> {
         self.calls.borrow().iter().map(Call::line).collect()
     }
@@ -252,7 +252,7 @@ pub struct Link {
     pub zustand: String,
 }
 
-/// Eine Verbindung in lesbarer Form: `"vm8:busA1_L" -> "alsa_output…:playback_FL"`.
+/// Eine Verbindung in lesbarer Form: `"crosspoint:busA1_L" -> "alsa_output…:playback_FL"`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verbindung {
     pub von: String,
@@ -271,7 +271,7 @@ pub struct Graph {
 impl Graph {
     /// Liest einen `pw-dump`-Auszug. Objekte anderer Typen (Module, Clients,
     /// Devices, Metadata) werden übergangen; Knoten aller Klassen bleiben
-    /// erhalten, damit sich auch Links des Mixers (`vm8`, ohne `media.class`)
+    /// erhalten, damit sich auch Links des Mixers (`crosspoint`, ohne `media.class`)
     /// auflösen lassen.
     pub fn parse(text: &str) -> Result<Graph, String> {
         let wert = json::parse(text)?;
@@ -575,7 +575,7 @@ pub mod tests {
     use super::*;
 
     /// Auszug aus `pw-dump` in der Form, die der Rechner liefert: zwei Sinks
-    /// (einer davon der eigene `vm8_out_B1`), ein Mono-Mikrofon, ein
+    /// (einer davon der eigene `crosspoint_out_B1`), ein Mono-Mikrofon, ein
     /// Abspielstrom, ein Monitor-Paar, zwei Links.
     pub const DUMP: &str = r#"[
       {"id": 30, "type": "PipeWire:Interface:Node",
@@ -594,12 +594,12 @@ pub mod tests {
                           "node.name": "alsa_input.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.mono-fallback",
                           "node.description": "Corsair HS80 RGB USB Gaming Headset Mono"}}},
       {"id": 239, "type": "PipeWire:Interface:Node",
-       "info": {"props": {"media.class": "Audio/Sink", "node.name": "vm8_out_B1",
-                          "node.description": "VM8-Output-B1"}}},
+       "info": {"props": {"media.class": "Audio/Sink", "node.name": "crosspoint_out_B1",
+                          "node.description": "CROSSPOINT-Output-B1"}}},
       {"id": 457, "type": "PipeWire:Interface:Node",
        "info": {"props": {"media.class": "Stream/Output/Audio", "node.name": "Chromium"}}},
       {"id": 297, "type": "PipeWire:Interface:Node",
-       "info": {"props": {"node.name": "vm8", "node.description": "vm8"}}},
+       "info": {"props": {"node.name": "crosspoint", "node.description": "crosspoint"}}},
       {"id": 209, "type": "PipeWire:Interface:Port",
        "info": {"direction": "input", "props": {"node.id": 443, "port.name": "playback_FL"}}},
       {"id": 226, "type": "PipeWire:Interface:Port",
@@ -650,14 +650,14 @@ pub mod tests {
     fn knoten_werden_nach_klasse_gefiltert() {
         let g = graph();
         // Alle Knoten bleiben für die Link-Auflösung erhalten …
-        assert_eq!(g.nodes.len(), 7, "Driver und vm8 bleiben: {:?}", g.nodes);
+        assert_eq!(g.nodes.len(), 7, "Driver und crosspoint bleiben: {:?}", g.nodes);
         // … als Geräte gelten nur die drei Klassen.
         assert_eq!(g.geraete().len(), 5);
         assert_eq!(g.sinks().len(), 3);
         assert_eq!(g.sources().len(), 1);
         assert_eq!(g.streams().len(), 1);
-        assert!(g.node_by_name("vm8").unwrap().media_class.is_empty());
-        assert!(!g.node_by_name("vm8").unwrap().ist_geraet());
+        assert!(g.node_by_name("crosspoint").unwrap().media_class.is_empty());
+        assert!(!g.node_by_name("crosspoint").unwrap().ist_geraet());
         assert_eq!(g.streams()[0].name, "Chromium");
         assert!(g.streams()[0].ist_strom());
         assert!(g.sinks()[0].ist_ausgabegeraet());
@@ -710,15 +710,15 @@ pub mod tests {
         let g = graph();
         let v = g.verbindungen();
         assert_eq!(v.len(), 2);
-        assert!(g.ist_verbunden("vm8:busA1_L", "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo:playback_FL"));
+        assert!(g.ist_verbunden("crosspoint:busA1_L", "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo:playback_FL"));
         assert_eq!(v[0].zustand, "active");
-        assert!(!g.ist_verbunden("vm8:busA1_L", "alsa_output.pci-0000_03_00.1.hdmi-stereo-extra2:playback_FL"));
+        assert!(!g.ist_verbunden("crosspoint:busA1_L", "alsa_output.pci-0000_03_00.1.hdmi-stereo-extra2:playback_FL"));
 
-        let offen = g.offene_links(&["vm8:busA1_R".to_string()]);
+        let offen = g.offene_links(&["crosspoint:busA1_R".to_string()]);
         assert!(offen.is_empty());
-        let offen = g.offene_links(&["vm8:busA1_L".to_string()]);
+        let offen = g.offene_links(&["crosspoint:busA1_L".to_string()]);
         assert_eq!(offen.len(), 1);
-        assert_eq!(offen[0].von, "vm8:busA1_L");
+        assert_eq!(offen[0].von, "crosspoint:busA1_L");
     }
 
     #[test]
