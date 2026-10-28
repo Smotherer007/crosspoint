@@ -414,3 +414,147 @@ mod tests {
         assert!(out > 0.4, "Gate hat zu stark gedämpft: {out}");
     }
 }
+
+/// C5-Limiter: Drei-Band-Verarbeitung (Splitter + Kompressor + Peak-Limiter je Band).
+///
+/// Name und Parameter stammen aus dem Original (`<C5LimBand … compOn attack release
+/// knee ratio threshold gainOut limOn limit distorsion>`), die Kennlinien sind
+/// Standard-Implementierungen – die Original-Koeffizienten sind nicht rekonstruiert.
+#[derive(Clone, Copy)]
+pub struct C5Config {
+    pub enabled: bool,
+    pub crossover_low_hz: f32,
+    pub crossover_high_hz: f32,
+    pub threshold_db: [f32; 3],
+    pub ratio: [f32; 3],
+    pub ceiling_db: [f32; 3],
+    pub gain_db: [f32; 3],
+    pub comp_on: [bool; 3],
+    pub lim_on: [bool; 3],
+}
+
+impl Default for C5Config {
+    fn default() -> Self {
+        C5Config {
+            enabled: false,
+            crossover_low_hz: 200.0,
+            crossover_high_hz: 3000.0,
+            threshold_db: [-18.0; 3],
+            ratio: [2.0; 3],
+            ceiling_db: [-0.3; 3],
+            gain_db: [0.0; 3],
+            comp_on: [true; 3],
+            lim_on: [true; 3],
+        }
+    }
+}
+
+/// Zustand des Drei-Band-Limiters (Splitter + je Band Kompressor und Limiter).
+pub struct C5Limiter {
+    lp_low: Biquad,
+    hp_low: Biquad,
+    lp_high: Biquad,
+    hp_high: Biquad,
+    comp: [Compressor; 3],
+    lim: [Limiter; 3],
+    sr: f32,
+}
+
+impl Default for C5Limiter {
+    fn default() -> Self {
+        C5Limiter {
+            lp_low: Biquad::bypass(),
+            hp_low: Biquad::bypass(),
+            lp_high: Biquad::bypass(),
+            hp_high: Biquad::bypass(),
+            comp: [Compressor::default(); 3],
+            lim: [Limiter::default(); 3],
+            sr: 0.0,
+        }
+    }
+}
+
+impl C5Limiter {
+    fn setup(&mut self, cfg: &C5Config, sr: f32) {
+        if (self.sr - sr).abs() > 0.5 {
+            self.lp_low.coeffs(FilterType::LowPass, cfg.crossover_low_hz, 0.707, 0.0, sr);
+            self.hp_low.coeffs(FilterType::HighPass, cfg.crossover_low_hz, 0.707, 0.0, sr);
+            self.lp_high.coeffs(FilterType::LowPass, cfg.crossover_high_hz, 0.707, 0.0, sr);
+            self.hp_high.coeffs(FilterType::HighPass, cfg.crossover_high_hz, 0.707, 0.0, sr);
+            for b in 0..3 {
+                self.comp[b].set_times(10.0, 120.0, sr);
+                self.lim[b].set_release(60.0, sr);
+            }
+            self.sr = sr;
+        }
+        for b in 0..3 {
+            self.comp[b].enabled = cfg.comp_on[b];
+            self.lim[b].enabled = cfg.lim_on[b];
+        }
+    }
+
+    /// Ein Sample durch die Drei-Band-Kette.
+    pub fn process(&mut self, x: f32, cfg: &C5Config, sr: f32) -> f32 {
+        if !cfg.enabled {
+            return x;
+        }
+        self.setup(cfg, sr);
+        let low = self.lp_low.process(x);
+        let high = self.hp_high.process(x);
+        let mid = self.hp_low.process(x) - self.lp_high.process(x);
+        let bands = [low, mid, high];
+        let mut sum = 0.0;
+        for b in 0..3 {
+            let mut v = bands[b] * db_to_lin(cfg.gain_db[b]);
+            v = self.comp[b].process(v, cfg.threshold_db[b], cfg.ratio[b], 0.0, 0.0);
+            v = self.lim[b].process(v, cfg.ceiling_db[b]);
+            sum += v;
+        }
+        sum
+    }
+}
+
+#[cfg(test)]
+mod c5_tests {
+    use super::*;
+
+    #[test]
+    fn aus_laesst_durch() {
+        let cfg = C5Config::default(); // enabled = false
+        let mut c5 = C5Limiter::default();
+        for _ in 0..100 {
+            assert!((c5.process(0.3, &cfg, 48000.0) - 0.3).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn begrenzt_auf_decke() {
+        let mut cfg = C5Config::default();
+        cfg.enabled = true;
+        cfg.ceiling_db = [-6.0; 3];
+        cfg.comp_on = [false; 3];
+        let mut c5 = C5Limiter::default();
+        let mut peak = 0f32;
+        for i in 0..9600 {
+            let x = 2.0 * (2.0 * std::f32::consts::PI * 220.0 * i as f32 / 48000.0).sin();
+            peak = peak.max(c5.process(x, &cfg, 48000.0).abs());
+        }
+        let db = lin_to_db(peak);
+        assert!(db <= -4.5, "Spitze war {db} dB, soll unter der Decke liegen");
+    }
+
+    #[test]
+    fn leises_signal_bleibt_erhalten() {
+        let mut cfg = C5Config::default();
+        cfg.enabled = true;
+        cfg.ceiling_db = [0.0; 3];
+        cfg.comp_on = [false; 3];
+        let mut c5 = C5Limiter::default();
+        let mut peak = 0f32;
+        for i in 0..9600 {
+            let x = 0.05 * (2.0 * std::f32::consts::PI * 500.0 * i as f32 / 48000.0).sin();
+            peak = peak.max(c5.process(x, &cfg, 48000.0).abs());
+        }
+        assert!(peak > 0.02, "leises Signal wurde zu stark abgesenkt: {peak}");
+    }
+}
