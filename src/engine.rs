@@ -3,7 +3,8 @@
 //! Signalkette je Streifen (Reihenfolge wie im Original dokumentiert):
 //!   Eingang -> 6-Band-EQ -> Compressor -> Gate -> Denoiser -> Gain -> Pan
 //!   -> Routing-Matrix (8 Busse)
-//! Je Bus: Summe -> Limiter -> Delay pro Kanal -> Trim -> Gain/Mute -> Ausgang.
+//! Je Bus: Summe -> Mischmodus (mode/cross) -> Limiter -> Delay pro Kanal
+//!   -> Trim -> Gain/Mute -> Ausgang.
 //!
 //! Es gibt **keinen** Mutex im Audio-Pfad: die Steuerung schreibt Atome, der
 //! Callback liest sie mit `Relaxed`.
@@ -131,11 +132,31 @@ impl StripParam {
     }
 }
 
+/// Mischmodi eines Busses, Werte von `BusParam::mode` (`set_bus("mode", ...)`).
+///
+/// 0 Normal, 1 DownmixA, 2 DownmixB, 3 StereoRepeat, 4 Composite, 5 TV-Mix,
+/// 6 Upmix 2.1, 7 Upmix 4.1, 8 Upmix 6.1.
+pub const BUS_MODE_NORMAL: u32 = 0;
+pub const BUS_MODE_DOWNMIX_A: u32 = 1;
+pub const BUS_MODE_DOWNMIX_B: u32 = 2;
+pub const BUS_MODE_STEREO_REPEAT: u32 = 3;
+pub const BUS_MODE_COMPOSITE: u32 = 4;
+pub const BUS_MODE_TV_MIX: u32 = 5;
+pub const BUS_MODE_UPMIX_21: u32 = 6;
+pub const BUS_MODE_UPMIX_41: u32 = 7;
+pub const BUS_MODE_UPMIX_61: u32 = 8;
+/// Höchster gültiger Modus (Upmix 6.1).
+pub const BUS_MODE_MAX: u32 = BUS_MODE_UPMIX_61;
+
 pub struct BusParam {
     pub gain: AtomicU32,
     pub limit: AtomicU32,
     pub mute: AtomicBool,
     pub mono: AtomicBool,
+    /// Mischmodus, siehe `bus_mix` und `BUS_MODE_*`.
+    pub mode: AtomicU32,
+    /// Kreuzmischung: tauscht L und R am Bus-Eingang (`set_bus("cross", ...)`).
+    pub cross: AtomicBool,
     pub trim: [AtomicU32; 2],
     pub delay_ms: [AtomicU32; 2],
     pub eq_on: AtomicBool,
@@ -154,6 +175,8 @@ impl BusParam {
             limit: AtomicU32::new(0.0f32.to_bits()),
             mute: AtomicBool::new(false),
             mono: AtomicBool::new(false),
+            mode: AtomicU32::new(BUS_MODE_NORMAL),
+            cross: AtomicBool::new(false),
             trim: std::array::from_fn(|_| AtomicU32::new(0f32.to_bits())),
             delay_ms: std::array::from_fn(|_| AtomicU32::new(0f32.to_bits())),
             eq_on: AtomicBool::new(false),
@@ -238,6 +261,8 @@ impl Params {
                                 ("gain", Value::num(fget(&b.gain) as f64)),
                                 ("mute", Value::Bool(b.mute.load(Relaxed))),
                                 ("mono", Value::Bool(b.mono.load(Relaxed))),
+                                ("mode", Value::num(b.mode.load(Relaxed) as f64)),
+                                ("cross", Value::Bool(b.cross.load(Relaxed))),
                                 ("eq", Value::Bool(b.eq_on.load(Relaxed))),
                                 ("limiter", Value::Bool(b.limiter_on.load(Relaxed))),
                                 ("delay_ms", Value::num(fget(&b.delay_ms[0]) as f64)),
@@ -348,6 +373,9 @@ fn set_bus(b: &BusParam, param: &str, v: f32) -> bool {
         "gain" => fset(&b.gain, v.clamp(-60.0, 12.0)),
         "mute" => b.mute.store(v != 0.0, Relaxed),
         "mono" => b.mono.store(v != 0.0, Relaxed),
+        // 0..8 wie auf `BusParam::mode` dokumentiert; alles andere wird geklemmt.
+        "mode" => b.mode.store(v.clamp(0.0, BUS_MODE_MAX as f32) as u32, Relaxed),
+        "cross" => b.cross.store(v != 0.0, Relaxed),
         "eq" => b.eq_on.store(v != 0.0, Relaxed),
         "limiter" => b.limiter_on.store(v != 0.0, Relaxed),
         "c5" => b.c5_on.store(v != 0.0, Relaxed),
@@ -364,6 +392,47 @@ fn set_bus(b: &BusParam, param: &str, v: f32) -> bool {
         _ => return false,
     }
     true
+}
+
+/// −3 dB als Linearwert; Dämpfung für Composite und TV-Mix.
+const MINUS_3DB: f32 = 0.707_945_8;
+
+/// Kanalmischung eines Busses am Bus-Eingang, vor Limiter/Delay/Trim.
+///
+/// | Modus | links | rechts |
+/// |---|---|---|
+/// | 0 Normal | L | R |
+/// | 1 Downmix A | 0,5·(L+R) | 0 |
+/// | 2 Downmix B | 0 | 0,5·(L+R) |
+/// | 3 Stereo Repeat | 0,5·(L+R) | 0,5·(L+R) |
+/// | 4 Composite | 0,5·(L+R) −3 dB | 0,5·(L+R) −3 dB |
+/// | 5 TV-Mix | 0,5·(L+R) −3 dB | 0 |
+/// | 6/7/8 Upmix 2.1/4.1/6.1 | 0,5·(L+R) | 0,5·(L+R) |
+///
+/// `cross` tauscht anschließend L und R.
+///
+/// **Upmix 2.1/4.1/6.1:** Im Original legen diese Modi das Monosignal zusätzlich
+/// auf Center, LFE und Rear. Ein Bus ist hier immer stereo — es gibt nur
+/// `outs[bi][0]` und `outs[bi][1]`, die zusätzlichen Lautsprecherkanäle
+/// existieren also nicht. Es bleibt die Monosumme, die auf beide
+/// Ausgangskanäle gelegt wird; die Modi unterscheiden sich daher im Ergebnis
+/// (noch) nicht. Sobald mehrkanalige Busse dazukommen, wird hier verzweigt.
+#[inline]
+fn bus_mix(v: [f32; 2], mode: u32, cross: bool) -> [f32; 2] {
+    let sum = 0.5 * (v[0] + v[1]);
+    let mut o = match mode {
+        BUS_MODE_DOWNMIX_A => [sum, 0.0],
+        BUS_MODE_DOWNMIX_B => [0.0, sum],
+        BUS_MODE_STEREO_REPEAT => [sum, sum],
+        BUS_MODE_COMPOSITE => [sum * MINUS_3DB; 2],
+        BUS_MODE_TV_MIX => [sum * MINUS_3DB, 0.0],
+        BUS_MODE_UPMIX_21 | BUS_MODE_UPMIX_41 | BUS_MODE_UPMIX_61 => [sum, sum],
+        _ => v,
+    };
+    if cross {
+        o.swap(0, 1);
+    }
+    o
 }
 
 /// Zeiger auf die Kanalpuffer eines Blocks (aus den JACK-Ports).
@@ -543,11 +612,14 @@ impl EngineDsp {
                 let bp = &p.buses[bi];
                 let gain = if bp.mute.load(Relaxed) { 0.0 } else { db_to_lin(fget(&bp.gain)) };
                 let mono = bp.mono.load(Relaxed);
+                let mode = bp.mode.load(Relaxed);
+                let cross = bp.cross.load(Relaxed);
                 let mut v = acc[bi];
                 if mono {
                     let m = 0.5 * (v[0] + v[1]);
                     v = [m, m];
                 }
+                v = bus_mix(v, mode, cross);
                 for ch in 0..2 {
                     let mut x = v[ch];
                     if bp.eq_on.load(Relaxed) {
@@ -629,6 +701,11 @@ mod tests {
             }
         }
 
+        /// Einzelner Eingangskanal eines Streifens (für L/R-unterschiedliche Tests).
+        fn set_strip_ch(&mut self, strip: usize, ch: usize, level: f32) {
+            self.ins[strip * 2 + ch].iter_mut().for_each(|x| *x = level);
+        }
+
         fn io(&mut self) -> Io {
             let mut io = Io {
                 ins: [[std::ptr::null(); 2]; STRIPS],
@@ -649,6 +726,11 @@ mod tests {
 
         fn bus(&self, bus: usize) -> f32 {
             self.outs[bus * 2][0]
+        }
+
+        /// Ausgang eines Bus-Kanals (0 = L, 1 = R).
+        fn out(&self, bus: usize, ch: usize) -> f32 {
+            self.outs[bus * 2 + ch][0]
         }
     }
 
@@ -739,5 +821,133 @@ mod tests {
         let io = buf.io();
         dsp.process(&p, &io, 64);
         assert!(buf.bus(0).is_finite());
+    }
+
+    // ---- Bus-Mischmodi -------------------------------------------------
+
+    /// Setzt `mode`/`cross` auf Bus A1, regt Streifen 0 mit L/R an und liefert
+    /// den Ausgang (L, R) von A1 nach einem Block.
+    fn mix_block(mode: f32, cross: f32, l: f32, r: f32) -> (f32, f32) {
+        let p = params();
+        let mut dsp = EngineDsp::new(64);
+        assert!(p.set("bus", 0, "mode", mode), "mode {mode} nicht gesetzt");
+        assert!(p.set("bus", 0, "cross", cross), "cross nicht gesetzt");
+        let mut buf = Buf::new(0.0, 64);
+        buf.set_strip_ch(0, 0, l);
+        buf.set_strip_ch(0, 1, r);
+        let io = buf.io();
+        dsp.process(&p, &io, 64);
+        (buf.out(0, 0), buf.out(0, 1))
+    }
+
+    /// Prüft beide Kanäle gegen Sollwerte.
+    fn check(got: (f32, f32), want: (f32, f32), name: &str) {
+        assert!(
+            (got.0 - want.0).abs() < 1e-6,
+            "{name}: L war {}, soll {} sein",
+            got.0,
+            want.0
+        );
+        assert!(
+            (got.1 - want.1).abs() < 1e-6,
+            "{name}: R war {}, soll {} sein",
+            got.1,
+            want.1
+        );
+    }
+
+    #[test]
+    fn bus_mode_normal_laesst_stereo_stehen() {
+        // Vorgabe: mode 0, cross 0 -> L/R unverändert durch den Bus.
+        check(mix_block(0.0, 0.0, 0.5, 0.25), (0.5, 0.25), "Normal");
+        let p = params();
+        assert_eq!(p.buses[0].mode.load(Relaxed), BUS_MODE_NORMAL);
+        assert!(!p.buses[0].cross.load(Relaxed));
+    }
+
+    #[test]
+    fn bus_mode_downmix_a_summe_nur_links() {
+        // 0.5*(0.5+0.5) = 0.5 auf L, R bleibt still.
+        check(mix_block(1.0, 0.0, 0.5, 0.5), (0.5, 0.0), "DownmixA");
+        // Asymmetrisch: 0.5*(0.5+0.25) = 0.375, R = 0.
+        check(mix_block(1.0, 0.0, 0.5, 0.25), (0.375, 0.0), "DownmixA asym");
+    }
+
+    #[test]
+    fn bus_mode_downmix_b_summe_nur_rechts() {
+        check(mix_block(2.0, 0.0, 0.5, 0.5), (0.0, 0.5), "DownmixB");
+        check(mix_block(2.0, 0.0, 0.5, 0.25), (0.0, 0.375), "DownmixB asym");
+    }
+
+    #[test]
+    fn bus_mode_stereo_repeat_summe_auf_beide() {
+        check(mix_block(3.0, 0.0, 0.5, 0.5), (0.5, 0.5), "StereoRepeat");
+        check(mix_block(3.0, 0.0, 0.5, 0.25), (0.375, 0.375), "StereoRepeat asym");
+    }
+
+    #[test]
+    fn bus_mode_composite_summe_beide_minus_3db() {
+        let s = 0.5 * (0.5 + 0.5) * MINUS_3DB;
+        check(mix_block(4.0, 0.0, 0.5, 0.5), (s, s), "Composite");
+        // −3 dB sind rund 0.708, also deutlich leiser als Stereo Repeat mit 0.5.
+        let (l, r) = mix_block(4.0, 0.0, 0.5, 0.5);
+        assert!(l < 0.5 && (l - 0.353_972_9).abs() < 1e-6, "Composite L war {l}");
+        assert!((l - r).abs() < 1e-9, "Composite muss symmetrisch sein");
+    }
+
+    #[test]
+    fn bus_mode_tv_mix_summe_links_minus_3db() {
+        let s = 0.5 * (0.5 + 0.5) * MINUS_3DB;
+        check(mix_block(5.0, 0.0, 0.5, 0.5), (s, 0.0), "TV-Mix");
+        check(
+            mix_block(5.0, 0.0, 0.5, 0.25),
+            (0.375 * MINUS_3DB, 0.0),
+            "TV-Mix asym",
+        );
+    }
+
+    #[test]
+    fn bus_mode_upmix21_mono_summe_auf_beide() {
+        check(mix_block(6.0, 0.0, 0.5, 0.5), (0.5, 0.5), "Upmix21");
+        check(mix_block(6.0, 0.0, 0.5, 0.25), (0.375, 0.375), "Upmix21 asym");
+    }
+
+    #[test]
+    fn bus_mode_upmix41_mono_summe_auf_beide() {
+        check(mix_block(7.0, 0.0, 0.5, 0.5), (0.5, 0.5), "Upmix41");
+        check(mix_block(7.0, 0.0, 0.1, 0.3), (0.2, 0.2), "Upmix41 asym");
+    }
+
+    #[test]
+    fn bus_mode_upmix61_mono_summe_auf_beide() {
+        // Zusatzkanäle (Center/LFE/Rear) gibt es im Stereo-Bus nicht.
+        check(mix_block(8.0, 0.0, 0.5, 0.5), (0.5, 0.5), "Upmix61");
+        check(mix_block(8.0, 0.0, 1.0, 0.0), (0.5, 0.5), "Upmix61 nur L");
+    }
+
+    #[test]
+    fn bus_cross_tauscht_kanaele() {
+        // Ohne Modus, nur Kreuzung: L und R tauschen.
+        check(mix_block(0.0, 1.0, 0.5, 0.25), (0.25, 0.5), "cross");
+        // Kreuzung nach Downmix A landet auf R.
+        check(mix_block(1.0, 1.0, 0.5, 0.25), (0.0, 0.375), "cross+DownmixA");
+    }
+
+    #[test]
+    fn bus_mode_parameter_wird_geklemmt_und_gemeldet() {
+        let p = params();
+        assert!(p.set("bus", 0, "mode", 3.0));
+        assert_eq!(p.buses[0].mode.load(Relaxed), BUS_MODE_STEREO_REPEAT);
+        assert!(p.set("bus", 0, "mode", 99.0));
+        assert_eq!(p.buses[0].mode.load(Relaxed), BUS_MODE_MAX);
+        assert!(p.set("bus", 0, "mode", -5.0));
+        assert_eq!(p.buses[0].mode.load(Relaxed), BUS_MODE_NORMAL);
+        assert!(p.set("bus", 0, "cross", 1.0));
+        assert!(p.buses[0].cross.load(Relaxed));
+        // Unbekanntes Feld bleibt ein Fehler.
+        assert!(!p.set("bus", 0, "modex", 1.0));
+        let js = p.to_json().to_json();
+        assert!(js.contains("\"mode\""), "to_json ohne mode: {js}");
+        assert!(js.contains("\"cross\""), "to_json ohne cross: {js}");
     }
 }

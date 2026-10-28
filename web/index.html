@@ -523,6 +523,66 @@
     .macros{flex-basis:38px}
     .mkey{height:25px}
   }
+
+  /* ---------- Eingangsauswahl (Streifen 1..5) ---------- */
+  .inrow{display:flex;align-items:center;gap:3px;margin-bottom:3px}
+  .inrow .inlbl{font-size:5.4px;letter-spacing:.14em;color:var(--faint);flex:0 0 auto}
+  .insel{
+    flex:1;min-width:0;height:15px;padding:0 2px;border-radius:2px;cursor:pointer;
+    background:#11171d;border:1px solid #080c10;color:#b9e8cf;outline:none;
+    font:600 6px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .insel:hover:not(:disabled){border-color:#4c6b85}
+  .insel:focus-visible{border-color:#6cc4ff;box-shadow:0 0 0 1px rgba(108,196,255,.45)}
+  .insel:disabled{color:#7d8c9b;opacity:.55;cursor:not-allowed}
+  .insel option{background:#11171d;color:#d3dee9}
+  .insel.mon{color:#f3d18b}
+  .eqbox{cursor:pointer}
+  .eqbox .eqcells,.eqbox .eqled{cursor:pointer}
+
+  /* ---------- EQ-Zellen-Editor ---------- */
+  .eqpanel{
+    width:540px;max-width:calc(100vw - 24px);border:1px solid var(--edge);border-radius:3px;
+    background:linear-gradient(180deg,#4f5b68,#39424d 60%,#333b46);
+    box-shadow:0 16px 44px rgba(0,0,0,.7),inset 0 1px 0 var(--edge-hi);
+  }
+  .eqbody{display:flex;flex-direction:column;gap:6px;padding:9px}
+  .eqhd,.eqrow{display:grid;grid-template-columns:22px 96px 74px 60px 58px 34px;
+               gap:5px;align-items:center}
+  .eqhd{font:600 5.6px/1 var(--mono);letter-spacing:.14em;color:var(--dim);
+        text-transform:uppercase;padding:0 6px}
+  .eqhd span:nth-child(n+3){text-align:center}
+  .eqrows{display:flex;flex-direction:column;gap:4px}
+  .eqrow{
+    padding:4px 5px;border:1px solid #1d252d;border-radius:2px;
+    background:linear-gradient(180deg,#3b4550,#2e3740);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .eqrow.off{opacity:.5}
+  .eqcnum{font:600 7px/1 var(--mono);color:#9fb3c6;text-align:center}
+  .eqfield{
+    width:100%;min-width:0;height:18px;padding:0 3px;border-radius:2px;cursor:pointer;
+    background:#11171d;border:1px solid #080c10;color:#b9e8cf;outline:none;
+    font:600 7.5px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .eqfield:hover{border-color:#4c6b85}
+  .eqfield:focus-visible{border-color:#6cc4ff;box-shadow:0 0 0 1px rgba(108,196,255,.45)}
+  .eqfield:disabled{opacity:.8;cursor:not-allowed}
+  .eqfield option{background:#11171d;color:#d3dee9}
+  .eqon{
+    height:18px;padding:0;border-radius:2px;cursor:pointer;border:1px solid #141a20;
+    background:linear-gradient(#3b4652,#28303a);color:#9fb3c6;
+    font:700 6.2px/1 var(--mono);letter-spacing:.04em;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
+  }
+  .eqon:hover{color:#eaf3fb;border-color:#587c98}
+  .eqon.on{color:#eafff4;background:linear-gradient(#2f9a6c,#1a5f44);border-color:#4be3a5;
+           box-shadow:0 0 6px rgba(75,227,165,.45),inset 0 1px 0 rgba(255,255,255,.2)}
+  .eqfoot{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+          font:600 5.8px/1.5 var(--mono);color:var(--faint);letter-spacing:.06em;
+          border-top:1px solid #1d252d;padding-top:6px}
+  .eqfoot .warn{color:#f0a8a2}
+  .eqfoot .rng{flex:0 0 auto;text-align:right;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -635,6 +695,25 @@
   </div>
 </div>
 
+<div class="overlay" id="eqOverlay" role="dialog" aria-modal="true" aria-labelledby="eqTitle">
+  <div class="eqpanel">
+    <div class="vhead">
+      <span id="eqTitle">EQ · Kanal 1</span>
+      <button class="vclose" id="eqClose" type="button" title="Schließen (Esc)">✕</button>
+    </div>
+    <div class="eqbody">
+      <div class="eqhd">
+        <span>Zelle</span><span>Typ</span><span>Frequenz</span><span>Q</span><span>Gain</span><span>An</span>
+      </div>
+      <div class="eqrows" id="eqRows"></div>
+      <div class="eqfoot">
+        <span id="eqInfo">Werte werden direkt an den Streifen gesendet.</span>
+        <span class="rng">20 Hz … 20 kHz · Q 0,1 … 10 · ±24 dB</span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 (function () {
@@ -687,6 +766,287 @@
     pending.clear();
     items.forEach((it) => api("/api/set", it).catch(() => {}));
   }
+
+  /* ---------- Eingangsauswahl für die Streifen 1..5 ---------- */
+  const EINGAENGE = 5;                       // /api/inputs bedient nur HW-In 1..5
+  const insel = { selects: {}, sources: [], loaded: false, ok: false, busy: false, last: 0 };
+
+  /** Langen ALSA-Namen auf eine lesbare Breite kürzen (der Wert bleibt vollständig). */
+  function kurzName(n) {
+    let s = String(n || "").replace(/^alsa_(input|output)\./, "");
+    if (/\.monitor$/.test(s)) s = s.replace(/\.monitor$/, "") + " · MON";
+    return s.length > 30 ? s.slice(0, 29) + "…" : s;
+  }
+
+  function baueInsel(i) {
+    const row = el("div", "inrow");
+    row.appendChild(el("span", "inlbl", "IN"));
+    const s = el("select", "insel");
+    s.dataset.strip = String(i + 1);
+    s.title = "Eingangsquelle für Kanal " + (i + 1);
+    s.setAttribute("aria-label", "Eingangsquelle Kanal " + (i + 1));
+    const ph = el("option", null, "…");
+    ph.value = "";
+    s.appendChild(ph);
+    s.disabled = true;
+    s.addEventListener("change", () => setzeEingang(i, s.value));
+    row.appendChild(s);
+    insel.selects[i] = s;
+    return row;
+  }
+
+  function fuelleInsel(s) {
+    const alt = s.value;
+    const leer = el("option", null, "— kein Eingang —");
+    leer.value = "";
+    const opts = [leer];
+    insel.sources.forEach((src) => {
+      const name = String((src && src.name) || "");
+      if (!name) return;
+      const o = el("option", null, (src.monitor ? "◉ " : "● ") + kurzName(name));
+      o.value = name;
+      o.title = name + (src.monitor ? "  (Monitor eines Ausgangs)" : "  (Aufnahmequelle)");
+      opts.push(o);
+    });
+    s.replaceChildren(...opts);
+    s.value = alt && insel.sources.some((x) => x && x.name === alt) ? alt : "";
+    s.classList.toggle("mon", insel.sources.some((x) => x && x.name === s.value && x.monitor));
+    s.disabled = false;
+    s.dataset.state = "ok";
+  }
+
+  async function ladeEingaenge() {
+    if (insel.busy) return;
+    insel.busy = true;
+    insel.last = Date.now();
+    try {
+      const d = await api("/api/inputs");
+      insel.sources = Array.isArray(d && d.sources) ? d.sources.filter((x) => x && x.name) : [];
+      insel.loaded = true;
+      insel.ok = true;
+      Object.keys(insel.selects).forEach((k) => fuelleInsel(insel.selects[k]));
+    } catch (e) {
+      insel.loaded = true;
+      insel.ok = false;
+      Object.keys(insel.selects).forEach((k) => {
+        const s = insel.selects[k];
+        if (!s) return;
+        const o = el("option", null, "nicht verfügbar");
+        o.value = "";
+        s.replaceChildren(o);
+        s.disabled = true;
+        s.dataset.state = "na";
+      });
+    } finally {
+      insel.busy = false;
+    }
+  }
+
+  async function setzeEingang(i, quelle) {
+    const s = insel.selects[i];
+    if (!s) return;
+    s.disabled = true;
+    try {
+      const d = await api("/api/inputs", { strip: i + 1, source: quelle || "" });
+      if (d && d.error) toast("Kanal " + (i + 1) + ": " + d.error);
+      else toast("Kanal " + (i + 1) + " ← " + (quelle ? kurzName(quelle) : "kein Eingang"));
+      if (d && Array.isArray(d.sources)) insel.sources = d.sources.filter((x) => x && x.name);
+    } catch (e) {
+      toast("Eingangswahl fehlgeschlagen (" + e.message + ")");
+    } finally {
+      if (insel.sources.length) fuelleInsel(s);
+      else s.disabled = true;
+    }
+  }
+
+  /** Quellenliste holen bzw. (nach Fehlschlag) im Abstand von 15 s erneut versuchen. */
+  function pflegeEingaenge() {
+    if (insel.busy || (insel.loaded && insel.ok)) return;
+    if (Date.now() - insel.last < (insel.loaded ? 15000 : 400)) return;
+    ladeEingaenge();
+  }
+
+  /* ---------- EQ-Zellen-Editor (6 Zellen je Streifen) ---------- */
+  const EQ_TYPEN = ["Peak", "LowShelf", "HighShelf", "LowPass", "HighPass", "BandPass", "Notch"];
+  const EQ_STANDARD = [
+    { freq: 80, q: 0.7 }, { freq: 250, q: 1.0 }, { freq: 1000, q: 1.0 },
+    { freq: 3000, q: 1.0 }, { freq: 8000, q: 1.0 }, { freq: 12000, q: 0.7 }
+  ];
+  const eqEd = { strip: -1, zellen: [], handle: [], gebaut: false };
+
+  function fmtFreq(v) {
+    const n = clamp(Math.round(+v || 20), 20, 20000);
+    return n >= 1000 ? (n % 1000 === 0 ? n / 1000 : (n / 1000).toFixed(1)) + "k" : String(n);
+  }
+
+  function baueEqEditor() {
+    const box = $("eqRows");
+    if (!box || eqEd.gebaut) return;
+    for (let c = 0; c < 6; c++) {
+      const row = el("div", "eqrow");
+      row.dataset.cell = String(c);
+      const num = el("span", "eqcnum", String(c + 1));
+
+      const typ = el("select", "eqfield");
+      typ.setAttribute("aria-label", "Zelle " + (c + 1) + ": Filtertyp");
+      EQ_TYPEN.forEach((t, k) => {
+        const o = el("option", null, t);
+        o.value = String(k);
+        typ.appendChild(o);
+      });
+      typ.addEventListener("change", () => setzeEq(c, "type", +typ.value));
+
+      const freq = el("input", "eqfield");
+      freq.type = "number"; freq.min = "20"; freq.max = "20000"; freq.step = "1";
+      freq.title = "Frequenz 20 … 20000 Hz";
+      freq.setAttribute("aria-label", "Zelle " + (c + 1) + ": Frequenz in Hz");
+      freq.addEventListener("input", () => setzeEq(c, "freq", +freq.value));
+      freq.addEventListener("change", () => {
+        freq.value = String(Math.round(clamp(+freq.value || 20, 20, 20000)));
+        setzeEq(c, "freq", +freq.value);
+      });
+
+      const q = el("input", "eqfield");
+      q.type = "number"; q.min = "0.1"; q.max = "10"; q.step = "0.05";
+      q.title = "Güte Q 0,1 … 10";
+      q.setAttribute("aria-label", "Zelle " + (c + 1) + ": Güte Q");
+      q.addEventListener("input", () => setzeEq(c, "q", +q.value));
+
+      const gain = el("input", "eqfield");
+      gain.type = "number"; gain.min = "-24"; gain.max = "24"; gain.step = "0.5";
+      gain.title = "Verstärkung −24 … +24 dB";
+      gain.setAttribute("aria-label", "Zelle " + (c + 1) + ": Gain in dB");
+      gain.addEventListener("input", () => setzeEq(c, "gain", +gain.value));
+
+      const on = el("button", "eqon", "AUS");
+      on.type = "button";
+      on.title = "Zelle " + (c + 1) + " ein/aus";
+      on.setAttribute("aria-pressed", "false");
+      on.addEventListener("click", () => {
+        const z = eqEd.zellen[c];
+        setzeEq(c, "on", z && z.on ? 0 : 1);
+      });
+
+      row.append(num, typ, freq, q, gain, on);
+      box.appendChild(row);
+      eqEd.handle[c] = { row, typ, freq, q, gain, on };
+    }
+    eqEd.gebaut = true;
+  }
+
+  function zeichneEqZelle(c) {
+    const h = eqEd.handle[c], z = eqEd.zellen[c];
+    if (!h || !z) return;
+    h.typ.value = String(z.type);
+    if (document.activeElement !== h.freq) h.freq.value = String(Math.round(z.freq));
+    if (document.activeElement !== h.q) h.q.value = String(+z.q.toFixed(2));
+    if (document.activeElement !== h.gain) h.gain.value = String(+z.gain.toFixed(1));
+    h.on.classList.toggle("on", !!z.on);
+    h.on.textContent = z.on ? "AN" : "AUS";
+    h.on.setAttribute("aria-pressed", z.on ? "true" : "false");
+    h.row.classList.toggle("off", !z.on);
+  }
+
+  /** Zellwert setzen und als eq<zelle>_<feld> an den Streifen senden. */
+  function setzeEq(c, feld, wert) {
+    if (eqEd.strip < 0) return;
+    let z = eqEd.zellen[c];
+    if (!z) {
+      z = eqEd.zellen[c] = { type: 0, freq: EQ_STANDARD[c].freq, q: EQ_STANDARD[c].q, gain: 0, on: 0 };
+    }
+    if (feld === "type") z.type = clamp(Math.round(+wert || 0), 0, EQ_TYPEN.length - 1);
+    else if (feld === "freq") z.freq = clamp(+wert || 20, 20, 20000);
+    else if (feld === "q") z.q = clamp(+wert || 0.1, 0.1, 10);
+    else if (feld === "gain") z.gain = clamp(+wert || 0, -24, 24);
+    else if (feld === "on") z.on = wert ? 1 : 0;
+    send("strip", eqEd.strip, "eq" + c + "_" + feld, +z[feld]);
+    zeichneEqZelle(c);
+    if (feld === "freq") {
+      const u = ui.strips[eqEd.strip];
+      if (u && u.cells && u.cells[c]) {
+        u.cells[c].textContent = fmtFreq(z.freq);
+        u.cells[c].title = "EQ-Band " + (c + 1) + " · " + Math.round(z.freq) + " Hz";
+      }
+    }
+  }
+
+  function oeffneEq(i) {
+    const u = ui.strips[i];
+    eqEd.strip = i;
+    eqEd.zellen = EQ_STANDARD.map((d) => ({ type: 0, freq: d.freq, q: d.q, gain: 0, on: 0 }));
+    if (u && u.cells) {
+      u.cells.forEach((b, c) => { eqEd.zellen[c].on = b.classList.contains("on") ? 1 : 0; });
+    }
+    baueEqEditor();
+    eqEd.zellen.forEach((_, c) => zeichneEqZelle(c));
+    $("eqTitle").textContent = "EQ · Kanal " + (i + 1) + (u && u.name ? " · " + u.name : "");
+    $("eqOverlay").classList.add("open");
+    const info = $("eqInfo");
+    info.classList.remove("warn");
+    info.textContent = "Zellwerte werden über GET /api/eq?strip=" + (i + 1) + " gelesen …";
+    ladeEq(i);
+  }
+
+  function schliesseEq() {
+    eqEd.strip = -1;
+    $("eqOverlay").classList.remove("open");
+  }
+
+  /** Zellwerte vom Server holen; 404 bedeutet „noch nicht vorhanden“ → Standardwerte. */
+  async function ladeEq(i) {
+    const nr = i + 1;
+    const sagen = (txt, warn) => {
+      if (eqEd.strip !== i) return;
+      const info = $("eqInfo");
+      info.textContent = txt;
+      info.classList.toggle("warn", !!warn);
+    };
+    try {
+      const r = await fetch("/api/eq?strip=" + nr, {
+        headers: { Accept: "application/json" }, cache: "no-store"
+      });
+      if (r.status === 404) {
+        sagen("GET /api/eq?strip=" + nr + " → 404: Der Server liefert die Zellwerte noch nicht. " +
+              "Angezeigt werden Standardwerte; Änderungen gehen trotzdem per /api/set an den Streifen.", true);
+        return;
+      }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const d = await r.json();
+      const liste = Array.isArray(d) ? d : (d && (d.cells || d.eq || d.bands)) || null;
+      if (!Array.isArray(liste) || !liste.length) {
+        sagen("GET /api/eq?strip=" + nr + " liefert keine Zellen – Standardwerte aktiv.", true);
+        return;
+      }
+      if (eqEd.strip !== i) return;
+      liste.slice(0, 6).forEach((z, c) => {
+        const zelle = eqEd.zellen[c];
+        if (!z || !zelle) return;
+        const typ = z.type !== undefined ? z.type : z.kind;
+        if (typ !== undefined && typ !== null) {
+          zelle.type = typeof typ === "number"
+            ? clamp(Math.round(typ), 0, EQ_TYPEN.length - 1)
+            : Math.max(0, EQ_TYPEN.findIndex((t) => t.toLowerCase() === String(typ).toLowerCase()));
+        }
+        if (z.freq !== undefined) zelle.freq = clamp(+z.freq || 20, 20, 20000);
+        if (z.q !== undefined) zelle.q = clamp(+z.q || 0.1, 0.1, 10);
+        if (z.gain !== undefined) zelle.gain = clamp(+z.gain || 0, -24, 24);
+        if (z.on !== undefined) zelle.on = z.on ? 1 : 0;
+        zeichneEqZelle(c);
+      });
+      sagen("Zellwerte von GET /api/eq?strip=" + nr + " übernommen.");
+    } catch (e) {
+      sagen("GET /api/eq?strip=" + nr + " nicht erreichbar (" + e.message + ") – Standardwerte aktiv.", true);
+    }
+  }
+
+  baueEqEditor();
+  $("eqClose").addEventListener("click", schliesseEq);
+  $("eqOverlay").addEventListener("click", (e) => {
+    if (e.target === $("eqOverlay")) schliesseEq();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $("eqOverlay").classList.contains("open")) schliesseEq();
+  });
 
   function toast(msg) {
     const t = $("toast");
@@ -828,6 +1188,9 @@
 
     const body = el("div", "sbody");
 
+    /* Eingangsquelle — nur die Hardware-Streifen 1..5 */
+    if (i < EINGAENGE) body.appendChild(baueInsel(i));
+
     /* Gain-Regler */
     const knobs = el("div", "knobs");
     const gain = makeKnob({
@@ -875,6 +1238,20 @@
       cellBtns.push(b);
     });
     eqbox.append(eqhead, cells);
+    eqbox.title = "Klick öffnet den EQ-Zellen-Editor (6 Zellen)";
+    eqbox.setAttribute("role", "button");
+    eqbox.tabIndex = 0;
+    eqbox.addEventListener("click", (ev) => {
+      if (ev.target.closest(".eqcell") || ev.target.closest(".eqled")) return;
+      oeffneEq(i);
+    });
+    eqbox.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " " || ev.key === "Spacebar") {
+        if (ev.target.closest(".eqcell") || ev.target.closest(".eqled")) return;
+        ev.preventDefault();
+        oeffneEq(i);
+      }
+    });
     body.appendChild(eqbox);
     eqBtn.addEventListener("click", () => {
       const on = !eqBtn.classList.contains("on");

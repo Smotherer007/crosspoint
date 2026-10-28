@@ -9,16 +9,28 @@ mkdir -p "$RUNDIR"
 
 link() { pw-link "$1" "$2" 2>/dev/null && echo "  $1 -> $2" || echo "  $1 -> $2 (schon da/fehlt)" >&2; }
 
+# Legt einen Knoten nur an, wenn er nicht schon existiert (sonst sammeln sich
+# bei jedem Aufruf Duplikate an, die in den Sound-Einstellungen auftauchen).
 sink() {
   local id
-  id=$(pactl load-module module-null-sink "sink_name=$1" "sink_properties=device.description=$2" 2>/dev/null) && {
-    echo "$id $1" >> "$MODFILE"; echo "  Knoten $1 (Modul $id)"; } || echo "  Knoten $1 existiert" >&2
+  if pactl list short sinks | awk '{print $2}' | grep -qx "$1"; then
+    echo "  Knoten $1 existiert bereits" >&2
+    return 0
+  fi
+  id=$(pactl load-module module-null-sink "sink_name=$1" \
+        "sink_properties=device.description=\"$2\"" 2>/dev/null)
+  if [ -n "$id" ]; then
+    echo "$id $1" >> "$MODFILE"
+    echo "  Knoten $1 angelegt (Modul $id)"
+  else
+    echo "  Knoten $1 konnte nicht angelegt werden" >&2
+  fi
 }
 
 case "${1:-up}" in
 up)
-  for i in 1 2 3; do sink "vm8_in_$i" "VM8 Virt In $i"; done
-  for b in B1 B2 B3; do sink "vm8_out_$b" "VM8 Virt Out $b"; done
+  for i in 1 2 3; do sink "vm8_in_$i" "VM8-Virt-In-$i"; done
+  for b in B1 B2 B3; do sink "vm8_out_$b" "VM8-Virt-Out-$b"; done
   sleep 0.5
   for i in 1 2 3; do
     s=$((5 + i))
