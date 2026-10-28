@@ -90,9 +90,10 @@ down)
   fi
   # Nachzuegler: Module, die nicht (mehr) in der Merkliste stehen, z. B. nach
   # einem Absturz oder wenn die Liste geloescht wurde. Sonst bleiben die
-  # virtuellen Geraete nach dem Schliessen im System stehen.
+  # virtuellen Geraete nach dem Schliessen im System stehen. Mit erfasst werden
+  # die Geraete der Vorgaengerversion (Praefix vm8), die sonst liegen bleiben.
   n=0
-  for id in $(pactl list short modules | awk -F'\t' '/sink_name=crosspoint|source_name=crosspoint/{print $1}'); do
+  for id in $(pactl list short modules | awk -F'\t' '/sink_name=crosspoint|source_name=crosspoint|sink_name=vm8_|source_name=vm8_/{print $1}'); do
     pactl unload-module "$id" 2>/dev/null && { echo "  Modul $id entfernt (Nachzuegler)"; n=$((n+1)); }
   done
   [ "$n" -eq 0 ] && [ ! -f "$MODFILE" ] && echo "  nichts zu entfernen" >&2

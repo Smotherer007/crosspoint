@@ -91,17 +91,41 @@ Parameter: `gain`, `pan`, `mute`, `solo`, `mono`, `eq`, `comp`, `gate`, `denoise
 
 ## Flatpak
 
+Einmalig die Bauwerkzeuge (auf Bazzite ohne `flatpak-builder` im System):
+
 ```bash
-flatpak install --user flatpak/org.freedesktop.Sdk.Extension.rust-stable.yml  # einmalig, s. u.
-flatpak-builder --user --install --force-clean build-dir flatpak/de.weppelmann.Crosspoint.yml
+flatpak install --user flathub org.flatpak.Builder \
+    org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
+```
+
+Dann bauen und starten:
+
+```bash
+flatpak run --command=flatpak-builder org.flatpak.Builder \
+    --user --install --force-clean --disable-rofiles-fuse \
+    build-dir flatpak/de.weppelmann.Crosspoint.yml
 flatpak run de.weppelmann.Crosspoint
 ```
 
+`--disable-rofiles-fuse` ist im Builder-Flatpak nötig (kein `/dev/fuse` im Sandbox).
 Das Manifest baut ausschließlich aus diesem Repo (nur path-Abhängigkeiten, daher
-`cargo build --offline`). Icon und Desktop-Eintrag landen unter
-`/app/share/icons/hicolor/*/apps/` und `/app/share/applications`. Konfiguration
-schreibt die App nach `~/.config/crosspoint` (Finish-Arg
-`--filesystem=~/.config/crosspoint:create`).
+`cargo build --offline`) und installiert Engine, Startskript, Icon-Satz
+(`/app/share/icons/hicolor/<n>x<n>/apps/`) und Desktop-Eintrag
+(`/app/share/applications`).
+
+Finish-Args und warum sie da sind:
+
+| Recht | Grund |
+|---|---|
+| `--socket=pulseaudio` | `pactl` legt die virtuellen Knoten (`CROSSPOINT-Input-*`, `CROSSPOINT-Output-*`) an |
+| `--filesystem=xdg-run/pipewire-0` | nativer PipeWire-Zugriff für JACK-Client und `pw-link`/`pw-dump` |
+| `--share=ipc`, `--share=network` | Steuer-API auf `127.0.0.1:8770` muss vom Host-Browser erreichbar sein |
+| `--filesystem=~/.config/crosspoint:create` | Konfiguration/Presets |
+| `--talk-name=org.freedesktop.Flatpak` | das Fenster öffnet der Host-Browser (`flatpak-spawn --host`) |
+
+Die Engine linkt im Sandbox gegen das `libjack.so.0` des Freedesktop-Runtime
+(`/usr/lib/x86_64-linux-gnu/libjack.so.0`, pipewire-jack) – es ist dort
+vorhanden, ein Rückfall auf PulseAudio ist nicht nötig.
 
 ## Grenzen (ehrlich)
 
