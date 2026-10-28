@@ -9,7 +9,11 @@ name = "vm8"
 path = "src/lib.rs"
 
 [dependencies]
+tape = { path = "crates/tape" }
 
 [[bin]]
 name = "vm8-engine"
 path = "src/main.rs"
+
+[workspace]
+members = ["crates/vban", "crates/tape", "crates/macros"]

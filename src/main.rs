@@ -14,6 +14,8 @@ struct Rt {
     dsp: EngineDsp,
     ins: [[*mut Port; 2]; STRIPS],
     outs: [[*mut Port; 2]; BUSES],
+    tape: Arc<vm8::tape_io::TapeControl>,
+    scratch: Vec<f32>,
 }
 
 impl Rt {
@@ -39,6 +41,20 @@ impl Rt {
             }
         }
         self.dsp.process(&self.params, &io, frames);
+
+        // Bus A1 (Stereo) in den Tape-Ring schieben - ohne Lock, ohne Allokation.
+        if self.tape.recording.load(std::sync::atomic::Ordering::Relaxed) {
+            let n = frames.min(self.scratch.len() / 2);
+            if !io.outs[0][0].is_null() && !io.outs[0][1].is_null() {
+                unsafe {
+                    for i in 0..n {
+                        self.scratch[i * 2] = *io.outs[0][0].add(i);
+                        self.scratch[i * 2 + 1] = *io.outs[0][1].add(i);
+                    }
+                }
+                self.tape.ring.push(&self.scratch[..n * 2]);
+            }
+        }
     }
 }
 
@@ -70,11 +86,15 @@ fn main() {
     }
 
     let params = Arc::new(Params::new(48_000.0, 512));
+    let ring = Arc::new(vm8::tape_io::Ring::new(8, 2048));
+    let tape = Arc::new(vm8::tape_io::TapeControl::new(ring.clone(), 2048));
     let rt: &'static mut Rt = Box::leak(Box::new(Rt {
         params: params.clone(),
         dsp: EngineDsp::new(2048),
         ins: [[std::ptr::null_mut(); 2]; STRIPS],
         outs: [[std::ptr::null_mut(); 2]; BUSES],
+        tape: tape.clone(),
+        scratch: vec![0.0f32; 2048 * 2],
     }));
 
     let jack = match Jack::open(&client_name, process_cb, rt as *mut Rt as *mut c_void) {
@@ -121,10 +141,15 @@ fn main() {
     println!("\nVerdrahtung: scripts/vm8-wire.sh up\n");
 
     let preset = preset_path();
+    let tape_dir = preset.with_file_name("tape");
+    let _ = std::fs::create_dir_all(&tape_dir);
+    vm8::tape_io::spawn_writer(tape.clone(), tape_dir, jack.sample_rate);
+
     let listen_owned = listen.clone();
     let params_ui = params.clone();
+    let tape_ui = tape.clone();
     thread::spawn(move || {
-        if let Err(e) = vm8::http::serve(listen_owned, params_ui, preset) {
+        if let Err(e) = vm8::http::serve(listen_owned, params_ui, preset, tape_ui) {
             eprintln!("HTTP: {e}");
         }
     });

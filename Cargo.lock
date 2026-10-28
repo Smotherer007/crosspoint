@@ -3,5 +3,20 @@
 version = 4
 
 [[package]]
+name = "macros"
+version = "0.1.0"
+
+[[package]]
+name = "tape"
+version = "0.1.0"
+
+[[package]]
+name = "vban"
+version = "0.1.0"
+
+[[package]]
 name = "vm8"
 version = "0.1.0"
+dependencies = [
+ "tape",
+]

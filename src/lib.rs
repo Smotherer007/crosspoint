@@ -16,6 +16,7 @@
 
 pub mod dsp;
 pub mod engine;
+pub mod tape_io;
 pub mod http;
 pub mod jack;
 pub mod json;

@@ -10,10 +10,16 @@ use std::thread;
 
 use crate::engine::Params;
 use crate::json::{self, Value};
+use crate::tape_io::TapeControl;
 
 const INDEX_HTML: &str = include_str!("../web/index.html");
 
-pub fn serve(listen: String, params: Arc<Params>, preset: PathBuf) -> io::Result<()> {
+pub fn serve(
+    listen: String,
+    params: Arc<Params>,
+    preset: PathBuf,
+    tape: Arc<TapeControl>,
+) -> io::Result<()> {
     let listener = TcpListener::bind(&listen)?;
     println!("UI: http://{listen}/");
     for stream in listener.incoming() {
@@ -23,14 +29,20 @@ pub fn serve(listen: String, params: Arc<Params>, preset: PathBuf) -> io::Result
         };
         let params = params.clone();
         let preset = preset.clone();
+        let tape = tape.clone();
         thread::spawn(move || {
-            let _ = handle(&params, &preset, &mut stream);
+            let _ = handle(&params, &preset, &tape, &mut stream);
         });
     }
     Ok(())
 }
 
-fn handle(params: &Arc<Params>, preset: &PathBuf, stream: &mut TcpStream) -> io::Result<()> {
+fn handle(
+    params: &Arc<Params>,
+    preset: &PathBuf,
+    tape: &Arc<TapeControl>,
+    stream: &mut TcpStream,
+) -> io::Result<()> {
     stream.set_nodelay(true).ok();
     stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).ok();
 
@@ -100,6 +112,35 @@ fn handle(params: &Arc<Params>, preset: &PathBuf, stream: &mut TcpStream) -> io:
                 }
             };
             reply(stream, "200 OK", "application/json", out.as_bytes())
+        }
+        ("GET", p) if p.starts_with("/api/tape") => {
+            let body = format!(
+                "{{\"recording\":{},\"status\":{}}}",
+                tape.recording.load(std::sync::atomic::Ordering::Relaxed),
+                json::quote(&tape.status())
+            );
+            reply(stream, "200 OK", "application/json", body.as_bytes())
+        }
+        ("POST", p) if p.starts_with("/api/tape") => {
+            let action = json::parse(&body)
+                .ok()
+                .and_then(|v| v.get("action").and_then(|a| match a {
+                    Value::Str(s) => Some(s.clone()),
+                    _ => None,
+                }))
+                .unwrap_or_default();
+            match action.as_str() {
+                "start" => {
+                    tape.recording.store(true, std::sync::atomic::Ordering::Relaxed);
+                    tape.set_status("start angefordert");
+                    reply(stream, "200 OK", "application/json", b"{\"ok\":true}")
+                }
+                "stop" => {
+                    tape.recording.store(false, std::sync::atomic::Ordering::Relaxed);
+                    reply(stream, "200 OK", "application/json", b"{\"ok\":true}")
+                }
+                _ => reply(stream, "400 Bad Request", "text/plain", b"action start|stop"),
+            }
         }
         ("GET", p) if p.starts_with("/api/preset") => match fs::read_to_string(preset) {
             Ok(s) => reply(stream, "200 OK", "application/json", s.as_bytes()),
