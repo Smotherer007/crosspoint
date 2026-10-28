@@ -171,6 +171,24 @@ fn save_mapping(strip: usize, source: Option<&str>) {
     let _ = std::fs::write(&p, text);
 }
 
+/// Trennt alle eingehenden Verbindungen der beiden Streifen-Ports - egal woher
+/// sie kommen (auch ein VBAN-Port oder ein Knoten, den wir nicht kennen).
+pub fn disconnect_targets(runner: &dyn Runner, in_l: &str, in_r: &str) {
+    let text = runner.run("pw-link", &["-l"]).unwrap_or_default();
+    let mut aktuell = String::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("|<-") {
+            let quelle = rest.trim();
+            if (aktuell == in_l || aktuell == in_r) && !quelle.is_empty() {
+                let _ = runner.run("pw-link", &["-d", quelle, &aktuell]);
+            }
+        } else if !t.is_empty() && !t.starts_with('|') {
+            aktuell = t.split_whitespace().next().unwrap_or("").to_string();
+        }
+    }
+}
+
 /// Verbindet einen Streifen mit einer Quelle (bzw. löst die Verbindung).
 pub fn assign(
     runner: &dyn Runner,
@@ -178,6 +196,10 @@ pub fn assign(
     source: Option<&str>,
 ) -> Result<(), String> {
     let (in_l, in_r, _, _) = strip_ports(strip)?;
+
+    // Erst alles abklemmen, was auf den Zielports liegt (auch unbekannte
+    // Quellen wie vm8:vban_L), sonst bleiben Fremdverbindungen bestehen.
+    disconnect_targets(runner, &in_l, &in_r);
 
     // Alte Verbindungen lösen, egal wer dranhängt: alle Quellen abklemmen.
     let quellen = list_sources(runner).unwrap_or_default();
