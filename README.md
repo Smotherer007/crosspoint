@@ -94,9 +94,15 @@ Parameter: `gain`, `pan`, `mute`, `solo`, `mono`, `eq`, `comp`, `gate`, `denoise
 Einmalig die Bauwerkzeuge (auf Bazzite ohne `flatpak-builder` im System):
 
 ```bash
-flatpak install --user flathub org.flatpak.Builder \
-    org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
+flatpak install --user flathub org.flatpak.Builder
+flatpak install --system flathub org.gnome.Sdk//51
 ```
+
+Das SDK muss **systemweit** liegen: `flatpak-builder` läuft selbst im Builder-Sandbox
+und fragt die SDKs über `flatpak info` in der Systeminstallation ab – ein
+`--user`-SDK ist für ihn unsichtbar (`error: org.gnome.Sdk/x86_64/51 not installed`).
+Die Runtime `org.gnome.Platform//51` bringt WebKitGTK mit, der GNOME-SDK zusätzlich
+den Rust-Toolchain unter `/usr/lib/sdk/rust-stable` (keine rust-stable-Extension nötig).
 
 Dann bauen und starten:
 
@@ -111,7 +117,8 @@ flatpak run de.weppelmann.Crosspoint
 Das Manifest baut ausschließlich aus diesem Repo (nur path-Abhängigkeiten, daher
 `cargo build --offline`) und installiert Engine, Startskript, Icon-Satz
 (`/app/share/icons/hicolor/<n>x<n>/apps/`) und Desktop-Eintrag
-(`/app/share/applications`).
+(`/app/share/applications`). Ein zweites Modul (`fenster/`) baut
+`crosspoint-fenster`, das GTK3-Fenster mit WebKitGTK.
 
 Finish-Args und warum sie da sind:
 
@@ -119,11 +126,20 @@ Finish-Args und warum sie da sind:
 |---|---|
 | `--socket=pulseaudio` | `pactl` legt die virtuellen Knoten (`CROSSPOINT-Input-*`, `CROSSPOINT-Output-*`) an |
 | `--filesystem=xdg-run/pipewire-0` | nativer PipeWire-Zugriff für JACK-Client und `pw-link`/`pw-dump` |
-| `--share=ipc`, `--share=network` | Steuer-API auf `127.0.0.1:8770` muss vom Host-Browser erreichbar sein |
+| `--share=ipc`, `--share=network` | Steuer-API auf `127.0.0.1:8770` bleibt von außen erreichbar (VBAN, Steuerung) |
+| `--socket=wayland`, `--socket=fallback-x11` | das Fenster ist ein Wayland-Client, X11 als Rückfall |
+| `--device=dri` | WebKit zeichnet die Oberfläche beschleunigt |
 | `--filesystem=~/.config/crosspoint:create` | Konfiguration/Presets |
-| `--talk-name=org.freedesktop.Flatpak` | das Fenster öffnet der Host-Browser (`flatpak-spawn --host`) |
 
-Die Engine linkt im Sandbox gegen das `libjack.so.0` des Freedesktop-Runtime
+Die Oberfläche ist im Flatpak ein eigenes Fenster (`crosspoint-fenster`, GTK3 +
+WebKitGTK, 1760×980, Titel `Crosspoint`), das dieselbe Seite von
+`http://127.0.0.1:8770/` lädt. Ein Browser – im Sandbox oder auf dem Host – ist
+dafür nicht mehr nötig; `flatpak-spawn` und `--talk-name=org.freedesktop.Flatpak`
+sind entfallen. Auf dem Host startet `scripts/crosspoint-launch.sh` weiterhin den
+Browser der Wahl; im Flatpak übernimmt `scripts/crosspoint-start.sh` (Engine →
+auf HTTP 200 warten → Fenster → nach Fensterschluss Engine und Geräte aufräumen).
+
+Die Engine linkt im Sandbox gegen das `libjack.so.0` des GNOME-Runtime
 (`/usr/lib/x86_64-linux-gnu/libjack.so.0`, pipewire-jack) – es ist dort
 vorhanden, ein Rückfall auf PulseAudio ist nicht nötig.
 
