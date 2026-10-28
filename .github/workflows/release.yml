@@ -1,0 +1,127 @@
+name: Release
+
+# Ablauf wie im Nachbarprojekt: Conventional Commits auf main, release-please
+# haelt einen Release-PR aktuell; dessen Merge erzeugt Tag und Release, dieser
+# Workflow baut die Pakete und haengt sie an.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Vorhandener Tag, z. B. v0.1.0
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release-please:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  prepare:
+    needs: release-please
+    if: >-
+      always() && (
+        needs.release-please.outputs.created == 'true' ||
+        startsWith(github.ref, 'refs/tags/v') ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+      version: ${{ steps.t.outputs.version }}
+    steps:
+      - id: t
+        env:
+          RP_TAG: ${{ needs.release-please.outputs.tag }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$RP_TAG" ]; then TAG="$RP_TAG"
+          elif [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG"
+          else TAG="$GITHUB_REF_NAME"; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Release anlegen, falls nicht vorhanden
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.t.outputs.tag }}
+        run: |
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
+
+  linux:
+    needs: prepare
+    name: Linux-Pakete
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+
+      - name: Bauen
+        run: cargo build --release --locked
+
+      - name: Flatpak-Bundle
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+          flatpak-builder --user --repo=repo --force-clean build-dir flatpak/de.weppelmann.Crosspoint.yml
+          flatpak build-bundle repo "crosspoint-${VERSION}-x86_64.flatpak" de.weppelmann.Crosspoint
+
+      - name: Tarball
+        run: |
+          mkdir -p dist
+          cp target/release/crosspoint-engine dist/
+          cp scripts/crosspoint-launch.sh dist/
+          cp scripts/crosspoint-wire.sh dist/
+          cp packaging/linux/de.weppelmann.Crosspoint.desktop dist/
+          cp docs/brand/crosspoint-icon-1024.png dist/crosspoint.png
+          tar -C dist -czf "crosspoint-${VERSION}-linux-x86_64.tar.gz" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-pakete
+          path: |
+            crosspoint-*-x86_64.flatpak
+            crosspoint-*-linux-x86_64.tar.gz
+
+  attach:
+    needs: [prepare, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: pakete
+          merge-multiple: true
+      - name: An das Release haengen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" pakete/* -R "$GITHUB_REPOSITORY" --clobber

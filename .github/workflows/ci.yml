@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  test:
+    name: Build und Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # Die Engine linkt gegen libjack.so.0 aus pipewire; im CI gibt es kein
+      # PipeWire, deshalb wird nur gebaut und getestet, nicht gestartet.
+      - name: Clippy (nur echte Fehler blockieren)
+        run: cargo clippy --all-targets --locked -- -D clippy::correctness
+      - name: Tests
+        run: cargo test --locked
+      - name: Release-Build
+        run: cargo build --release --locked
+
+  metadata:
+    name: Paket-Metadaten
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq desktop-file-utils appstream
+          desktop-file-validate packaging/linux/*.desktop
+          appstreamcli validate --no-net packaging/linux/*.metainfo.xml
+
+  flatpak:
+    name: Flatpak bauen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+      - run: flatpak-builder --user --repo=repo --force-clean --disable-tests build-dir flatpak/de.weppelmann.Crosspoint.yml

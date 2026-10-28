@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>de.weppelmann.Crosspoint</id>
+  <name>Crosspoint</name>
+  <summary>Audio mixer with routing matrix on PipeWire</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <description>
+    <p>
+      Crosspoint is an audio mixer for Linux. Eight input strips are routed to
+      eight buses through a crosspoint matrix, with per-strip EQ, compressor,
+      gate and denoiser, per-bus limiter, multi-band limiting, recording and
+      VBAN streaming over the local network.
+    </p>
+    <p>
+      Devices and routing are handled by PipeWire; the mixer runs as a JACK
+      client, so any PipeWire or JACK application can feed and record it.
+    </p>
+  </description>
+  <launchable type="desktop-id">de.weppelmann.Crosspoint.desktop</launchable>
+  <url type="homepage">https://github.com/Smotherer007/crosspoint</url>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-10-28"/>
+  </releases>
+</component>

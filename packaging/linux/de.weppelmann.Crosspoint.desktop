@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Crosspoint
+GenericName=Audio-Mixer
+Comment=8 Kanäle, 8 Busse, Routing auf PipeWire
+Exec=crosspoint-launch
+Icon=de.weppelmann.Crosspoint
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=mixer;audio;routing;pipewire;jack;vban;
+StartupWMClass=Crosspoint
