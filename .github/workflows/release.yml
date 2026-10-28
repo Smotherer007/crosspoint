@@ -73,7 +73,9 @@ jobs:
     # mit - dann entsteht ein Release ohne Pakete.
     if: always() && needs.prepare.result == 'success'
     name: Linux-Pakete
-    runs-on: ubuntu-22.04
+    # 24.04 statt 22.04: das Flatpak in 22.04 ist zu alt fuer Runtimes wie
+    # org.gnome.Platform//51 - der Bundle-Schritt scheiterte dort.
+    runs-on: ubuntu-24.04
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
