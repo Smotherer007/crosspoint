@@ -190,6 +190,26 @@ fn handle(
                 }
             }
         }
+        ("GET", p) if p.starts_with("/api/inputs") => {
+            let body = crate::inputs::status_json(&crate::inputs::RealRunner);
+            reply(stream, "200 OK", "application/json", body.as_bytes())
+        }
+        ("POST", p) if p.starts_with("/api/inputs") => {
+            let v = json::parse(&body).unwrap_or(Value::Null);
+            let strip = v.get("strip").and_then(|x| x.as_f64()).unwrap_or(0.0) as usize;
+            let quelle = v
+                .get("source")
+                .and_then(|x| match x {
+                    Value::Str(s) if !s.is_empty() => Some(s.clone()),
+                    _ => None,
+                });
+            let runner = crate::inputs::RealRunner;
+            let out = match crate::inputs::assign(&runner, strip, quelle.as_deref()) {
+                Ok(()) => crate::inputs::status_json(&runner),
+                Err(e) => format!("{{\"error\":{}}}", json::quote(&e)),
+            };
+            reply(stream, "200 OK", "application/json", out.as_bytes())
+        }
         ("GET", p) if p.starts_with("/api/devices") => {
             let body = match devices.lock() {
                 Ok(d) => d.status_json(&RealRunner),

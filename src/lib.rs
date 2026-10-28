@@ -21,6 +21,7 @@ pub mod macros_io;
 pub mod tape_io;
 pub mod vban_io;
 pub mod http;
+pub mod inputs;
 pub mod jack;
 pub mod json;
 
