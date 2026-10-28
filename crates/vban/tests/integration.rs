@@ -6,7 +6,7 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
-use vban::{AudioFrame, AudioFormat, Receiver, Sender, SubProtocol, VbanError, HEADER_LEN};
+use vban::{AudioFormat, AudioFrame, Receiver, Sender, SubProtocol, VbanError, HEADER_LEN};
 
 #[test]
 fn oeffentliche_api_frame_roundtrip() {
@@ -46,7 +46,8 @@ fn fehlertexte_sind_verstaendlich() {
 #[test]
 fn udp_ende_zu_ende() {
     let mut rx = Receiver::bind("127.0.0.1:0".parse().unwrap()).unwrap();
-    rx.set_read_timeout(Some(Duration::from_millis(1000))).unwrap();
+    rx.set_read_timeout(Some(Duration::from_millis(1000)))
+        .unwrap();
     let target = rx.local_addr().unwrap();
 
     let tx = Sender::bind_iface(IpAddr::V4(Ipv4Addr::LOCALHOST), 0, target).unwrap();

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::thread;
 
 use crosspoint::engine::{EngineDsp, Io, Params};
+use crosspoint::jack::{self, Jack, Port};
 use crosspoint::macros_io::MacroControl;
 use crosspoint::vban_io::{VbanControl, VbanRecvControl};
-use crosspoint::jack::{self, Jack, Port};
 use crosspoint::{BUSES, BUS_NAMES, STRIPS};
 
 struct Rt {
@@ -102,7 +102,11 @@ impl Rt {
         self.dsp.process(&self.params, &io, frames);
 
         // Bus A1 (Stereo) in den Tape-Ring schieben - ohne Lock, ohne Allokation.
-        if self.tape.recording.load(std::sync::atomic::Ordering::Relaxed) {
+        if self
+            .tape
+            .recording
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             let n = frames.min(self.scratch.len() / 2);
             if !io.outs[0][0].is_null() && !io.outs[0][1].is_null() {
                 unsafe {
@@ -165,7 +169,10 @@ fn wire(richtung: &str) {
     if let Some(p) = std::env::var_os("CROSSPOINT_WIRE").filter(|p| !p.is_empty()) {
         kandidaten.push(std::path::PathBuf::from(p));
     }
-    if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    {
         kandidaten.push(dir.join("crosspoint-wire.sh"));
         kandidaten.push(dir.join("../../scripts/crosspoint-wire.sh"));
     }
@@ -238,7 +245,9 @@ fn main() {
         scratch: vec![0.0f32; 2048 * 2],
     }));
 
-    let jack = match Jack::open(&client_name, process_cb, rt as *mut Rt as *mut c_void) {
+    // SAFETY: `rt` liegt in einer Arc, die bis zum Programmende gehalten wird
+    // (siehe unten) - der Zeiger bleibt also gueltig, solange der Client lebt.
+    let jack = match unsafe { Jack::open(&client_name, process_cb, rt as *mut Rt as *mut c_void) } {
         Ok(j) => j,
         Err(e) => {
             eprintln!("JACK/PipeWire: {e}");
@@ -263,8 +272,12 @@ fn main() {
         rt.ins[s] = [l, r];
     }
     for b in 0..BUSES {
-        let l = jack.port_out(&format!("bus{}_L", BUS_NAMES[b])).expect("Port");
-        let r = jack.port_out(&format!("bus{}_R", BUS_NAMES[b])).expect("Port");
+        let l = jack
+            .port_out(&format!("bus{}_L", BUS_NAMES[b]))
+            .expect("Port");
+        let r = jack
+            .port_out(&format!("bus{}_R", BUS_NAMES[b]))
+            .expect("Port");
         rt.outs[b] = [l, r];
     }
     // Zusatz-Ausgänge für empfangenes VBAN-Audio. Sie werden wie ein
@@ -395,7 +408,11 @@ fn apply_macro_command(params: &Params, cmd: &str) {
                 .and_then(|s| s.get(teile[2]))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
-            if ist > 0.0 { 0.0 } else { 1.0 }
+            if ist > 0.0 {
+                0.0
+            } else {
+                1.0
+            }
         }
         w => match w.parse::<f32>() {
             Ok(f) => f,

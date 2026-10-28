@@ -130,7 +130,9 @@ pub fn ports_for(source: &str) -> (String, String) {
 /// Streifen 1..5 → Portnamen des Mixers.
 pub fn strip_ports(strip: usize) -> Result<(String, String, String, String), String> {
     if strip == 0 || strip > MAX_HW_STRIPS {
-        return Err(format!("Streifen {strip} hat keinen Hardware-Eingang (1..{MAX_HW_STRIPS})"));
+        return Err(format!(
+            "Streifen {strip} hat keinen Hardware-Eingang (1..{MAX_HW_STRIPS})"
+        ));
     }
     Ok((
         format!("crosspoint:strip{strip}_L"),
@@ -234,7 +236,11 @@ fn save_mapping_mit(pfad: &std::path::Path, strip: usize, source: Option<&str>) 
 /// Vorher werden **alle** Links getrennt, die laut Graph in die beiden
 /// Streifenports hineinführen – auch fremde (z. B. `crosspoint:vban_L`). Danach werden
 /// die echten Ports der Quelle verbunden.
-pub fn assign(runner: &dyn CommandRunner, strip: usize, source: Option<&str>) -> Result<(), String> {
+pub fn assign(
+    runner: &dyn CommandRunner,
+    strip: usize,
+    source: Option<&str>,
+) -> Result<(), String> {
     assign_mit(runner, &mapping_path(), strip, source)
 }
 
@@ -295,7 +301,10 @@ pub fn status_json_mit(
                 ("name", Value::str(q.name.clone())),
                 ("desc", Value::str(q.desc.clone())),
                 ("monitor", Value::Bool(q.is_monitor)),
-                ("ports", Value::Arr(ports.into_iter().map(Value::Str).collect())),
+                (
+                    "ports",
+                    Value::Arr(ports.into_iter().map(Value::Str).collect()),
+                ),
             ])
         })
         .collect();
@@ -321,7 +330,12 @@ pub fn status_json_mit(
 
     // Echte Verbindungen an den Streifenports – Ist-Zustand statt Merkliste.
     let streifen: Vec<String> = (1..=MAX_HW_STRIPS)
-        .flat_map(|i| [format!("crosspoint:strip{i}_L"), format!("crosspoint:strip{i}_R")])
+        .flat_map(|i| {
+            [
+                format!("crosspoint:strip{i}_L"),
+                format!("crosspoint:strip{i}_R"),
+            ]
+        })
         .collect();
     let links: Vec<Value> = graph
         .as_ref()
@@ -359,7 +373,10 @@ mod tests {
     use crate::pw::tests::DUMP;
 
     fn tmp_path(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("crosspoint-inputs-{}-{tag}.conf", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "crosspoint-inputs-{}-{tag}.conf",
+            std::process::id()
+        ))
     }
 
     fn fake(text: &str) -> FakeRunner {
@@ -407,8 +424,14 @@ mod tests {
     fn eigene_knoten_und_streams_werden_ausgeblendet() {
         let graph = Graph::parse(DUMP).unwrap();
         let mit = quellen(&graph, true);
-        assert!(mit.iter().all(|q| !q.name.starts_with("crosspoint")), "{mit:?}");
-        assert!(mit.iter().all(|q| q.name != "Chromium"), "Stream ist keine Quelle");
+        assert!(
+            mit.iter().all(|q| !q.name.starts_with("crosspoint")),
+            "{mit:?}"
+        );
+        assert!(
+            mit.iter().all(|q| q.name != "Chromium"),
+            "Stream ist keine Quelle"
+        );
         assert!(ist_eigen("crosspoint"));
         assert!(ist_eigen("crosspoint_in_1"));
         assert!(ist_eigen("crosspoint:strip1_L"));
@@ -419,11 +442,17 @@ mod tests {
     fn portnamen_unterscheiden_quelle_und_monitor() {
         assert_eq!(
             ports_for("alsa_input.usb-mic"),
-            ("alsa_input.usb-mic:capture_FL".into(), "alsa_input.usb-mic:capture_FR".into())
+            (
+                "alsa_input.usb-mic:capture_FL".into(),
+                "alsa_input.usb-mic:capture_FR".into()
+            )
         );
         assert_eq!(
             ports_for("alsa_output.hdmi.monitor"),
-            ("alsa_output.hdmi:monitor_FL".into(), "alsa_output.hdmi:monitor_FR".into())
+            (
+                "alsa_output.hdmi:monitor_FL".into(),
+                "alsa_output.hdmi:monitor_FR".into()
+            )
         );
         assert_eq!(kanonisch("alsa_output.hdmi.monitor"), "alsa_output.hdmi");
         assert_eq!(kanonisch(" alsa_input.usb "), "alsa_input.usb");
@@ -460,10 +489,22 @@ mod tests {
         let aufrufe = f.lines();
         // Im Graphen hängt das Mikrofon schon an strip1_L (Link 501) – erst lösen.
         assert_eq!(aufrufe[0], "pw-dump");
-        assert_eq!(aufrufe[1], format!("pw-link -d {MONO}:capture_MONO crosspoint:strip1_L"));
-        assert_eq!(aufrufe[2], format!("pw-link {MONO}:capture_MONO crosspoint:strip1_L"));
-        assert_eq!(aufrufe[3], format!("pw-link {MONO}:capture_MONO crosspoint:strip1_R"));
-        assert_eq!(std::fs::read_to_string(&pfad).unwrap(), format!("1={MONO}\n"));
+        assert_eq!(
+            aufrufe[1],
+            format!("pw-link -d {MONO}:capture_MONO crosspoint:strip1_L")
+        );
+        assert_eq!(
+            aufrufe[2],
+            format!("pw-link {MONO}:capture_MONO crosspoint:strip1_L")
+        );
+        assert_eq!(
+            aufrufe[3],
+            format!("pw-link {MONO}:capture_MONO crosspoint:strip1_R")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&pfad).unwrap(),
+            format!("1={MONO}\n")
+        );
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -496,9 +537,14 @@ mod tests {
         );
         assign_mit(&f, &pfad, 2, Some("alsa_input.usb-mic")).unwrap();
         let zeilen = f.lines();
-        assert_eq!(zeilen[1], "pw-link -d crosspoint:vban_L crosspoint:strip2_L", "{zeilen:?}");
-        assert!(zeilen.contains(&"pw-link alsa_input.usb-mic:capture_FL crosspoint:strip2_L".to_string()));
-        assert!(zeilen.contains(&"pw-link alsa_input.usb-mic:capture_FR crosspoint:strip2_R".to_string()));
+        assert_eq!(
+            zeilen[1], "pw-link -d crosspoint:vban_L crosspoint:strip2_L",
+            "{zeilen:?}"
+        );
+        assert!(zeilen
+            .contains(&"pw-link alsa_input.usb-mic:capture_FL crosspoint:strip2_L".to_string()));
+        assert!(zeilen
+            .contains(&"pw-link alsa_input.usb-mic:capture_FR crosspoint:strip2_R".to_string()));
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -512,8 +558,14 @@ mod tests {
         let f = fake(DUMP);
         assign_mit(&f, &pfad, 3, None).unwrap();
         let aufrufe = f.lines();
-        assert!(!aufrufe.iter().any(|z| z.contains("pw-link crosspoint")), "{aufrufe:?}");
-        assert!(std::fs::read_to_string(&pfad).unwrap().is_empty(), "Eintrag entfernt");
+        assert!(
+            !aufrufe.iter().any(|z| z.contains("pw-link crosspoint")),
+            "{aufrufe:?}"
+        );
+        assert!(
+            std::fs::read_to_string(&pfad).unwrap().is_empty(),
+            "Eintrag entfernt"
+        );
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -525,7 +577,10 @@ mod tests {
         let m = mapping_mit(&pfad);
         assert_eq!(m[0].as_deref(), Some("alsa_output.hdmi"));
         assert!(m[1].is_none(), "leer bleibt leer");
-        assert!(m.iter().skip(1).all(|e| e.is_none()), "unbekannte Streifen ignoriert");
+        assert!(
+            m.iter().skip(1).all(|e| e.is_none()),
+            "unbekannte Streifen ignoriert"
+        );
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -556,8 +611,14 @@ mod tests {
 
         let links = wert.get("links").unwrap().as_arr().unwrap();
         assert_eq!(links.len(), 1, "{links:?}");
-        assert_eq!(links[0].get("von").unwrap(), &Value::str(format!("{MONO}:capture_MONO")));
-        assert_eq!(links[0].get("nach").unwrap(), &Value::str("crosspoint:strip1_L"));
+        assert_eq!(
+            links[0].get("von").unwrap(),
+            &Value::str(format!("{MONO}:capture_MONO"))
+        );
+        assert_eq!(
+            links[0].get("nach").unwrap(),
+            &Value::str("crosspoint:strip1_L")
+        );
 
         // Ohne pw-dump bleibt das JSON gültig und meldet den Fehler.
         let kaputt = FakeRunner::new().with_failure("pw-dump");

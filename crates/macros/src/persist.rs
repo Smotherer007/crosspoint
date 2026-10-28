@@ -65,14 +65,23 @@ fn button_to_wert(button: &Button) -> Wert {
 
 fn action_to_wert(action: &Action) -> Wert {
     match action {
-        Action::SetParam { target, index, param, value } => Wert::objekt(vec![
+        Action::SetParam {
+            target,
+            index,
+            param,
+            value,
+        } => Wert::objekt(vec![
             ("type", Wert::text("set")),
             ("target", Wert::text(target.clone())),
             ("index", Wert::zahl(*index as f64)),
             ("param", Wert::text(param.clone())),
             ("value", Wert::zahl(*value)),
         ]),
-        Action::MidiNote { channel, note, velocity } => Wert::objekt(vec![
+        Action::MidiNote {
+            channel,
+            note,
+            velocity,
+        } => Wert::objekt(vec![
             ("type", Wert::text("midi")),
             ("channel", Wert::zahl(*channel as f64)),
             ("note", Wert::zahl(*note as f64)),
@@ -82,7 +91,12 @@ fn action_to_wert(action: &Action) -> Wert {
             ("type", Wert::text("wait")),
             ("ms", Wert::zahl(*ms as f64)),
         ]),
-        Action::Toggle { target, index, param, to } => Wert::objekt(vec![
+        Action::Toggle {
+            target,
+            index,
+            param,
+            to,
+        } => Wert::objekt(vec![
             ("type", Wert::text("toggle")),
             ("target", Wert::text(target.clone())),
             ("index", Wert::zahl(*index as f64)),
@@ -156,9 +170,8 @@ fn button_from_wert(index: usize, w: &Wert) -> Result<Button, String> {
                 let n = v
                     .als_zahl()
                     .ok_or_else(|| format!("Taste {index}: 'state' ist weder Text noch Zahl"))?;
-                ButtonState::from_u8(n as u8).ok_or_else(|| {
-                    format!("Taste {index}: Zustand {n} liegt ausserhalb 0..=3")
-                })?
+                ButtonState::from_u8(n as u8)
+                    .ok_or_else(|| format!("Taste {index}: Zustand {n} liegt ausserhalb 0..=3"))?
             }
         }
     };
@@ -167,7 +180,8 @@ fn button_from_wert(index: usize, w: &Wert) -> Result<Button, String> {
         None | Some(Wert::Null) => Trigger::Press,
         Some(v) => {
             if let Some(s) = v.als_text() {
-                Trigger::parse(s).ok_or_else(|| format!("Taste {index}: unbekannter Trigger '{s}'"))?
+                Trigger::parse(s)
+                    .ok_or_else(|| format!("Taste {index}: unbekannter Trigger '{s}'"))?
             } else {
                 match u32_feld(w, "trigger", 0)? {
                     0 => Trigger::Press,
@@ -186,7 +200,9 @@ fn button_from_wert(index: usize, w: &Wert) -> Result<Button, String> {
                 .als_zahl()
                 .ok_or_else(|| format!("Taste {index}: 'gui' ist keine Zahl"))?;
             if n < 0.0 || n > 255.0 || n.fract() != 0.0 {
-                return Err(format!("Taste {index}: GUI-Slot {n} liegt ausserhalb 0..=255"));
+                return Err(format!(
+                    "Taste {index}: GUI-Slot {n} liegt ausserhalb 0..=255"
+                ));
             }
             Some(n as u16)
         }
@@ -201,7 +217,13 @@ fn button_from_wert(index: usize, w: &Wert) -> Result<Button, String> {
         return Err(format!("Taste {index}: 'actions' ist keine Liste"));
     }
 
-    Ok(Button { name, state, trigger, actions, gui })
+    Ok(Button {
+        name,
+        state,
+        trigger,
+        actions,
+        gui,
+    })
 }
 
 fn action_from_wert(button: usize, pos: usize, w: &Wert) -> Result<Action, String> {
@@ -235,21 +257,14 @@ fn action_from_wert(button: usize, pos: usize, w: &Wert) -> Result<Action, Strin
             param: pflicht_text(w, "param", &ort)?,
             to: match w.get("to") {
                 None | Some(Wert::Null) => None,
-                Some(v) => Some(
-                    v.als_zahl()
-                        .ok_or_else(|| ort("'to' ist keine Zahl"))?,
-                ),
+                Some(v) => Some(v.als_zahl().ok_or_else(|| ort("'to' ist keine Zahl"))?),
             },
         }),
         andere => Err(ort(&format!("unbekannter Aktionstyp '{andere}'"))),
     }
 }
 
-fn pflicht_text(
-    o: &Wert,
-    name: &str,
-    ort: &dyn Fn(&str) -> String,
-) -> Result<String, String> {
+fn pflicht_text(o: &Wert, name: &str, ort: &dyn Fn(&str) -> String) -> Result<String, String> {
     o.get(name)
         .and_then(|v| v.als_text())
         .map(|s| s.to_string())
@@ -351,14 +366,11 @@ mod tests {
         assert!(bank_from_json("{\"buttons\": [").is_err());
         assert!(bank_from_json("{}").is_err());
         assert!(bank_from_json("{\"version\": 99, \"buttons\": []}").is_err());
-        assert!(bank_from_json(
-            "{\"buttons\":[{\"state\":\"quatsch\"}]}"
-        )
-        .is_err());
-        assert!(bank_from_json(
-            "{\"buttons\":[{\"actions\":[{\"type\":\"midi\",\"note\":200}]}]}"
-        )
-        .is_err());
+        assert!(bank_from_json("{\"buttons\":[{\"state\":\"quatsch\"}]}").is_err());
+        assert!(
+            bank_from_json("{\"buttons\":[{\"actions\":[{\"type\":\"midi\",\"note\":200}]}]}")
+                .is_err()
+        );
         assert!(bank_from_json(
             "{\"buttons\":[{\"actions\":[{\"type\":\"set\",\"target\":\"strip\"}]}]}"
         )
@@ -388,9 +400,7 @@ mod tests {
     #[test]
     fn bank_laesst_hoechstens_80_tasten_zu() {
         assert_eq!(Bank::new().len(), MAX_BUTTONS);
-        let zu_viele: Vec<Button> = (0..MAX_BUTTONS + 1)
-            .map(|i| Button::standard(i))
-            .collect();
+        let zu_viele: Vec<Button> = (0..MAX_BUTTONS + 1).map(|i| Button::standard(i)).collect();
         assert!(Bank::from_buttons(zu_viele).is_err());
         let mut bank = Bank::new();
         assert!(bank.set(80, Button::standard(80)).is_err());

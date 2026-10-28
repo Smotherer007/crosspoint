@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, Ordering::Re
 
 use crate::dsp::*;
 use crate::json::Value;
-use crate::{BUS_NAMES, BUSES, EQ_CELLS, STRIP_NAMES, STRIPS};
+use crate::{BUSES, BUS_NAMES, EQ_CELLS, STRIPS, STRIP_NAMES};
 
 #[inline]
 fn fget(a: &AtomicU32) -> f32 {
@@ -245,10 +245,22 @@ impl Params {
             .map(|c| {
                 crate::json::Value::Obj(vec![
                     ("on".into(), crate::json::Value::Bool(c.on.load(Relaxed))),
-                    ("kind".into(), crate::json::Value::Num(c.kind.load(Relaxed) as f64)),
-                    ("freq".into(), crate::json::Value::Num(f32::from_bits(c.freq.load(Relaxed)) as f64)),
-                    ("q".into(), crate::json::Value::Num(f32::from_bits(c.q.load(Relaxed)) as f64)),
-                    ("gain".into(), crate::json::Value::Num(f32::from_bits(c.gain.load(Relaxed)) as f64)),
+                    (
+                        "kind".into(),
+                        crate::json::Value::Num(c.kind.load(Relaxed) as f64),
+                    ),
+                    (
+                        "freq".into(),
+                        crate::json::Value::Num(f32::from_bits(c.freq.load(Relaxed)) as f64),
+                    ),
+                    (
+                        "q".into(),
+                        crate::json::Value::Num(f32::from_bits(c.q.load(Relaxed)) as f64),
+                    ),
+                    (
+                        "gain".into(),
+                        crate::json::Value::Num(f32::from_bits(c.gain.load(Relaxed)) as f64),
+                    ),
                 ])
             })
             .collect();
@@ -353,24 +365,78 @@ fn fget_sr(p: &Params) -> u32 {
 
 fn set_strip(s: &StripParam, param: &str, v: f32) -> bool {
     match param {
-        "gain" => { fset(&s.gain, v.clamp(-60.0, 12.0)); true }
-        "pan" => { fset(&s.pan, v.clamp(-1.0, 1.0)); true }
-        "mute" => { s.mute.store(v != 0.0, Relaxed); true }
-        "solo" => { s.solo.store(v != 0.0, Relaxed); true }
-        "mono" => { s.mono.store(v != 0.0, Relaxed); true }
-        "eq" => { s.eq_on.store(v != 0.0, Relaxed); true }
-        "comp" => { s.comp.on.store(v != 0.0, Relaxed); true }
-        "gate" => { s.gate.on.store(v != 0.0, Relaxed); true }
-        "denoiser" => { s.dn_on.store(v != 0.0, Relaxed); true }
-        "comp_threshold" => { fset(&s.comp.threshold, v); true }
-        "comp_ratio" => { fset(&s.comp.ratio, v.max(1.0)); true }
-        "comp_attack" => { fset(&s.comp.attack, v); true }
-        "comp_release" => { fset(&s.comp.release, v); true }
-        "comp_knee" => { fset(&s.comp.knee, v); true }
-        "gate_threshold" => { fset(&s.gate.threshold, v); true }
-        "gate_attack" => { fset(&s.gate.attack, v); true }
-        "gate_hold" => { fset(&s.gate.hold, v); true }
-        "gate_release" => { fset(&s.gate.release, v); true }
+        "gain" => {
+            fset(&s.gain, v.clamp(-60.0, 12.0));
+            true
+        }
+        "pan" => {
+            fset(&s.pan, v.clamp(-1.0, 1.0));
+            true
+        }
+        "mute" => {
+            s.mute.store(v != 0.0, Relaxed);
+            true
+        }
+        "solo" => {
+            s.solo.store(v != 0.0, Relaxed);
+            true
+        }
+        "mono" => {
+            s.mono.store(v != 0.0, Relaxed);
+            true
+        }
+        "eq" => {
+            s.eq_on.store(v != 0.0, Relaxed);
+            true
+        }
+        "comp" => {
+            s.comp.on.store(v != 0.0, Relaxed);
+            true
+        }
+        "gate" => {
+            s.gate.on.store(v != 0.0, Relaxed);
+            true
+        }
+        "denoiser" => {
+            s.dn_on.store(v != 0.0, Relaxed);
+            true
+        }
+        "comp_threshold" => {
+            fset(&s.comp.threshold, v);
+            true
+        }
+        "comp_ratio" => {
+            fset(&s.comp.ratio, v.max(1.0));
+            true
+        }
+        "comp_attack" => {
+            fset(&s.comp.attack, v);
+            true
+        }
+        "comp_release" => {
+            fset(&s.comp.release, v);
+            true
+        }
+        "comp_knee" => {
+            fset(&s.comp.knee, v);
+            true
+        }
+        "gate_threshold" => {
+            fset(&s.gate.threshold, v);
+            true
+        }
+        "gate_attack" => {
+            fset(&s.gate.attack, v);
+            true
+        }
+        "gate_hold" => {
+            fset(&s.gate.hold, v);
+            true
+        }
+        "gate_release" => {
+            fset(&s.gate.release, v);
+            true
+        }
         _ => set_strip_ext(s, param, v),
     }
 }
@@ -379,7 +445,10 @@ fn set_strip(s: &StripParam, param: &str, v: f32) -> bool {
 fn set_strip_ext(s: &StripParam, param: &str, v: f32) -> bool {
     if let Some(rest) = param.strip_prefix("send") {
         return match rest.parse::<usize>().ok().and_then(|b| s.sends.get(b)) {
-            Some(a) => { fset(a, v.clamp(0.0, 2.0)); true }
+            Some(a) => {
+                fset(a, v.clamp(0.0, 2.0));
+                true
+            }
             None => false,
         };
     }
@@ -425,7 +494,9 @@ fn set_bus(b: &BusParam, param: &str, v: f32) -> bool {
         "mute" => b.mute.store(v != 0.0, Relaxed),
         "mono" => b.mono.store(v != 0.0, Relaxed),
         // 0..8 wie auf `BusParam::mode` dokumentiert; alles andere wird geklemmt.
-        "mode" => b.mode.store(v.clamp(0.0, BUS_MODE_MAX as f32) as u32, Relaxed),
+        "mode" => b
+            .mode
+            .store(v.clamp(0.0, BUS_MODE_MAX as f32) as u32, Relaxed),
         "cross" => b.cross.store(v != 0.0, Relaxed),
         "eq" => b.eq_on.store(v != 0.0, Relaxed),
         "limiter" => b.limiter_on.store(v != 0.0, Relaxed),
@@ -511,7 +582,9 @@ pub struct EngineDsp {
 impl EngineDsp {
     pub fn new(max_block: usize) -> EngineDsp {
         EngineDsp {
-            strip_eq: std::array::from_fn(|_| std::array::from_fn(|_| [Biquad::bypass(); EQ_CELLS])),
+            strip_eq: std::array::from_fn(|_| {
+                std::array::from_fn(|_| [Biquad::bypass(); EQ_CELLS])
+            }),
             strip_comp: [[Compressor::default(); 2]; STRIPS],
             strip_gate: [[Gate::default(); 2]; STRIPS],
             strip_dn: [[Denoiser::default(); 2]; STRIPS],
@@ -550,11 +623,7 @@ impl EngineDsp {
                     }
                 }
                 self.strip_comp[i][ch].enabled = s.comp.on.load(Relaxed);
-                self.strip_comp[i][ch].set_times(
-                    fget(&s.comp.attack),
-                    fget(&s.comp.release),
-                    sr,
-                );
+                self.strip_comp[i][ch].set_times(fget(&s.comp.attack), fget(&s.comp.release), sr);
                 self.strip_gate[i][ch].enabled = s.gate.on.load(Relaxed);
                 self.strip_gate[i][ch].set_times(
                     fget(&s.gate.attack),
@@ -610,7 +679,11 @@ impl EngineDsp {
             for si in 0..STRIPS {
                 let sp = &p.strips[si];
                 let audible = !sp.mute.load(Relaxed) && (!any_solo || sp.solo.load(Relaxed));
-                let gain = if audible { db_to_lin(fget(&sp.gain)) } else { 0.0 };
+                let gain = if audible {
+                    db_to_lin(fget(&sp.gain))
+                } else {
+                    0.0
+                };
                 let pan = fget(&sp.pan).clamp(-1.0, 1.0);
                 let mono = sp.mono.load(Relaxed);
                 let mut s = unsafe { [*io.ins[si][0].add(n), *io.ins[si][1].add(n)] };
@@ -661,7 +734,11 @@ impl EngineDsp {
 
             for bi in 0..BUSES {
                 let bp = &p.buses[bi];
-                let gain = if bp.mute.load(Relaxed) { 0.0 } else { db_to_lin(fget(&bp.gain)) };
+                let gain = if bp.mute.load(Relaxed) {
+                    0.0
+                } else {
+                    db_to_lin(fget(&bp.gain))
+                };
                 let mono = bp.mono.load(Relaxed);
                 let mode = bp.mode.load(Relaxed);
                 let cross = bp.cross.load(Relaxed);
@@ -829,7 +906,11 @@ mod tests {
         buf.set_strip(1, 0.4);
         let io = buf.io();
         dsp.process(&p, &io, 64);
-        assert!((buf.bus(0) - 0.4).abs() < 1e-6, "nur Streifen 2 darf durch: {}", buf.bus(0));
+        assert!(
+            (buf.bus(0) - 0.4).abs() < 1e-6,
+            "nur Streifen 2 darf durch: {}",
+            buf.bus(0)
+        );
     }
 
     #[test]
@@ -860,8 +941,14 @@ mod tests {
         let mut s = String::with_capacity(256);
         p.levels_into(&mut s);
         let j = crate::json::parse(&s).expect("JSON parsebar");
-        assert_eq!(j.get("strips").and_then(|v| v.as_arr()).map(|a| a.len()), Some(STRIPS));
-        assert_eq!(j.get("buses").and_then(|v| v.as_arr()).map(|a| a.len()), Some(BUSES));
+        assert_eq!(
+            j.get("strips").and_then(|v| v.as_arr()).map(|a| a.len()),
+            Some(STRIPS)
+        );
+        assert_eq!(
+            j.get("buses").and_then(|v| v.as_arr()).map(|a| a.len()),
+            Some(BUSES)
+        );
         assert_eq!(j.get("f").and_then(|v| v.as_f64()), Some(64.0));
         // Streifen 1 liegt bei -6 dB (0,5 linear), die stillen Streifen bei -140.
         let strips = j.get("strips").and_then(|v| v.as_arr()).unwrap();
@@ -905,7 +992,10 @@ mod tests {
             peak = peak.max(buf.bus(0).abs());
         }
         let db = crate::dsp::lin_to_db(peak);
-        assert!(db <= -4.0, "Bus-Spitze war {db} dB, soll unter -6 dB liegen");
+        assert!(
+            db <= -4.0,
+            "Bus-Spitze war {db} dB, soll unter -6 dB liegen"
+        );
     }
 
     #[test]
@@ -970,19 +1060,31 @@ mod tests {
         // 0.5*(0.5+0.5) = 0.5 auf L, R bleibt still.
         check(mix_block(1.0, 0.0, 0.5, 0.5), (0.5, 0.0), "DownmixA");
         // Asymmetrisch: 0.5*(0.5+0.25) = 0.375, R = 0.
-        check(mix_block(1.0, 0.0, 0.5, 0.25), (0.375, 0.0), "DownmixA asym");
+        check(
+            mix_block(1.0, 0.0, 0.5, 0.25),
+            (0.375, 0.0),
+            "DownmixA asym",
+        );
     }
 
     #[test]
     fn bus_mode_downmix_b_summe_nur_rechts() {
         check(mix_block(2.0, 0.0, 0.5, 0.5), (0.0, 0.5), "DownmixB");
-        check(mix_block(2.0, 0.0, 0.5, 0.25), (0.0, 0.375), "DownmixB asym");
+        check(
+            mix_block(2.0, 0.0, 0.5, 0.25),
+            (0.0, 0.375),
+            "DownmixB asym",
+        );
     }
 
     #[test]
     fn bus_mode_stereo_repeat_summe_auf_beide() {
         check(mix_block(3.0, 0.0, 0.5, 0.5), (0.5, 0.5), "StereoRepeat");
-        check(mix_block(3.0, 0.0, 0.5, 0.25), (0.375, 0.375), "StereoRepeat asym");
+        check(
+            mix_block(3.0, 0.0, 0.5, 0.25),
+            (0.375, 0.375),
+            "StereoRepeat asym",
+        );
     }
 
     #[test]
@@ -991,7 +1093,10 @@ mod tests {
         check(mix_block(4.0, 0.0, 0.5, 0.5), (s, s), "Composite");
         // −3 dB sind rund 0.708, also deutlich leiser als Stereo Repeat mit 0.5.
         let (l, r) = mix_block(4.0, 0.0, 0.5, 0.5);
-        assert!(l < 0.5 && (l - 0.353_972_9).abs() < 1e-6, "Composite L war {l}");
+        assert!(
+            l < 0.5 && (l - 0.353_972_9).abs() < 1e-6,
+            "Composite L war {l}"
+        );
         assert!((l - r).abs() < 1e-9, "Composite muss symmetrisch sein");
     }
 
@@ -1009,7 +1114,11 @@ mod tests {
     #[test]
     fn bus_mode_upmix21_mono_summe_auf_beide() {
         check(mix_block(6.0, 0.0, 0.5, 0.5), (0.5, 0.5), "Upmix21");
-        check(mix_block(6.0, 0.0, 0.5, 0.25), (0.375, 0.375), "Upmix21 asym");
+        check(
+            mix_block(6.0, 0.0, 0.5, 0.25),
+            (0.375, 0.375),
+            "Upmix21 asym",
+        );
     }
 
     #[test]
@@ -1030,7 +1139,11 @@ mod tests {
         // Ohne Modus, nur Kreuzung: L und R tauschen.
         check(mix_block(0.0, 1.0, 0.5, 0.25), (0.25, 0.5), "cross");
         // Kreuzung nach Downmix A landet auf R.
-        check(mix_block(1.0, 1.0, 0.5, 0.25), (0.0, 0.375), "cross+DownmixA");
+        check(
+            mix_block(1.0, 1.0, 0.5, 0.25),
+            (0.0, 0.375),
+            "cross+DownmixA",
+        );
     }
 
     #[test]

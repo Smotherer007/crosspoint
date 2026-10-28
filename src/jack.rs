@@ -53,12 +53,19 @@ pub struct Jack {
 }
 
 impl Jack {
-    pub fn open(name: &str, cb: ProcessCb, arg: *mut c_void) -> Result<Jack, String> {
+    /// # Safety
+    ///
+    /// `arg` wird unveraendert an den JACK-Callback durchgereicht. Der Aufrufer
+    /// muss dafuer sorgen, dass der Zeiger so lange gueltig bleibt, wie der
+    /// Client existiert, und dass der Callback ihn passend interpretiert.
+    pub unsafe fn open(name: &str, cb: ProcessCb, arg: *mut c_void) -> Result<Jack, String> {
         let cname = CString::new(name).map_err(|e| e.to_string())?;
         let mut status: c_int = 0;
         let client = unsafe { jack_client_open(cname.as_ptr(), NO_START_SERVER, &mut status) };
         if client.is_null() {
-            return Err(format!("jack_client_open fehlgeschlagen (status={status}) – läuft PipeWire?"));
+            return Err(format!(
+                "jack_client_open fehlgeschlagen (status={status}) – läuft PipeWire?"
+            ));
         }
         unsafe {
             if jack_set_process_callback(client, cb, arg) != 0 {
@@ -72,7 +79,12 @@ impl Jack {
         };
         let sr = unsafe { jack_get_sample_rate(client) };
         let bs = unsafe { jack_get_buffer_size(client) };
-        Ok(Jack { client, name: got, sample_rate: sr, block: bs })
+        Ok(Jack {
+            client,
+            name: got,
+            sample_rate: sr,
+            block: bs,
+        })
     }
 
     pub fn port_in(&self, name: &str) -> Result<*mut Port, String> {
@@ -96,14 +108,22 @@ impl Jack {
 
     pub fn activate(&self) -> Result<(), String> {
         let rc = unsafe { jack_activate(self.client) };
-        if rc == 0 { Ok(()) } else { Err(format!("jack_activate rc={rc}")) }
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(format!("jack_activate rc={rc}"))
+        }
     }
 
     pub fn connect(&self, src: &str, dst: &str) -> Result<(), String> {
         let s = CString::new(src).map_err(|e| e.to_string())?;
         let d = CString::new(dst).map_err(|e| e.to_string())?;
         let rc = unsafe { jack_connect(self.client, s.as_ptr(), d.as_ptr()) };
-        if rc == 0 { Ok(()) } else { Err(format!("connect {src}→{dst} rc={rc}")) }
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(format!("connect {src}→{dst} rc={rc}"))
+        }
     }
 }
 

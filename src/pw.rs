@@ -145,7 +145,12 @@ impl CommandRunner for FakeRunner {
         };
         let line = call.line();
         self.calls.borrow_mut().push(call);
-        if self.failures.borrow().iter().any(|p| line.contains(p.as_str())) {
+        if self
+            .failures
+            .borrow()
+            .iter()
+            .any(|p| line.contains(p.as_str()))
+        {
             return Err(format!("{line} -> simulierter Fehler"));
         }
         let outputs = self.outputs.borrow();
@@ -650,7 +655,12 @@ pub mod tests {
     fn knoten_werden_nach_klasse_gefiltert() {
         let g = graph();
         // Alle Knoten bleiben für die Link-Auflösung erhalten …
-        assert_eq!(g.nodes.len(), 7, "Driver und crosspoint bleiben: {:?}", g.nodes);
+        assert_eq!(
+            g.nodes.len(),
+            7,
+            "Driver und crosspoint bleiben: {:?}",
+            g.nodes
+        );
         // … als Geräte gelten nur die drei Klassen.
         assert_eq!(g.geraete().len(), 5);
         assert_eq!(g.sinks().len(), 3);
@@ -668,9 +678,14 @@ pub mod tests {
     fn beschreibung_bleibt_vollstaendig_mit_leerzeichen_und_umlauten() {
         let g = graph();
         let corsair = g
-            .node_by_name("alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo")
+            .node_by_name(
+                "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo",
+            )
             .expect("Corsair");
-        assert_eq!(corsair.description, "Corsair HS80 RGB USB Gaming Headset Analoges Stereo");
+        assert_eq!(
+            corsair.description,
+            "Corsair HS80 RGB USB Gaming Headset Analoges Stereo"
+        );
         assert_eq!(corsair.anzeige(), corsair.description);
         assert_eq!(corsair.nick, "Corsair HS80 RGB USB Gaming Hea");
         assert_eq!(corsair.id, 443);
@@ -685,9 +700,20 @@ pub mod tests {
     #[test]
     fn ports_richtung_und_pfad() {
         let g = graph();
-        let corsair = g.node_by_name("alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo").unwrap();
-        let namen: Vec<&str> = g.ports(corsair.id).iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(namen, ["monitor_FL", "monitor_FR", "playback_FL", "playback_FR"]);
+        let corsair = g
+            .node_by_name(
+                "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo",
+            )
+            .unwrap();
+        let namen: Vec<&str> = g
+            .ports(corsair.id)
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(
+            namen,
+            ["monitor_FL", "monitor_FR", "playback_FL", "playback_FR"]
+        );
 
         assert_eq!(
             g.pfade(corsair.id, Richtung::In),
@@ -712,7 +738,10 @@ pub mod tests {
         assert_eq!(v.len(), 2);
         assert!(g.ist_verbunden("crosspoint:busA1_L", "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo:playback_FL"));
         assert_eq!(v[0].zustand, "active");
-        assert!(!g.ist_verbunden("crosspoint:busA1_L", "alsa_output.pci-0000_03_00.1.hdmi-stereo-extra2:playback_FL"));
+        assert!(!g.ist_verbunden(
+            "crosspoint:busA1_L",
+            "alsa_output.pci-0000_03_00.1.hdmi-stereo-extra2:playback_FL"
+        ));
 
         let offen = g.offene_links(&["crosspoint:busA1_R".to_string()]);
         assert!(offen.is_empty());
@@ -735,7 +764,10 @@ pub mod tests {
         assert!(g.nodes.iter().all(|n| n.ist_monitor));
         assert!(g.sinks().is_empty(), "Monitore sind keine Geräte");
         // Alte Zuordnung `…​.monitor` findet den Knoten dahinter.
-        assert_eq!(g.knoten("alsa_output.hdmi.monitor").unwrap().name, "alsa_output.hdmi.monitor");
+        assert_eq!(
+            g.knoten("alsa_output.hdmi.monitor").unwrap().name,
+            "alsa_output.hdmi.monitor"
+        );
     }
 
     #[test]
@@ -757,7 +789,10 @@ pub mod tests {
         let g = graph();
         let fake = FakeRunner::new();
         let mic = "alsa_input.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.mono-fallback";
-        assert_eq!(ports(&fake, &g, mic, Richtung::Out), [format!("{mic}:capture_MONO")]);
+        assert_eq!(
+            ports(&fake, &g, mic, Richtung::Out),
+            [format!("{mic}:capture_MONO")]
+        );
         assert!(fake.calls().is_empty(), "Graph reicht, kein pw-link nötig");
 
         // Knoten nicht im Dump -> pw-link -o wird gefragt.
@@ -767,10 +802,16 @@ pub mod tests {
         );
         assert_eq!(
             ports(&fake, &g, "alsa_input.neu", Richtung::Out),
-            ["alsa_input.neu:capture_FL".to_string(), "alsa_input.neu:capture_FR".to_string()]
+            [
+                "alsa_input.neu:capture_FL".to_string(),
+                "alsa_input.neu:capture_FR".to_string()
+            ]
         );
         assert_eq!(fake.lines(), vec!["pw-link -o".to_string()]);
-        assert_eq!(ports_ueber_pw_link(&fake, "alsa_output.gibtsnicht", Richtung::In), Vec::<String>::new());
+        assert_eq!(
+            ports_ueber_pw_link(&fake, "alsa_output.gibtsnicht", Richtung::In),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -781,8 +822,10 @@ pub mod tests {
             [p("n:playback_FL"), p("n:playback_FR")]
         );
         assert_eq!(kanalpaar(&[p("n:capture_MONO")]), [p("n:capture_MONO")]);
-        assert_eq!(kanalpaar(&[p("n:capture_1"), p("n:capture_2"), p("n:capture_3")]),
-                   [p("n:capture_1"), p("n:capture_2")]);
+        assert_eq!(
+            kanalpaar(&[p("n:capture_1"), p("n:capture_2"), p("n:capture_3")]),
+            [p("n:capture_1"), p("n:capture_2")]
+        );
         assert!(kanalpaar(&[]).is_empty());
     }
 }

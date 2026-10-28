@@ -133,13 +133,22 @@ pub struct Input {
 
 impl Input {
     pub fn idle() -> Input {
-        Input { down: false, value: 0.0 }
+        Input {
+            down: false,
+            value: 0.0,
+        }
     }
     pub fn gedrueckt() -> Input {
-        Input { down: true, value: 1.0 }
+        Input {
+            down: true,
+            value: 1.0,
+        }
     }
     pub fn wert(v: f64) -> Input {
-        Input { down: v >= 0.5, value: v }
+        Input {
+            down: v >= 0.5,
+            value: v,
+        }
     }
 }
 
@@ -159,7 +168,11 @@ pub struct ParamKey {
 
 impl ParamKey {
     pub fn new(target: &str, index: u32, param: &str) -> ParamKey {
-        ParamKey { target: target.to_string(), index, param: param.to_string() }
+        ParamKey {
+            target: target.to_string(),
+            index,
+            param: param.to_string(),
+        }
     }
 }
 
@@ -168,14 +181,24 @@ impl ParamKey {
 pub enum Action {
     /// Parameter setzen: `target`/`index`/`param` wie in der Steuer-API des
     /// Haupt-Crates (`strip`/`bus`/`recorder`, `gain`, `mute`, ...).
-    SetParam { target: String, index: u32, param: String, value: f64 },
+    SetParam {
+        target: String,
+        index: u32,
+        param: String,
+        value: f64,
+    },
     /// MIDI-Note senden. `channel` 1..=16, `note` 0..=127, `velocity` 0..=127.
     MidiNote { channel: u8, note: u8, velocity: u8 },
     /// Warten. Wird als Aktion ausgegeben; die Engine blockiert nicht.
     Wait { ms: u32 },
     /// Parameter umschalten. `to` ist der Zielwert, wenn die Engine den
     /// aktuellen Wert kennt (`None` = der Ausfuehrende entscheidet).
-    Toggle { target: String, index: u32, param: String, to: Option<f64> },
+    Toggle {
+        target: String,
+        index: u32,
+        param: String,
+        to: Option<f64>,
+    },
 }
 
 impl Action {
@@ -189,7 +212,11 @@ impl Action {
     }
 
     pub fn midi(channel: u8, note: u8, velocity: u8) -> Action {
-        Action::MidiNote { channel, note, velocity }
+        Action::MidiNote {
+            channel,
+            note,
+            velocity,
+        }
     }
 
     pub fn wait(ms: u32) -> Action {
@@ -210,10 +237,18 @@ impl Action {
     /// Frame widersprechen sich.
     pub fn param_key(&self) -> Option<ParamKey> {
         match self {
-            Action::SetParam { target, index, param, .. } => {
-                Some(ParamKey::new(target, *index, param))
-            }
-            Action::Toggle { target, index, param, .. } => Some(ParamKey::new(target, *index, param)),
+            Action::SetParam {
+                target,
+                index,
+                param,
+                ..
+            } => Some(ParamKey::new(target, *index, param)),
+            Action::Toggle {
+                target,
+                index,
+                param,
+                ..
+            } => Some(ParamKey::new(target, *index, param)),
             Action::MidiNote { .. } | Action::Wait { .. } => None,
         }
     }
@@ -221,14 +256,28 @@ impl Action {
     /// Kurzbeschreibung fuer Protokoll und Fehlermeldungen.
     pub fn kurz(&self) -> String {
         match self {
-            Action::SetParam { target, index, param, value } => {
+            Action::SetParam {
+                target,
+                index,
+                param,
+                value,
+            } => {
                 format!("set {target}[{index}].{param}={value}")
             }
-            Action::MidiNote { channel, note, velocity } => {
+            Action::MidiNote {
+                channel,
+                note,
+                velocity,
+            } => {
                 format!("midi ch{channel} n{note} v{velocity}")
             }
             Action::Wait { ms } => format!("wait {ms}ms"),
-            Action::Toggle { target, index, param, to } => match to {
+            Action::Toggle {
+                target,
+                index,
+                param,
+                to,
+            } => match to {
                 Some(v) => format!("toggle {target}[{index}].{param}->{v}"),
                 None => format!("toggle {target}[{index}].{param}"),
             },
@@ -288,7 +337,11 @@ impl Button {
         }
         for a in &self.actions {
             match a {
-                Action::MidiNote { channel, note, velocity } => {
+                Action::MidiNote {
+                    channel,
+                    note,
+                    velocity,
+                } => {
                     if !(1..=16).contains(channel) {
                         return Err(format!("MIDI-Kanal {channel} liegt ausserhalb 1..=16"));
                     }
@@ -299,7 +352,12 @@ impl Button {
                         return Err(format!("MIDI-Velocity {velocity} liegt ausserhalb 0..=127"));
                     }
                 }
-                Action::SetParam { target, param, value, .. } => {
+                Action::SetParam {
+                    target,
+                    param,
+                    value,
+                    ..
+                } => {
                     if target.trim().is_empty() || param.trim().is_empty() {
                         return Err("Aktion ohne Ziel oder Parameter".to_string());
                     }
@@ -451,11 +509,26 @@ mod tests {
 
     #[test]
     fn validate_weist_kaputte_midi_werte_ab() {
-        let b = Button::neu("x", ButtonState::On, Trigger::Press, vec![Action::midi(17, 60, 100)]);
+        let b = Button::neu(
+            "x",
+            ButtonState::On,
+            Trigger::Press,
+            vec![Action::midi(17, 60, 100)],
+        );
         assert!(b.validate().is_err());
-        let b = Button::neu("x", ButtonState::On, Trigger::Press, vec![Action::midi(1, 128, 100)]);
+        let b = Button::neu(
+            "x",
+            ButtonState::On,
+            Trigger::Press,
+            vec![Action::midi(1, 128, 100)],
+        );
         assert!(b.validate().is_err());
-        let b = Button::neu("x", ButtonState::On, Trigger::Press, vec![Action::midi(16, 127, 127)]);
+        let b = Button::neu(
+            "x",
+            ButtonState::On,
+            Trigger::Press,
+            vec![Action::midi(16, 127, 127)],
+        );
         assert!(b.validate().is_ok());
     }
 }

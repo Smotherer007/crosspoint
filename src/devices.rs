@@ -66,12 +66,20 @@ pub struct Sink {
 impl Sink {
     /// Gerät ohne Graphbezug (Tests, Vorgaben).
     pub fn new(name: impl Into<String>, desc: impl Into<String>) -> Sink {
-        Sink { id: 0, name: name.into(), desc: desc.into() }
+        Sink {
+            id: 0,
+            name: name.into(),
+            desc: desc.into(),
+        }
     }
 
     /// Gerät aus einem Graphen-Knoten.
     pub fn from_node(node: &pw::Node) -> Sink {
-        Sink { id: node.id, name: node.name.clone(), desc: node.anzeige().to_string() }
+        Sink {
+            id: node.id,
+            name: node.name.clone(),
+            desc: node.anzeige().to_string(),
+        }
     }
 
     /// Port am Sink für einen Kanal (`playback_FL` -> `<sink>:playback_FL`).
@@ -98,7 +106,10 @@ pub fn list_sinks(runner: &dyn CommandRunner) -> Result<Vec<Sink>, String> {
 }
 
 /// Wie [`list_sinks`], aber mit zuschaltbaren Monitoren.
-pub fn list_sinks_mit(runner: &dyn CommandRunner, mit_monitoren: bool) -> Result<Vec<Sink>, String> {
+pub fn list_sinks_mit(
+    runner: &dyn CommandRunner,
+    mit_monitoren: bool,
+) -> Result<Vec<Sink>, String> {
     Ok(sinks(&pw::dump(runner)?, mit_monitoren))
 }
 
@@ -142,14 +153,20 @@ pub struct DeviceMap {
 impl DeviceMap {
     /// Leere Zuordnung, die nach `pfad` schreibt.
     pub fn new(pfad: impl Into<PathBuf>) -> DeviceMap {
-        DeviceMap { pfad: pfad.into(), busse: BTreeMap::new() }
+        DeviceMap {
+            pfad: pfad.into(),
+            busse: BTreeMap::new(),
+        }
     }
 
     /// Lädt die Zuordnung; eine fehlende oder unlesbare Datei ergibt eine leere
     /// Zuordnung (erster Start), statt die Oberfläche scheitern zu lassen.
     pub fn load(pfad: impl Into<PathBuf>) -> DeviceMap {
         let pfad = pfad.into();
-        let mut map = DeviceMap { pfad, busse: BTreeMap::new() };
+        let mut map = DeviceMap {
+            pfad,
+            busse: BTreeMap::new(),
+        };
         if let Ok(text) = std::fs::read_to_string(&map.pfad) {
             map.uebernehme(&text);
         }
@@ -180,7 +197,10 @@ impl DeviceMap {
 
     /// Alle gesetzten Zuordnungen in Bus-Reihenfolge A1..A5.
     pub fn entries(&self) -> Vec<(&str, &str)> {
-        self.busse.iter().map(|(b, n)| (b.as_str(), n.as_str())).collect()
+        self.busse
+            .iter()
+            .map(|(b, n)| (b.as_str(), n.as_str()))
+            .collect()
     }
 
     /// Übernimmt eine JSON-Datei. Unbekannte Busse und Einträge ohne Namen
@@ -241,7 +261,12 @@ impl DeviceMap {
     /// Busports hängen – egal von wem sie stammen. Danach werden die echten
     /// Eingangsports des Sinks verbunden. Ein Fehler beim Verbinden hinterlässt
     /// keine Zuordnung, damit Datei und Graph deckungsgleich bleiben.
-    pub fn assign(&mut self, runner: &dyn CommandRunner, bus: &str, sink: &str) -> Result<(), String> {
+    pub fn assign(
+        &mut self,
+        runner: &dyn CommandRunner,
+        bus: &str,
+        sink: &str,
+    ) -> Result<(), String> {
         let bus = normalisiere_bus(bus)?;
         let sink = sink.trim();
         if sink.is_empty() {
@@ -297,7 +322,10 @@ impl DeviceMap {
         if let Some(alt) = self.busse.get(&bus).cloned() {
             if !etwas_getan {
                 for (kanal, ziel) in CHANNELS {
-                    let _ = runner.run("pw-link", &["-d", &bus_port(&bus, kanal), &format!("{alt}:{ziel}")]);
+                    let _ = runner.run(
+                        "pw-link",
+                        &["-d", &bus_port(&bus, kanal), &format!("{alt}:{ziel}")],
+                    );
                 }
             }
         }
@@ -336,9 +364,15 @@ impl DeviceMap {
                 ));
                 paare.push((
                     "desc".into(),
-                    geraet.as_ref().map(|s| Value::str(s.desc.clone())).unwrap_or(Value::Null),
+                    geraet
+                        .as_ref()
+                        .map(|s| Value::str(s.desc.clone()))
+                        .unwrap_or(Value::Null),
                 ));
-                paare.push(("vorhanden".into(), Value::Bool(name.is_some() && geraet.is_some())));
+                paare.push((
+                    "vorhanden".into(),
+                    Value::Bool(name.is_some() && geraet.is_some()),
+                ));
                 let verbunden = graph
                     .as_ref()
                     .map(|g| {
@@ -385,7 +419,10 @@ mod tests {
     use crate::pw::tests::DUMP;
 
     fn tmp_path(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("crosspoint-devices-{}-{tag}.json", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "crosspoint-devices-{}-{tag}.json",
+            std::process::id()
+        ))
     }
 
     fn fake() -> FakeRunner {
@@ -405,13 +442,26 @@ mod tests {
         // der Test nicht an der Sortierung der Anzeigenamen haengt.
         assert_eq!(liste[0].name, CORSAIR);
         let corsair = liste.iter().find(|s| s.name == CORSAIR).expect("Corsair");
-        assert_eq!(corsair.desc, "Corsair HS80 RGB USB Gaming Headset Analoges Stereo");
+        assert_eq!(
+            corsair.desc,
+            "Corsair HS80 RGB USB Gaming Headset Analoges Stereo"
+        );
         assert_eq!(corsair.id, 443);
-        assert!(corsair.desc.contains(' '), "Leerzeichen bleiben: {}", corsair.desc);
+        assert!(
+            corsair.desc.contains(' '),
+            "Leerzeichen bleiben: {}",
+            corsair.desc
+        );
         let hdmi = liste.iter().find(|s| s.name == HDMI).expect("HDMI");
-        assert_eq!(hdmi.desc, "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 3) [AG326UD]");
+        assert_eq!(
+            hdmi.desc,
+            "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 3) [AG326UD]"
+        );
         // Eigene virtuelle Sinks sind echte Ausgabegeräte des Graphen.
-        assert!(liste.iter().any(|s| s.name == "crosspoint_out_B1"), "{liste:?}");
+        assert!(
+            liste.iter().any(|s| s.name == "crosspoint_out_B1"),
+            "{liste:?}"
+        );
     }
 
     #[test]
@@ -457,7 +507,13 @@ mod tests {
             "erst den echten Link lösen, dann verbinden: {zeilen:?}"
         );
         assert_eq!(zeilen[0], "pw-dump");
-        assert_eq!(fake.calls_of("pw-link").iter().filter(|c| c.args[0] == "-d").count(), 1);
+        assert_eq!(
+            fake.calls_of("pw-link")
+                .iter()
+                .filter(|c| c.args[0] == "-d")
+                .count(),
+            1
+        );
         assert_eq!(map.get("A1"), Some(CORSAIR));
         let _ = std::fs::remove_file(&pfad);
     }
@@ -492,7 +548,10 @@ mod tests {
         // Ein pw-dump, ein pw-link -d auf den einzigen vorhandenen Link.
         assert_eq!(neu.len(), 2, "{neu:?}");
         assert_eq!(neu[0].program, "pw-dump");
-        assert_eq!(neu[1].line(), format!("pw-link -d crosspoint:busA1_L {CORSAIR}:playback_FL"));
+        assert_eq!(
+            neu[1].line(),
+            format!("pw-link -d crosspoint:busA1_L {CORSAIR}:playback_FL")
+        );
         assert!(map.get("A1").is_none());
 
         // Zweites clear: kein Eintrag mehr, im Graphen nichts mehr -> nur der Dump.
@@ -534,8 +593,14 @@ mod tests {
         map.assign(&fake, "A3", CORSAIR).unwrap();
         let zeilen = fake.lines();
         assert_eq!(zeilen.len(), 3, "{zeilen:?}");
-        assert_eq!(zeilen[1], format!("pw-link crosspoint:busA3_L {CORSAIR}:playback_FL"));
-        assert_eq!(zeilen[2], format!("pw-link crosspoint:busA3_R {CORSAIR}:playback_FR"));
+        assert_eq!(
+            zeilen[1],
+            format!("pw-link crosspoint:busA3_L {CORSAIR}:playback_FL")
+        );
+        assert_eq!(
+            zeilen[2],
+            format!("pw-link crosspoint:busA3_R {CORSAIR}:playback_FR")
+        );
         assert!(map.get("A3").is_some());
         let _ = std::fs::remove_file(&pfad);
     }
@@ -559,10 +624,16 @@ mod tests {
         let fake = fake();
         let mut map = DeviceMap::new(&pfad);
         for bus in ["B2", "A6", "A0", "", "AI", "A1 x"] {
-            assert!(map.assign(&fake, bus, CORSAIR).is_err(), "'{bus}' abgelehnt");
+            assert!(
+                map.assign(&fake, bus, CORSAIR).is_err(),
+                "'{bus}' abgelehnt"
+            );
             assert!(map.clear(&fake, bus).is_err(), "'{bus}' abgelehnt");
         }
-        assert!(fake.calls().is_empty(), "kein Systemaufruf bei ungültigem Bus");
+        assert!(
+            fake.calls().is_empty(),
+            "kein Systemaufruf bei ungültigem Bus"
+        );
         assert_eq!(normalisiere_bus("a4").unwrap(), "A4");
         assert_eq!(normalisiere_bus(" A5 ").unwrap(), "A5");
         assert!(DeviceMap::new(&pfad).get("B1").is_none());
@@ -581,10 +652,17 @@ mod tests {
         let text = std::fs::read_to_string(&pfad).unwrap();
         assert_eq!(
             text,
-            format!("{{\"A1\":{},\"A5\":{}}}", crate::json::quote(CORSAIR), crate::json::quote(HDMI)),
+            format!(
+                "{{\"A1\":{},\"A5\":{}}}",
+                crate::json::quote(CORSAIR),
+                crate::json::quote(HDMI)
+            ),
             "nur node.name, keine Beschreibung"
         );
-        assert!(!text.contains("Corsair HS80 RGB"), "keine Beschreibung in der Datei: {text}");
+        assert!(
+            !text.contains("Corsair HS80 RGB"),
+            "keine Beschreibung in der Datei: {text}"
+        );
 
         let wieder = DeviceMap::load(&pfad);
         assert_eq!(wieder.get("A1"), Some(CORSAIR));
@@ -593,15 +671,25 @@ mod tests {
         assert_eq!(wieder.entries().len(), 2);
         // Beschreibung entsteht aus dem Graphen – ohne sie zu speichern.
         let graph = pw::dump(&fake).unwrap();
-        assert_eq!(wieder.get_in("A1", &graph).unwrap().desc, "Corsair HS80 RGB USB Gaming Headset Analoges Stereo");
-        assert_eq!(wieder.get_in("A5", &graph).unwrap().desc, "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 3) [AG326UD]");
+        assert_eq!(
+            wieder.get_in("A1", &graph).unwrap().desc,
+            "Corsair HS80 RGB USB Gaming Headset Analoges Stereo"
+        );
+        assert_eq!(
+            wieder.get_in("A5", &graph).unwrap().desc,
+            "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 3) [AG326UD]"
+        );
         // Gerät verschwunden -> Name bleibt, Beschreibung fehlt.
         let leer = Graph::parse("[]").unwrap();
         assert!(wieder.get_in("A1", &leer).is_none());
         assert_eq!(wieder.get("A1"), Some(CORSAIR));
 
         // Altes Format mit desc wird weiter gelesen (desc ignoriert).
-        std::fs::write(&pfad, r#"{"A2":{"name":"alsa_output.usb-0d8c_Speaker","desc":"Lautsprecher"}}"#).unwrap();
+        std::fs::write(
+            &pfad,
+            r#"{"A2":{"name":"alsa_output.usb-0d8c_Speaker","desc":"Lautsprecher"}}"#,
+        )
+        .unwrap();
         let alt = DeviceMap::load(&pfad);
         assert_eq!(alt.get("A2"), Some("alsa_output.usb-0d8c_Speaker"));
         assert_eq!(alt.entries().len(), 1);
@@ -625,14 +713,21 @@ mod tests {
         let sinks = wert.get("sinks").unwrap().as_arr().unwrap();
         assert_eq!(sinks.len(), 3);
         assert_eq!(sinks[0].get("id").unwrap().as_f64(), Some(443.0));
-        assert_eq!(sinks[0].get("desc").unwrap(), &Value::str("Corsair HS80 RGB USB Gaming Headset Analoges Stereo"));
+        assert_eq!(
+            sinks[0].get("desc").unwrap(),
+            &Value::str("Corsair HS80 RGB USB Gaming Headset Analoges Stereo")
+        );
 
         let busse = wert.get("buses").unwrap().as_arr().unwrap();
         assert_eq!(busse.len(), 5, "immer A1..A5");
         assert_eq!(busse[0].get("bus").unwrap(), &Value::str("A1"));
         assert_eq!(busse[0].get("sink").unwrap(), &Value::str(CORSAIR));
         assert_eq!(busse[0].get("vorhanden").unwrap(), &Value::Bool(true));
-        assert_eq!(busse[0].get("verbunden").unwrap(), &Value::Bool(true), "Link 500 im Graph");
+        assert_eq!(
+            busse[0].get("verbunden").unwrap(),
+            &Value::Bool(true),
+            "Link 500 im Graph"
+        );
         assert_eq!(busse[1].get("sink").unwrap(), &Value::Null);
         assert_eq!(busse[1].get("verbunden").unwrap(), &Value::Bool(false));
         assert_eq!(wert.get("error").unwrap(), &Value::Null);
@@ -642,7 +737,12 @@ mod tests {
         let wert = crate::json::parse(&map.status_json(&kaputt, false)).unwrap();
         assert_eq!(wert.get("sinks").unwrap().as_arr().unwrap().len(), 0);
         assert!(wert.get("error").unwrap() != &Value::Null);
-        assert_eq!(wert.get("buses").unwrap().as_arr().unwrap()[0].get("verbunden").unwrap(), &Value::Bool(false));
+        assert_eq!(
+            wert.get("buses").unwrap().as_arr().unwrap()[0]
+                .get("verbunden")
+                .unwrap(),
+            &Value::Bool(false)
+        );
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -650,8 +750,15 @@ mod tests {
     fn ports_und_standardpfad() {
         assert_eq!(bus_port("A1", "L"), "crosspoint:busA1_L");
         assert_eq!(bus_port("A5", "R"), "crosspoint:busA5_R");
-        assert_eq!(Sink::new(CORSAIR, "x").port("playback_FL"), format!("{CORSAIR}:playback_FL"));
+        assert_eq!(
+            Sink::new(CORSAIR, "x").port("playback_FL"),
+            format!("{CORSAIR}:playback_FL")
+        );
         let pfad = default_path();
-        assert!(pfad.ends_with("crosspoint/devices.json"), "{}", pfad.display());
+        assert!(
+            pfad.ends_with("crosspoint/devices.json"),
+            "{}",
+            pfad.display()
+        );
     }
 }

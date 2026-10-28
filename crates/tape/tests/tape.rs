@@ -164,7 +164,11 @@ fn parse_wav(path: &Path) -> Wav {
         36 + w.data_len as u64 + if w.pad { 1 } else { 0 },
         "riff_size = 36 + data_len (+Pad)"
     );
-    assert_eq!(w.data_len % w.block_align as u32, 0, "data_len keine ganze Frame-Zahl");
+    assert_eq!(
+        w.data_len % w.block_align as u32,
+        0,
+        "data_len keine ganze Frame-Zahl"
+    );
     w
 }
 
@@ -200,9 +204,13 @@ fn konstante_frames(n: usize, ch: usize, wert: f32) -> Vec<f32> {
 fn pcm24_kopf_und_framezahl() {
     let dir = tmp("pcm24");
     let mut tape = Tape::new();
-    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24).unwrap();
+    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24)
+        .unwrap();
     assert_eq!(tape.state(), State::Recording);
-    assert!(tape.current_path().unwrap().exists(), "Datei bei start angelegt");
+    assert!(
+        tape.current_path().unwrap().exists(),
+        "Datei bei start angelegt"
+    );
 
     // 1500 Frames in zwei Bloecken a 500 Frames (1000 Samples stereo)
     tape.write_block(&konstante_frames(500, 2, 0.25)).unwrap();
@@ -241,7 +249,11 @@ fn pcm24_kopf_und_framezahl() {
     assert!((meta.peak - 0.5).abs() < 1e-6, "Peak {}", meta.peak);
     assert_eq!(meta.dateien.len(), 1);
     assert_eq!(meta.dateien[0].data_bytes, 9000);
-    assert!(meta.start_time_iso.ends_with('Z'), "{}", meta.start_time_iso);
+    assert!(
+        meta.start_time_iso.ends_with('Z'),
+        "{}",
+        meta.start_time_iso
+    );
     assert!(meta.start_epoch_s > 1_600_000_000);
 }
 
@@ -249,8 +261,10 @@ fn pcm24_kopf_und_framezahl() {
 fn float32_kopf_und_werte() {
     let dir = tmp("float32");
     let mut tape = Tape::new();
-    tape.start(dir.join("take"), 44_100, 2, Format::Float32).unwrap();
-    tape.write_block(&[0.5, -0.5, 1.0, -1.0, 0.125, 0.0]).unwrap(); // 3 Frames
+    tape.start(dir.join("take"), 44_100, 2, Format::Float32)
+        .unwrap();
+    tape.write_block(&[0.5, -0.5, 1.0, -1.0, 0.125, 0.0])
+        .unwrap(); // 3 Frames
     let meta = tape.stop().unwrap();
 
     let dateien = wav_dateien(&dir);
@@ -277,7 +291,8 @@ fn float32_kopf_und_werte() {
 fn unvollstaendige_frames_werden_gepuffert() {
     let dir = tmp("carry");
     let mut tape = Tape::new();
-    tape.start(dir.join("take"), 16_000, 2, Format::Pcm24).unwrap();
+    tape.start(dir.join("take"), 16_000, 2, Format::Pcm24)
+        .unwrap();
     // 3 Samples, dann 3 Samples -> zusammen 3 Frames stereo
     tape.write_block(&[0.1, 0.2, 0.3]).unwrap();
     assert_eq!(tape.frames(), 1, "1 Frame komplett, 1 Sample im Carry");
@@ -294,7 +309,8 @@ fn unvollstaendige_frames_werden_gepuffert() {
 fn ungerade_nutzlast_wird_gepolstert() {
     let dir = tmp("pad");
     let mut tape = Tape::new();
-    tape.start(dir.join("take"), 16_000, 1, Format::Pcm24).unwrap();
+    tape.start(dir.join("take"), 16_000, 1, Format::Pcm24)
+        .unwrap();
     tape.write_block(&[0.1, 0.2, 0.3, 0.4, 0.5]).unwrap(); // 5 Frames mono = 15 Byte
     tape.stop().unwrap();
 
@@ -320,7 +336,8 @@ fn rotation_erzeugt_zweite_datei() {
         ..Config::default()
     };
     let mut tape = Tape::with_config(cfg);
-    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24).unwrap();
+    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24)
+        .unwrap();
 
     // 6 Byte/Frame: 4096/6 = 682 Frames pro Datei
     let block = konstante_frames(100, 2, 0.5);
@@ -331,8 +348,16 @@ fn rotation_erzeugt_zweite_datei() {
 
     let dateien = wav_dateien(&dir);
     assert_eq!(dateien.len(), 3, "2000 Frames / 682 = 3 Segmente");
-    assert!(dateien[1].to_string_lossy().contains("-002"), "{:?}", dateien);
-    assert!(dateien[2].to_string_lossy().contains("-003"), "{:?}", dateien);
+    assert!(
+        dateien[1].to_string_lossy().contains("-002"),
+        "{:?}",
+        dateien
+    );
+    assert!(
+        dateien[2].to_string_lossy().contains("-003"),
+        "{:?}",
+        dateien
+    );
 
     let mut summe = 0u64;
     for p in &dateien {
@@ -367,7 +392,8 @@ fn rotation_mit_krummer_blockgroesse_verliert_keine_frames() {
         ..Config::default()
     };
     let mut tape = Tape::with_config(cfg);
-    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24).unwrap();
+    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24)
+        .unwrap();
     // Blauecke zu 77 Frames, die Grenze (682) liegt nicht auf einem Vielfachen
     let block = konstante_frames(77, 2, 0.1);
     for _ in 0..13 {
@@ -381,7 +407,10 @@ fn rotation_mit_krummer_blockgroesse_verliert_keine_frames() {
         .sum();
     assert_eq!(summe, 1001);
     assert_eq!(meta.frames, 1001);
-    assert!(wav_dateien(&dir).len() >= 2, "Rotation muss stattgefunden haben");
+    assert!(
+        wav_dateien(&dir).len() >= 2,
+        "Rotation muss stattgefunden haben"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -394,14 +423,16 @@ fn header_nach_stop_ist_gueltig_laut_file() {
 
     // 24-bit mono, 16 kHz
     let mut tape = Tape::new();
-    tape.start(dir.join("pcm"), 16_000, 1, Format::Pcm24).unwrap();
+    tape.start(dir.join("pcm"), 16_000, 1, Format::Pcm24)
+        .unwrap();
     tape.write_block(&konstante_frames(1000, 1, 0.25)).unwrap();
     tape.stop().unwrap();
     let pcm = &wav_dateien(&dir)[0];
 
     // float32 stereo, 48 kHz
     let mut tape = Tape::new();
-    tape.start(dir.join("float"), 48_000, 2, Format::Float32).unwrap();
+    tape.start(dir.join("float"), 48_000, 2, Format::Float32)
+        .unwrap();
     tape.write_block(&konstante_frames(500, 2, 0.1)).unwrap();
     tape.stop().unwrap();
 
@@ -409,7 +440,12 @@ fn header_nach_stop_ist_gueltig_laut_file() {
     dateien.sort();
     let float = dateien
         .iter()
-        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with("float"))
+        .find(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("float")
+        })
         .unwrap();
 
     let Some(beschreibung_pcm) = file_beschreibung(pcm) else {
@@ -442,7 +478,8 @@ fn rotation_bei_realistischer_dateigroesse() {
         ..Config::default()
     };
     let mut tape = Tape::with_config(cfg);
-    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24).unwrap();
+    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24)
+        .unwrap();
     let block = konstante_frames(1024, 2, 0.4);
     for _ in 0..390 {
         tape.write_block(&block).unwrap(); // 399360 Frames
@@ -468,7 +505,8 @@ fn drop_ohne_stop_finalisiert_den_kopf() {
     let dir = tmp("drop");
     {
         let mut tape = Tape::new();
-        tape.start(dir.join("take"), 48_000, 2, Format::Pcm24).unwrap();
+        tape.start(dir.join("take"), 48_000, 2, Format::Pcm24)
+            .unwrap();
         tape.write_block(&konstante_frames(500, 2, 0.2)).unwrap();
         // bewusst kein stop(): Drop muss den Kopf patchen
     }
@@ -505,7 +543,8 @@ fn zustandsmaschine_und_fehlerfaelle() {
     ));
 
     // Idle -> Recording
-    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24).unwrap();
+    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24)
+        .unwrap();
     assert_eq!(tape.state(), State::Recording);
 
     // Doppelter Start waehrend der Aufnahme ist ein Fehler
@@ -534,7 +573,8 @@ fn zustandsmaschine_und_fehlerfaelle() {
 
     // Stopped -> Recording (neue Aufnahme, Zaehler zurueckgesetzt)
     assert_eq!(tape.frames(), 1);
-    tape.start(dir.join("take2"), 44_100, 1, Format::Pcm24).unwrap();
+    tape.start(dir.join("take2"), 44_100, 1, Format::Pcm24)
+        .unwrap();
     assert_eq!(tape.state(), State::Recording);
     assert_eq!(tape.frames(), 0, "neue Aufnahme startet bei 0");
     tape.stop().unwrap();
@@ -557,7 +597,11 @@ fn unzulaessige_parameter_werden_abgelehnt() {
         tape.start(dir.join("a"), 48_000, 33, Format::Pcm24),
         Err(TapeError::UngueltigeKonfiguration(_))
     ));
-    assert_eq!(tape.state(), State::Idle, "Fehler laesst Zustand unberuehrt");
+    assert_eq!(
+        tape.state(),
+        State::Idle,
+        "Fehler laesst Zustand unberuehrt"
+    );
 
     let mut zu_klein = Tape::with_config(Config {
         max_file_bytes: 1024,
@@ -600,7 +644,8 @@ fn metadaten_sidecar_als_json() {
         ..Config::default()
     };
     let mut tape = Tape::with_config(cfg);
-    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24).unwrap();
+    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24)
+        .unwrap();
     tape.write_block(&[0.75, -0.75]).unwrap();
     let meta = tape.stop().unwrap();
 
@@ -630,7 +675,8 @@ fn write_block_allokiert_nicht() {
         ..Config::default()
     };
     let mut tape = Tape::with_config(cfg);
-    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24).unwrap();
+    tape.start(dir.join("take"), 48_000, 2, Format::Pcm24)
+        .unwrap();
 
     let block = konstante_frames(256, 2, 0.3);
     // Warmlauf (erster Aufruf darf intern noch nichts anlegen, ist aber

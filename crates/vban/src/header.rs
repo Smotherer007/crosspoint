@@ -373,7 +373,8 @@ impl Header {
         let mut buf = [0u8; HEADER_LEN];
         buf[0..4].copy_from_slice(&MAGIC);
         // Byte 4: Bits 5..7 Sub-Protokoll, Bits 0..4 Sample-Rate-Index.
-        buf[OFFSET_FORMAT_SR] = (self.sub_protocol.code() & 0xE0) | (self.sample_rate.code() & 0x1F);
+        buf[OFFSET_FORMAT_SR] =
+            (self.sub_protocol.code() & 0xE0) | (self.sample_rate.code() & 0x1F);
         // Byte 5: wird von AudioFrame::encode gesetzt.
         buf[OFFSET_SAMPLES] = 0;
         // Byte 6: Kanalzahl minus eins.
@@ -475,7 +476,11 @@ mod tests {
         assert_eq!(bytes[6], 1, "2 Kanaele -> gespeichert wird 1");
         assert_eq!(bytes[7], 0x01, "Datentyp I16 (1), Codec PCM (0)");
         assert_eq!(&bytes[8..17], b"VBAN Test");
-        assert_eq!(&bytes[17..24], &[0u8; 7], "Namensfeld muss NUL-gefuellt sein");
+        assert_eq!(
+            &bytes[17..24],
+            &[0u8; 7],
+            "Namensfeld muss NUL-gefuellt sein"
+        );
         assert_eq!(&bytes[24..28], &[0x04, 0x03, 0x02, 0x01], "LE-Zaehler");
     }
 

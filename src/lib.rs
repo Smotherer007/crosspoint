@@ -14,21 +14,20 @@
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod devices;
 pub mod dsp;
 pub mod engine;
-pub mod devices;
-pub mod macros_io;
-pub mod tape_io;
-pub mod vban_io;
 pub mod http;
 pub mod inputs;
+pub mod jack;
+pub mod json;
+pub mod macros_io;
+pub mod pfade;
 /// PipeWire-Graph (`pw-dump`) als Grundlage der Geräteerkennung.
 pub mod pw;
 pub mod remote_api;
-pub mod jack;
-pub mod json;
-pub mod pfade;
-
+pub mod tape_io;
+pub mod vban_io;
 
 pub const STRIPS: usize = 8;
 pub const BUSES: usize = 8;
@@ -37,8 +36,14 @@ pub const LAYERS: usize = 8;
 
 /// Streifennamen wie im Original: 5 Hardware-Eingänge, 3 virtuelle.
 pub const STRIP_NAMES: [&str; STRIPS] = [
-    "HW In 1", "HW In 2", "HW In 3", "HW In 4", "HW In 5",
-    "Virt In 1", "Virt In 2", "Virt In 3",
+    "HW In 1",
+    "HW In 2",
+    "HW In 3",
+    "HW In 4",
+    "HW In 5",
+    "Virt In 1",
+    "Virt In 2",
+    "Virt In 3",
 ];
 
 /// Busse: A1..A5 sind Hardware-Ausgänge, B1..B3 virtuelle (VAIO).
@@ -53,7 +58,11 @@ pub enum BusKind {
 }
 
 pub fn bus_kind(index: usize) -> BusKind {
-    if index < 5 { BusKind::Hardware } else { BusKind::Virtual }
+    if index < 5 {
+        BusKind::Hardware
+    } else {
+        BusKind::Virtual
+    }
 }
 
 /// EQ-Filtertypen. Die Namen folgen den im Original gespeicherten `EQtype`-Werten
@@ -83,7 +92,13 @@ pub struct EqCell {
 
 impl Default for EqCell {
     fn default() -> Self {
-        EqCell { enabled: false, kind: FilterType::Peak, freq_hz: 1000.0, q: 0.7, gain_db: 0.0 }
+        EqCell {
+            enabled: false,
+            kind: FilterType::Peak,
+            freq_hz: 1000.0,
+            q: 0.7,
+            gain_db: 0.0,
+        }
     }
 }
 
@@ -94,7 +109,7 @@ pub struct Compressor {
     pub enabled: bool,
     pub gain_in_db: f32,
     pub threshold_db: f32,
-    pub ratio: f32,        // "comprate"
+    pub ratio: f32, // "comprate"
     pub attack_ms: f32,
     pub release_ms: f32,
     pub knee_db: f32,
@@ -199,7 +214,13 @@ pub struct SpeakerRoute {
 
 impl Default for SpeakerRoute {
     fn default() -> Self {
-        SpeakerRoute { left: true, right: true, center: false, lfe: false, rear: false }
+        SpeakerRoute {
+            left: true,
+            right: true,
+            center: false,
+            lfe: false,
+            rear: false,
+        }
     }
 }
 
@@ -325,7 +346,11 @@ pub struct EngineConfig {
 
 impl Default for EngineConfig {
     fn default() -> Self {
-        EngineConfig { sample_rate: 48_000, block_frames: 512, channels: 8 }
+        EngineConfig {
+            sample_rate: 48_000,
+            block_frames: 512,
+            channels: 8,
+        }
     }
 }
 
@@ -378,7 +403,9 @@ impl Mixer {
     /// Solo hat, sind alle anderen stumm.
     pub fn strip_audible(&self, index: usize) -> bool {
         let s = &self.strips[index];
-        if s.mute { return false; }
+        if s.mute {
+            return false;
+        }
         let any_solo = self.strips.iter().any(|x| x.solo);
         !any_solo || s.solo
     }

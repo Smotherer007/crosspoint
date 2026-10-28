@@ -78,7 +78,10 @@ impl fmt::Display for VbanError {
                 write!(f, "Codec 0x{b:02X} wird nicht unterstuetzt (nur 0x0 = PCM)")
             }
             VbanError::InvalidStreamName(name) => {
-                write!(f, "ungueltiger Stream-Name {name:?} (1..=15 druckbare ASCII-Zeichen)")
+                write!(
+                    f,
+                    "ungueltiger Stream-Name {name:?} (1..=15 druckbare ASCII-Zeichen)"
+                )
             }
             VbanError::InvalidChannels(n) => {
                 write!(f, "ungueltige Kanalzahl {n} (erlaubt 1..=256)")

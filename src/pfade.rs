@@ -58,10 +58,7 @@ mod tests {
     use super::*;
 
     fn temp(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "crosspoint-pfade-{}-{tag}",
-            std::process::id()
-        ));
+        let d = std::env::temp_dir().join(format!("crosspoint-pfade-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -70,7 +67,10 @@ mod tests {
     #[test]
     fn datei_liegt_im_konfigurationsverzeichnis() {
         let p = datei("devices.json");
-        assert!(p.ends_with(Path::new(KONFIG_ORDNER).join("devices.json")), "{p:?}");
+        assert!(
+            p.ends_with(Path::new(KONFIG_ORDNER).join("devices.json")),
+            "{p:?}"
+        );
     }
 
     #[test]
@@ -92,7 +92,10 @@ mod tests {
         std::fs::create_dir_all(basis.join(ALTER_ORDNER)).unwrap();
         std::fs::create_dir_all(basis.join(KONFIG_ORDNER)).unwrap();
         assert!(migriere_in(&basis).is_none());
-        assert!(basis.join(ALTER_ORDNER).is_dir(), "alter Ordner bleibt liegen");
+        assert!(
+            basis.join(ALTER_ORDNER).is_dir(),
+            "alter Ordner bleibt liegen"
+        );
         let _ = std::fs::remove_dir_all(&basis);
     }
 

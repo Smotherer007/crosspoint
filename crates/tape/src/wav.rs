@@ -180,7 +180,10 @@ mod tests {
         assert_eq!(&dst[3..6], &[0xFF, 0xFF, 0x7F], "2.0 geklemmt auf +max");
         assert_eq!(&dst[6..9], &[0x01, 0x00, 0x80], "-2.0 geklemmt auf -max");
         assert_eq!(&dst[9..12], &[0, 0, 0], "Inf -> 0");
-        assert_eq!(peak, 2.0, "Peak ist der Eingabe-Spitzenwert vor der Klemmung");
+        assert_eq!(
+            peak, 2.0,
+            "Peak ist der Eingabe-Spitzenwert vor der Klemmung"
+        );
     }
 
     #[test]
@@ -191,7 +194,8 @@ mod tests {
         assert_eq!(n, 12);
         assert_eq!(peak, 0.5);
         for (i, s) in src.iter().enumerate() {
-            let v = f32::from_le_bytes([dst[i * 4], dst[i * 4 + 1], dst[i * 4 + 2], dst[i * 4 + 3]]);
+            let v =
+                f32::from_le_bytes([dst[i * 4], dst[i * 4 + 1], dst[i * 4 + 2], dst[i * 4 + 3]]);
             assert_eq!(v, *s);
         }
     }

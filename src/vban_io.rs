@@ -566,7 +566,9 @@ pub fn parse_empfang(bytes: &[u8]) -> Result<Empfangsframe, RecvFehler> {
         return Err(RecvFehler::FalschesFormat { code: daten_typ });
     }
     if bytes[7] & 0xF0 != 0 {
-        return Err(RecvFehler::FalscherCodec { codec: bytes[7] & 0xF0 });
+        return Err(RecvFehler::FalscherCodec {
+            codec: bytes[7] & 0xF0,
+        });
     }
     let rate_code = bytes[4] & 0x1F;
     let sample_rate = match SampleRate::from_code(rate_code) {
@@ -723,7 +725,10 @@ impl VbanRecvControl {
             port: AtomicU32::new(u32::from(RECV_PORT_STANDARD)),
             packets: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
-            level: [AtomicU32::new(0f32.to_bits()), AtomicU32::new(0f32.to_bits())],
+            level: [
+                AtomicU32::new(0f32.to_bits()),
+                AtomicU32::new(0f32.to_bits()),
+            ],
             stream: Mutex::new(String::new()),
             fehler: Mutex::new(String::new()),
         }
@@ -935,10 +940,7 @@ fn binde_empfang(port: u16) -> Result<UdpSocket, String> {
 ///
 /// Bindefehler (Port belegt, Port < 1024 ohne Rechte) landen in
 /// `letzter_fehler`; der Thread versucht es alle 250 ms erneut.
-pub fn spawn_empfaenger(
-    ctl: Arc<VbanRecvControl>,
-    ring: Arc<Ring>,
-) -> thread::JoinHandle<()> {
+pub fn spawn_empfaenger(ctl: Arc<VbanRecvControl>, ring: Arc<Ring>) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut buf = vec![0u8; RECV_BUFFER];
         let mut sammler = Sammler::new(RECV_BLOCK_FRAMES);
@@ -1036,7 +1038,10 @@ mod tests {
             "Port 70000 muss abgelehnt werden"
         );
         assert_eq!(pruefe_port_wert(7000).unwrap(), 7000);
-        assert!(pruefe_port(1023).is_err(), "Port 1023 (privilegiert) muss abgelehnt werden");
+        assert!(
+            pruefe_port(1023).is_err(),
+            "Port 1023 (privilegiert) muss abgelehnt werden"
+        );
         assert!(pruefe_port(1024).is_ok());
         assert!(pruefe_port(65535).is_ok());
 
@@ -1058,9 +1063,18 @@ mod tests {
         assert_eq!(zu_lang.len(), MAX_STREAM + 1);
         assert!(pruefe_stream(zu_lang).is_err());
         assert!(pruefe_stream("").is_err(), "leerer Stream ist ungültig");
-        assert!(pruefe_stream("crosspoint bus").is_err(), "Leerzeichen ist verboten");
-        assert!(pruefe_stream("crosspointbusA1\t").is_err(), "Tab ist verboten");
-        assert!(pruefe_stream("crosspointbusä1").is_err(), "Nicht-ASCII ist verboten");
+        assert!(
+            pruefe_stream("crosspoint bus").is_err(),
+            "Leerzeichen ist verboten"
+        );
+        assert!(
+            pruefe_stream("crosspointbusA1\t").is_err(),
+            "Tab ist verboten"
+        );
+        assert!(
+            pruefe_stream("crosspointbusä1").is_err(),
+            "Nicht-ASCII ist verboten"
+        );
         assert!(pruefe_stream("crosspointbusA1").is_ok());
         // Genau 15 Zeichen ist die Obergrenze.
         assert!(pruefe_stream("abcdefghijklmno").is_ok());
@@ -1132,8 +1146,13 @@ mod tests {
         let frames = ring.pop(&mut out).expect("Block im Ring");
         assert_eq!(frames, BLOCK_FRAMES, "Ring liefert 1024 Stereo-Frames");
 
-        let frame = rahmen_aus_block("crosspointbusA1", SampleRate::Hz48000, 7, &out[..frames * 2])
-            .expect("Frame");
+        let frame = rahmen_aus_block(
+            "crosspointbusA1",
+            SampleRate::Hz48000,
+            7,
+            &out[..frames * 2],
+        )
+        .expect("Frame");
         assert_eq!(frame.sample_frames(), 1024, "1024 Frames je Kanal");
         assert_eq!(frame.sample_count(), 2048, "2048 Einzelwerte (stereo)");
         assert_eq!(frame.frame_counter(), 7);
@@ -1174,15 +1193,22 @@ mod tests {
 
         // Der Frame trägt genau diesen Zähler.
         let block = vec![0.0f32; 4];
-        let f = rahmen_aus_block("crosspointbusA1", SampleRate::Hz48000, als_zaehler(u64::MAX), &block)
-            .expect("Frame");
+        let f = rahmen_aus_block(
+            "crosspointbusA1",
+            SampleRate::Hz48000,
+            als_zaehler(u64::MAX),
+            &block,
+        )
+        .expect("Frame");
         assert_eq!(f.frame_counter(), u32::MAX);
         let back = AudioFrame::parse(&f.encode().expect("encode")).expect("parse");
         assert_eq!(back.frame_counter(), u32::MAX);
 
         // Anzeige bleibt bei großen Werten stabil (kein Absturz/Panik).
         c.setze_frames(1 << 40);
-        assert!(c.status_json().contains("\"gesendete_frames\":1099511627776"));
+        assert!(c
+            .status_json()
+            .contains("\"gesendete_frames\":1099511627776"));
     }
 
     #[test]
@@ -1436,7 +1462,12 @@ mod tests {
         assert_eq!(sammler.rest(), 0);
 
         // Kürzeres Paket: bleibt als Rest liegen, bis der Block voll ist.
-        let b = paket("test", 2, SampleRate::Hz48000, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let b = paket(
+            "test",
+            2,
+            SampleRate::Hz48000,
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        );
         let (bloecke, _) = sammler.schiebe(&ring, &parse_empfang(&b).unwrap().samples);
         assert_eq!(bloecke, 0, "drei Frames füllen keinen Viererblock");
         assert_eq!(sammler.rest(), 3);
@@ -1472,7 +1503,10 @@ mod tests {
             "level_left",
             "level_right",
         ] {
-            assert!(j.contains(&format!("\"{key}\":")), "Feld {key} fehlt in {j}");
+            assert!(
+                j.contains(&format!("\"{key}\":")),
+                "Feld {key} fehlt in {j}"
+            );
         }
         assert!(j.contains("\"enabled\":true"), "{j}");
         assert!(j.contains("\"port\":6980"), "{j}");
@@ -1531,7 +1565,10 @@ mod tests {
         let tx = UdpSocket::bind("127.0.0.1:0").expect("tx");
         let roh = paket("test", 2, SampleRate::Hz48000, &[0.1, 0.1]);
         while c.packets() < 3 {
-            let _ = tx.send_to(&roh, format!("127.0.0.1:{port_a}").parse::<SocketAddr>().unwrap());
+            let _ = tx.send_to(
+                &roh,
+                format!("127.0.0.1:{port_a}").parse::<SocketAddr>().unwrap(),
+            );
             thread::sleep(Duration::from_millis(20));
         }
 
@@ -1540,13 +1577,19 @@ mod tests {
         thread::sleep(Duration::from_millis(100));
         let vorher = c.packets();
         for _ in 0..5 {
-            let _ = tx.send_to(&roh, format!("127.0.0.1:{port_a}").parse::<SocketAddr>().unwrap());
+            let _ = tx.send_to(
+                &roh,
+                format!("127.0.0.1:{port_a}").parse::<SocketAddr>().unwrap(),
+            );
         }
         thread::sleep(Duration::from_millis(100));
         assert_eq!(c.packets(), vorher, "alter Port darf nicht mehr zählen");
 
         for _ in 0..5 {
-            let _ = tx.send_to(&roh, format!("127.0.0.1:{port_b}").parse::<SocketAddr>().unwrap());
+            let _ = tx.send_to(
+                &roh,
+                format!("127.0.0.1:{port_b}").parse::<SocketAddr>().unwrap(),
+            );
         }
         let mut versuche = 0;
         while c.packets() <= vorher && versuche < 100 {
@@ -1560,7 +1603,10 @@ mod tests {
         thread::sleep(Duration::from_millis(100));
         let stand = c.packets();
         for _ in 0..5 {
-            let _ = tx.send_to(&roh, format!("127.0.0.1:{port_b}").parse::<SocketAddr>().unwrap());
+            let _ = tx.send_to(
+                &roh,
+                format!("127.0.0.1:{port_b}").parse::<SocketAddr>().unwrap(),
+            );
         }
         thread::sleep(Duration::from_millis(100));
         assert_eq!(c.packets(), stand, "ausgeschaltet zählt nichts mehr");

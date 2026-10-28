@@ -329,10 +329,7 @@ impl Tape {
 
             let cap_frames = (self.scratch.len() / bytes_per_frame).max(1);
             let fit_frames = (frei / bytes_per_frame as u64) as usize;
-            let n = cap_frames
-                .min(fit_frames)
-                .min(total - done)
-                .max(1);
+            let n = cap_frames.min(fit_frames).min(total - done).max(1);
 
             let src = &frames[done * ch..(done + n) * ch];
             let (bytes, peak) = wav::encode(self.format, src, &mut self.scratch);

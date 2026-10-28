@@ -90,12 +90,7 @@ impl AudioFrame {
 
     /// Anzahl der Sample-Frames (Samples pro Kanal), nicht der Einzelwerte.
     pub fn sample_frames(&self) -> usize {
-        let bps = self
-            .header
-            .format
-            .bytes_per_sample()
-            .unwrap_or(1)
-            .max(1);
+        let bps = self.header.format.bytes_per_sample().unwrap_or(1).max(1);
         let block = bps * self.header.channels as usize;
         if block == 0 {
             0
@@ -106,8 +101,7 @@ impl AudioFrame {
 
     /// Gesamtzahl der Einzelwerte (Sample-Frames * Kanaele).
     pub fn sample_count(&self) -> usize {
-        self.data.len()
-            / self.header.format.bytes_per_sample().unwrap_or(1).max(1)
+        self.data.len() / self.header.format.bytes_per_sample().unwrap_or(1).max(1)
     }
 
     /// Rohdaten, wie sie auf der Leitung stehen.

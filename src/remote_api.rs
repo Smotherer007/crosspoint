@@ -169,7 +169,10 @@ struct MacroSlot {
 
 impl MacroSlot {
     fn new() -> MacroSlot {
-        MacroSlot { status: AtomicU32::new(0), dirty: AtomicBool::new(false) }
+        MacroSlot {
+            status: AtomicU32::new(0),
+            dirty: AtomicBool::new(false),
+        }
     }
 }
 
@@ -276,7 +279,12 @@ impl RemoteApi {
     }
 
     /// `VBVMR_GetParameterFloat`.
-    pub fn get_parameter_float(&self, target: &str, index: usize, param: &str) -> RemoteResult<f32> {
+    pub fn get_parameter_float(
+        &self,
+        target: &str,
+        index: usize,
+        param: &str,
+    ) -> RemoteResult<f32> {
         let target = parse_target(target)?;
         let param = normalize_param(param);
         let value = match target {
@@ -307,8 +315,15 @@ impl RemoteApi {
 
     /// `VBVMR_GetParameterStringW`: Zahl als Text. Ganzzahlige Werte mit einer
     /// Nachkommastelle (`"-6.0"`), sonst so kurz wie möglich.
-    pub fn get_parameter_string(&self, target: &str, index: usize, param: &str) -> RemoteResult<String> {
-        Ok(format_number(self.get_parameter_float(target, index, param)?))
+    pub fn get_parameter_string(
+        &self,
+        target: &str,
+        index: usize,
+        param: &str,
+    ) -> RemoteResult<String> {
+        Ok(format_number(
+            self.get_parameter_float(target, index, param)?,
+        ))
     }
 
     /// `VBVMR_SetParameters`: Text im Originalformat, mehrere Zuweisungen durch
@@ -347,7 +362,11 @@ impl RemoteApi {
     /// `VBVMR_GetLevel`: Pegel eines Bus-Kanals in dB. Ohne Signal -140 dB.
     /// Nur die Kanäle 0 und 1 existieren (Stereo-Summe, beide gleich).
     pub fn get_level(&self, bus: usize, channel: usize) -> RemoteResult<f32> {
-        let b = self.params.buses.get(bus).ok_or(RemoteError::IndexOutOfRange)?;
+        let b = self
+            .params
+            .buses
+            .get(bus)
+            .ok_or(RemoteError::IndexOutOfRange)?;
         if channel > 1 {
             return Err(RemoteError::IndexOutOfRange);
         }
@@ -420,8 +439,12 @@ pub fn parse_assignment(text: &str) -> RemoteResult<Assignment> {
         .split_once('=')
         .ok_or_else(|| RemoteError::Syntax(text.to_string()))?;
     let lhs = lhs.trim();
-    let open = lhs.find('[').ok_or_else(|| RemoteError::Syntax(text.to_string()))?;
-    let close = lhs.find(']').ok_or_else(|| RemoteError::Syntax(text.to_string()))?;
+    let open = lhs
+        .find('[')
+        .ok_or_else(|| RemoteError::Syntax(text.to_string()))?;
+    let close = lhs
+        .find(']')
+        .ok_or_else(|| RemoteError::Syntax(text.to_string()))?;
     if close < open {
         return Err(RemoteError::Syntax(text.to_string()));
     }
@@ -440,7 +463,12 @@ pub fn parse_assignment(text: &str) -> RemoteResult<Assignment> {
     }
     let raw = rhs.trim();
     let value = parse_value(raw).ok_or_else(|| RemoteError::InvalidValue(raw.to_string()))?;
-    Ok(Assignment { target, index, param: normalize_param(param), value })
+    Ok(Assignment {
+        target,
+        index,
+        param: normalize_param(param),
+        value,
+    })
 }
 
 /// Zielnamen tolerant lesen: `Strip`, `strip`, `STRIPS`, `Bus`, `BUS`.
@@ -510,7 +538,11 @@ fn fget(a: &AtomicU32) -> f32 {
 
 #[inline]
 fn flag(b: bool) -> f32 {
-    if b { 1.0 } else { 0.0 }
+    if b {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 fn strip_get(s: &StripParam, param: &str) -> Option<f32> {
@@ -615,7 +647,11 @@ mod tests {
             .unwrap();
         assert_eq!(n, 3);
         // wirklich in Params, nicht nur im Parser
-        assert!((gain_db(&p, 0) + 6.0).abs() < 1e-6, "Streifen 1 Gain war {}", gain_db(&p, 0));
+        assert!(
+            (gain_db(&p, 0) + 6.0).abs() < 1e-6,
+            "Streifen 1 Gain war {}",
+            gain_db(&p, 0)
+        );
         assert!(p.buses[1].mute.load(Relaxed), "Bus 2 soll stumm sein");
         assert!(p.strips[2].mute.load(Relaxed), "Streifen 3 soll stumm sein");
 
@@ -654,7 +690,10 @@ mod tests {
         api.set_parameter_float("bus", 0, "delay", 12.5).unwrap();
         assert!((api.get_parameter_float("bus", 0, "Delay").unwrap() - 12.5).abs() < 1e-4);
         // String-Sicht derselben Parameter
-        assert_eq!(api.get_parameter_string("strip", 1, "gain").unwrap(), "-6.5");
+        assert_eq!(
+            api.get_parameter_string("strip", 1, "gain").unwrap(),
+            "-6.5"
+        );
         api.set_parameter_string("Bus", 3, "Gain", "-3").unwrap();
         assert_eq!(api.get_parameter_string("bus", 3, "gain").unwrap(), "-3.0");
     }
@@ -683,10 +722,22 @@ mod tests {
             Err(RemoteError::UnknownTarget)
         );
         // Parserfehler
-        assert!(matches!(api.set_parameters("Strip[0].Gain=abc"), Err(RemoteError::InvalidValue(_))));
-        assert!(matches!(api.set_parameters("Foo[0].Gain=1"), Err(RemoteError::UnknownTarget)));
-        assert!(matches!(api.set_parameters("Strip[0]Gain=1"), Err(RemoteError::Syntax(_))));
-        assert!(matches!(api.set_parameters("Strip[0].Gain:1"), Err(RemoteError::Syntax(_))));
+        assert!(matches!(
+            api.set_parameters("Strip[0].Gain=abc"),
+            Err(RemoteError::InvalidValue(_))
+        ));
+        assert!(matches!(
+            api.set_parameters("Foo[0].Gain=1"),
+            Err(RemoteError::UnknownTarget)
+        ));
+        assert!(matches!(
+            api.set_parameters("Strip[0]Gain=1"),
+            Err(RemoteError::Syntax(_))
+        ));
+        assert!(matches!(
+            api.set_parameters("Strip[0].Gain:1"),
+            Err(RemoteError::Syntax(_))
+        ));
         // Fehlversuche dürfen das Dirty-Flag nicht setzen
         assert!(!api.is_parameters_dirty());
     }
@@ -731,8 +782,14 @@ mod tests {
         api.macro_button_set_status(79, 1).unwrap();
         assert_eq!(api.macro_button_get_status(79).unwrap(), 1);
         assert!(api.macro_button_is_dirty(79).unwrap());
-        assert!(!api.macro_button_is_dirty(79).unwrap(), "Abfrage löscht das Flag");
-        assert!(!api.macro_button_is_dirty(0).unwrap(), "nur der geänderte Slot ist schmutzig");
+        assert!(
+            !api.macro_button_is_dirty(79).unwrap(),
+            "Abfrage löscht das Flag"
+        );
+        assert!(
+            !api.macro_button_is_dirty(0).unwrap(),
+            "nur der geänderte Slot ist schmutzig"
+        );
         assert_eq!(
             api.macro_button_set_status(MACRO_BUTTONS, 1),
             Err(RemoteError::IndexOutOfRange)
@@ -751,7 +808,8 @@ mod tests {
         for i in 0..4 {
             let a = api.clone();
             handles.push(std::thread::spawn(move || {
-                a.set_parameter_float("strip", i, "gain", -(i as f32)).unwrap();
+                a.set_parameter_float("strip", i, "gain", -(i as f32))
+                    .unwrap();
             }));
         }
         for h in handles {

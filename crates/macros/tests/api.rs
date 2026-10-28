@@ -2,7 +2,10 @@
 //! der Hauptprozess tun wird - Belegung bauen, als JSON ablegen und wieder
 //! laden, dann Frames auswerten.
 
-use macros::{bank_from_json, bank_to_json, Action, Bank, Button, ButtonState, Engine, Input, Trigger, MAX_BUTTONS};
+use macros::{
+    bank_from_json, bank_to_json, Action, Bank, Button, ButtonState, Engine, Input, Trigger,
+    MAX_BUTTONS,
+};
 
 fn belegung() -> Bank {
     let mut bank = Bank::new();
@@ -44,7 +47,11 @@ fn belegung_ueber_die_oeffentliche_api() {
     let text = bank_to_json(&bank);
 
     // Eine Taste je Zeile: die Datei bleibt lesbar.
-    assert!(text.contains("},\n{\"name\":"), "Formatierung: {}", &text[..80]);
+    assert!(
+        text.contains("},\n{\"name\":"),
+        "Formatierung: {}",
+        &text[..80]
+    );
 
     let zurueck = bank_from_json(&text).unwrap();
     assert_eq!(zurueck, bank);

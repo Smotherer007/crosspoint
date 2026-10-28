@@ -154,11 +154,7 @@ impl Engine {
         } else {
             self.is_pulsing(index)
         };
-        Some(if aktiv {
-            konfig
-        } else {
-            ButtonState::Off
-        })
+        Some(if aktiv { konfig } else { ButtonState::Off })
     }
 
     /// Kennt die Engine den aktuellen Wert eines Parameters?
@@ -181,12 +177,18 @@ impl Engine {
     /// Aufrufer, der die Aktionen ohnehin gleich abarbeitet, und fuer Tests.
     pub fn apply(&mut self, action: &Action) {
         match action {
-            Action::SetParam { target, index, param, value } => {
-                self.set_param(target, *index, param, *value)
-            }
-            Action::Toggle { target, index, param, to: Some(v) } => {
-                self.set_param(target, *index, param, *v)
-            }
+            Action::SetParam {
+                target,
+                index,
+                param,
+                value,
+            } => self.set_param(target, *index, param, *value),
+            Action::Toggle {
+                target,
+                index,
+                param,
+                to: Some(v),
+            } => self.set_param(target, *index, param, *v),
             Action::Toggle { .. } | Action::MidiNote { .. } | Action::Wait { .. } => {}
         }
     }
@@ -196,7 +198,12 @@ impl Engine {
     /// `to` offen und der Ausfuehrende entscheidet.
     fn toggle_aufloesen(&self, action: &Action) -> Action {
         match action {
-            Action::Toggle { target, index, param, .. } => {
+            Action::Toggle {
+                target,
+                index,
+                param,
+                ..
+            } => {
                 let key = ParamKey::new(target, *index, param);
                 let to = self
                     .known_param(&key)
@@ -348,13 +355,20 @@ impl Engine {
         self.pulse[index] = false;
         self.last_fire[index] = None;
         self.fired.retain(|i| *i != index);
-        self.conflicts.retain(|c| c.kept != index && c.dropped != index);
+        self.conflicts
+            .retain(|c| c.kept != index && c.dropped != index);
     }
 
     /// Alle 80 Eingaenge auf einmal druecken/lassen - bequem fuer Tests und
     /// fuer eine "alle Tasten aus"-Taste.
     pub fn alle_eingaenge(down: bool) -> Vec<Input> {
-        vec![Input { down, value: if down { 1.0 } else { 0.0 } }; MAX_BUTTONS]
+        vec![
+            Input {
+                down,
+                value: if down { 1.0 } else { 0.0 }
+            };
+            MAX_BUTTONS
+        ]
     }
 }
 
@@ -697,7 +711,10 @@ mod tests {
     /// Leere Belegung (keine Aktion) ist kein Fehler, sondern ein leerer Frame.
     #[test]
     fn taste_ohne_aktionen_ist_still() {
-        let bank = bank_mit(0, Button::neu("Leer", ButtonState::On, Trigger::Press, vec![]));
+        let bank = bank_mit(
+            0,
+            Button::neu("Leer", ButtonState::On, Trigger::Press, vec![]),
+        );
         let mut e = Engine::new(bank);
         assert!(e.tick(0, &[Input::gedrueckt()]).is_empty());
         // Rasten ja, aber ohne Aktion.

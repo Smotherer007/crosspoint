@@ -191,7 +191,9 @@ fn value(b: &[char], i: &mut usize) -> Result<Value, String> {
                 *i += 1;
             }
             let s: String = b[start..*i].iter().collect();
-            s.parse::<f64>().map(Value::Num).map_err(|_| format!("Zahl: {s}"))
+            s.parse::<f64>()
+                .map(Value::Num)
+                .map_err(|_| format!("Zahl: {s}"))
         }
     }
 }
@@ -226,7 +228,8 @@ fn string(b: &[char], i: &mut usize) -> Result<String, String> {
                     Some('t') => out.push('\t'),
                     Some('u') => {
                         let hex: String = b.get(*i + 1..*i + 5).unwrap_or(&[]).iter().collect();
-                        if let Some(c) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                        if let Some(c) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32)
+                        {
                             out.push(c);
                         }
                         *i += 4;

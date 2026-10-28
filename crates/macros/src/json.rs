@@ -252,7 +252,8 @@ fn text_lesen(z: &[char], i: &mut usize) -> Result<String, String> {
                     Some('f') => aus.push('\u{c}'),
                     Some('u') => {
                         let hex: String = z.get(*i + 1..*i + 5).unwrap_or(&[]).iter().collect();
-                        if let Some(c) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                        if let Some(c) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32)
+                        {
                             aus.push(c);
                         }
                         *i += 4;
@@ -280,7 +281,10 @@ mod tests {
         let w = Wert::objekt(vec![
             ("name", Wert::text("Intro")),
             ("wert", Wert::zahl(1.5)),
-            ("liste", Wert::Liste(vec![Wert::Wahr(true), Wert::Null, Wert::zahl(-3.0)])),
+            (
+                "liste",
+                Wert::Liste(vec![Wert::Wahr(true), Wert::Null, Wert::zahl(-3.0)]),
+            ),
         ]);
         let zurueck = parse(&w.to_json()).unwrap();
         assert_eq!(zurueck, w);

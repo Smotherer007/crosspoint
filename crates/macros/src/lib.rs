@@ -129,11 +129,8 @@ mod tests {
     #[test]
     fn belegung_pruefen_meldet_kaputte_slots() {
         let mut bank = Bank::new();
-        bank.set(
-            4,
-            Button::neu("", ButtonState::On, Trigger::Press, vec![]),
-        )
-        .unwrap();
+        bank.set(4, Button::neu("", ButtonState::On, Trigger::Press, vec![]))
+            .unwrap();
         let fehler = belegung_pruefen(&bank).unwrap_err();
         assert!(fehler.contains("Taste 4"), "Meldung war: {fehler}");
     }

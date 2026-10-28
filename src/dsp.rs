@@ -15,12 +15,22 @@ pub fn db_to_lin(db: f32) -> f32 {
 
 #[inline]
 pub fn lin_to_db(v: f32) -> f32 {
-    if v <= 1e-7 { -140.0 } else { 20.0 * v.log10() }
+    if v <= 1e-7 {
+        -140.0
+    } else {
+        20.0 * v.log10()
+    }
 }
 
 #[inline]
 fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
-    if v < lo { lo } else if v > hi { hi } else { v }
+    if v < lo {
+        lo
+    } else if v > hi {
+        hi
+    } else {
+        v
+    }
 }
 
 /// Filtertyp einer EQ-Zelle (Reihenfolge der `EQtype`-Werte im Original unbelegt).
@@ -76,7 +86,10 @@ pub struct Biquad {
 
 impl Biquad {
     pub fn bypass() -> Biquad {
-        Biquad { b0: 1.0, ..Default::default() }
+        Biquad {
+            b0: 1.0,
+            ..Default::default()
+        }
     }
 
     pub fn coeffs(&mut self, kind: FilterType, freq: f32, q: f32, gain_db: f32, sr: f32) {
@@ -176,7 +189,12 @@ pub struct Compressor {
 
 impl Default for Compressor {
     fn default() -> Self {
-        Compressor { enabled: false, env: 0.0, att: 0.0, rel: 0.0 }
+        Compressor {
+            enabled: false,
+            env: 0.0,
+            att: 0.0,
+            rel: 0.0,
+        }
     }
 }
 
@@ -231,7 +249,15 @@ pub struct Gate {
 
 impl Default for Gate {
     fn default() -> Self {
-        Gate { enabled: false, env: 0.0, hold: 0.0, gain: 0.0, att: 0.0, rel: 0.0, hold_s: 0.0 }
+        Gate {
+            enabled: false,
+            env: 0.0,
+            hold: 0.0,
+            gain: 0.0,
+            att: 0.0,
+            rel: 0.0,
+            hold_s: 0.0,
+        }
     }
 }
 
@@ -294,7 +320,11 @@ pub struct Limiter {
 
 impl Default for Limiter {
     fn default() -> Self {
-        Limiter { enabled: true, gain: 1.0, rel: 0.0 }
+        Limiter {
+            enabled: true,
+            gain: 1.0,
+            rel: 0.0,
+        }
     }
 }
 
@@ -327,7 +357,11 @@ pub struct DelayLine {
 
 impl DelayLine {
     pub fn new(max_frames: usize) -> DelayLine {
-        DelayLine { buf: vec![0.0; max_frames.max(1)], pos: 0, len: 0 }
+        DelayLine {
+            buf: vec![0.0; max_frames.max(1)],
+            pos: 0,
+            len: 0,
+        }
     }
 
     pub fn set_ms(&mut self, ms: f32, sr: f32) {
@@ -362,7 +396,9 @@ mod tests {
         for i in 0..48000 {
             let x = (2.0 * PI * 1000.0 * i as f32 / sr).sin();
             let y = b.process(x);
-            if i > 4800 { peak = peak.max(y.abs()); }
+            if i > 4800 {
+                peak = peak.max(y.abs());
+            }
         }
         let db = lin_to_db(peak);
         assert!(db > 10.0 && db < 14.0, "Peak-Gain war {db} dB");
@@ -371,15 +407,22 @@ mod tests {
     #[test]
     fn biquad_bypass_laesst_durch() {
         let mut b = Biquad::bypass();
-        for _ in 0..100 { assert!((b.process(0.5) - 0.5).abs() < 1e-6); }
+        for _ in 0..100 {
+            assert!((b.process(0.5) - 0.5).abs() < 1e-6);
+        }
     }
 
     #[test]
     fn kompressor_reduziert_ueber_schwelle() {
-        let mut c = Compressor { enabled: true, ..Default::default() };
+        let mut c = Compressor {
+            enabled: true,
+            ..Default::default()
+        };
         c.set_times(5.0, 100.0, 48000.0);
         let mut out = 0.0;
-        for _ in 0..48000 { out = c.process(0.5, -20.0, 4.0, 0.0, 0.0); }
+        for _ in 0..48000 {
+            out = c.process(0.5, -20.0, 4.0, 0.0, 0.0);
+        }
         let db = lin_to_db(out.abs());
         // Eingang -6 dB, Schwelle -20 dB, Ratio 4 -> rund -16,5 dB
         assert!(db < -10.0 && db > -20.0, "Ausgang war {db} dB");
@@ -401,16 +444,23 @@ mod tests {
     fn delay_verzoegert_um_frames() {
         let mut d = DelayLine::new(1024);
         d.set_ms(1.0, 48000.0); // 48 Frames
-        for k in 0..48 { assert_eq!(d.process(if k == 0 { 1.0 } else { 0.0 }), 0.0); }
+        for k in 0..48 {
+            assert_eq!(d.process(if k == 0 { 1.0 } else { 0.0 }), 0.0);
+        }
         assert!((d.process(0.0) - 1.0).abs() < 1e-6);
     }
 
     #[test]
     fn gate_laesst_lautes_durch() {
-        let mut g = Gate { enabled: true, ..Default::default() };
+        let mut g = Gate {
+            enabled: true,
+            ..Default::default()
+        };
         g.set_times(1.0, 50.0, 50.0, 48000.0);
         let mut out = 0.0;
-        for _ in 0..9600 { out = g.process(0.5, -40.0); }
+        for _ in 0..9600 {
+            out = g.process(0.5, -40.0);
+        }
         assert!(out > 0.4, "Gate hat zu stark gedämpft: {out}");
     }
 }
@@ -480,10 +530,14 @@ impl Default for C5Limiter {
 impl C5Limiter {
     fn setup(&mut self, cfg: &C5Config, sr: f32) {
         if (self.sr - sr).abs() > 0.5 {
-            self.lp_low.coeffs(FilterType::LowPass, cfg.crossover_low_hz, 0.707, 0.0, sr);
-            self.hp_low.coeffs(FilterType::HighPass, cfg.crossover_low_hz, 0.707, 0.0, sr);
-            self.lp_high.coeffs(FilterType::LowPass, cfg.crossover_high_hz, 0.707, 0.0, sr);
-            self.hp_high.coeffs(FilterType::HighPass, cfg.crossover_high_hz, 0.707, 0.0, sr);
+            self.lp_low
+                .coeffs(FilterType::LowPass, cfg.crossover_low_hz, 0.707, 0.0, sr);
+            self.hp_low
+                .coeffs(FilterType::HighPass, cfg.crossover_low_hz, 0.707, 0.0, sr);
+            self.lp_high
+                .coeffs(FilterType::LowPass, cfg.crossover_high_hz, 0.707, 0.0, sr);
+            self.hp_high
+                .coeffs(FilterType::HighPass, cfg.crossover_high_hz, 0.707, 0.0, sr);
             for b in 0..3 {
                 self.comp[b].set_times(10.0, 120.0, sr);
                 self.lim[b].set_release(60.0, sr);
@@ -546,7 +600,10 @@ mod c5_tests {
             peak = peak.max(c5.process(x, &cfg, 48000.0).abs());
         }
         let db = lin_to_db(peak);
-        assert!(db <= -4.5, "Spitze war {db} dB, soll unter der Decke liegen");
+        assert!(
+            db <= -4.5,
+            "Spitze war {db} dB, soll unter der Decke liegen"
+        );
     }
 
     #[test]
@@ -561,6 +618,9 @@ mod c5_tests {
             let x = 0.05 * (2.0 * std::f32::consts::PI * 500.0 * i as f32 / 48000.0).sin();
             peak = peak.max(c5.process(x, &cfg, 48000.0).abs());
         }
-        assert!(peak > 0.02, "leises Signal wurde zu stark abgesenkt: {peak}");
+        assert!(
+            peak > 0.02,
+            "leises Signal wurde zu stark abgesenkt: {peak}"
+        );
     }
 }

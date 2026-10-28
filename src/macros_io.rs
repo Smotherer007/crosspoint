@@ -82,14 +82,28 @@ fn zahl(v: f64) -> String {
 /// Eine Engine-Aktion als Kommandozeile (siehe Modul-Doku).
 pub fn kommando(action: &Action) -> String {
     match action {
-        Action::SetParam { target, index, param, value } => {
+        Action::SetParam {
+            target,
+            index,
+            param,
+            value,
+        } => {
             format!("{target} {index} {param} {}", zahl(*value))
         }
-        Action::Toggle { target, index, param, to } => match to {
+        Action::Toggle {
+            target,
+            index,
+            param,
+            to,
+        } => match to {
             Some(v) => format!("{target} {index} {param} {}", zahl(*v)),
             None => format!("{target} {index} {param} toggle"),
         },
-        Action::MidiNote { channel, note, velocity } => {
+        Action::MidiNote {
+            channel,
+            note,
+            velocity,
+        } => {
             format!("midi {channel} {note} {velocity}")
         }
         Action::Wait { ms } => format!("wait {ms}"),
@@ -219,7 +233,13 @@ impl MacroControl {
         let eingaenge: Vec<Input> = {
             let h = sperre(&self.halten);
             h.iter()
-                .map(|down| if *down { Input::gedrueckt() } else { Input::idle() })
+                .map(|down| {
+                    if *down {
+                        Input::gedrueckt()
+                    } else {
+                        Input::idle()
+                    }
+                })
                 .collect()
         };
 
@@ -266,8 +286,7 @@ impl MacroControl {
         let mut tmp = self.pfad.clone().into_os_string();
         tmp.push(".tmp");
         let tmp = PathBuf::from(tmp);
-        std::fs::write(&tmp, text)
-            .map_err(|e| format!("{} schreiben: {e}", tmp.display()))?;
+        std::fs::write(&tmp, text).map_err(|e| format!("{} schreiben: {e}", tmp.display()))?;
         std::fs::rename(&tmp, &self.pfad).map_err(|e| {
             let _ = std::fs::remove_file(&tmp);
             format!("{} umbenennen: {e}", self.pfad.display())
@@ -373,7 +392,10 @@ mod tests {
     fn testpfad() -> PathBuf {
         static N: AtomicU32 = AtomicU32::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("crosspoint-macros-io-{}-{n}.json", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "crosspoint-macros-io-{}-{n}.json",
+            std::process::id()
+        ))
     }
 
     fn taste(name: &str, state: ButtonState, actions: Vec<Action>) -> Button {
@@ -394,7 +416,11 @@ mod tests {
     fn press_feuert_genau_einmal() {
         let c = steuer(&[(
             0,
-            taste("Leise", ButtonState::Trigger, vec![Action::set("strip", 0, "gain", -6.0)]),
+            taste(
+                "Leise",
+                ButtonState::Trigger,
+                vec![Action::set("strip", 0, "gain", -6.0)],
+            ),
         )]);
 
         assert!(c.drain().is_empty(), "frisches Steuer ist leer");
@@ -415,7 +441,11 @@ mod tests {
     fn release_erzeugt_keine_zweite_aktion() {
         let c = steuer(&[(
             0,
-            taste("Leise", ButtonState::Trigger, vec![Action::set("strip", 0, "gain", -6.0)]),
+            taste(
+                "Leise",
+                ButtonState::Trigger,
+                vec![Action::set("strip", 0, "gain", -6.0)],
+            ),
         )]);
         c.press(0).unwrap();
         assert_eq!(c.drain(), vec!["strip 0 gain -6".to_string()]);
@@ -432,7 +462,12 @@ mod tests {
         // Taste mit Trigger::Release: nichts beim Druck, einmal beim Loslassen.
         let r = steuer(&[(
             2,
-            Button::neu("Los", ButtonState::On, Trigger::Release, vec![Action::midi(1, 60, 0)]),
+            Button::neu(
+                "Los",
+                ButtonState::On,
+                Trigger::Release,
+                vec![Action::midi(1, 60, 0)],
+            ),
         )]);
         r.press(2).unwrap();
         assert!(r.drain().is_empty(), "Release-Taste schweigt beim Druck");
@@ -448,7 +483,11 @@ mod tests {
     fn toggle_landet_als_kommando_in_der_warteschlange() {
         let c = steuer(&[(
             1,
-            taste("Mute", ButtonState::On, vec![Action::toggle("strip", 1, "mute")]),
+            taste(
+                "Mute",
+                ButtonState::On,
+                vec![Action::toggle("strip", 1, "mute")],
+            ),
         )]);
         c.set_param("strip", 1, "mute", 0.0);
 
@@ -464,7 +503,11 @@ mod tests {
         // Ohne Parameterspiegel kennt die Engine den Zielwert nicht.
         let o = steuer(&[(
             1,
-            taste("Mute", ButtonState::On, vec![Action::toggle("strip", 1, "mute")]),
+            taste(
+                "Mute",
+                ButtonState::On,
+                vec![Action::toggle("strip", 1, "mute")],
+            ),
         )]);
         o.press(1).unwrap();
         assert_eq!(o.drain(), vec!["strip 1 mute toggle".to_string()]);
@@ -499,7 +542,10 @@ mod tests {
 
         // Die geladene Belegung funktioniert, nicht nur das Feld.
         d.press(7).unwrap();
-        assert_eq!(d.drain(), vec!["bus 0 mute 1".to_string(), "wait 250".to_string()]);
+        assert_eq!(
+            d.drain(),
+            vec!["bus 0 mute 1".to_string(), "wait 250".to_string()]
+        );
 
         std::fs::remove_file(&pfad).ok();
     }
@@ -525,7 +571,11 @@ mod tests {
         assert!(c
             .set_button(
                 79,
-                taste("Letzte", ButtonState::Trigger, vec![Action::midi(16, 127, 127)]),
+                taste(
+                    "Letzte",
+                    ButtonState::Trigger,
+                    vec![Action::midi(16, 127, 127)]
+                ),
             )
             .is_ok());
 
@@ -536,12 +586,12 @@ mod tests {
         let s = c.status_json();
         let v = macros::json::parse(&s).expect("status_json ist JSON");
         assert_eq!(v.get("slots").and_then(|x| x.als_zahl()), Some(80.0));
-        let tasten = v.get("buttons").and_then(|x| x.als_liste()).expect("buttons[]");
+        let tasten = v
+            .get("buttons")
+            .and_then(|x| x.als_liste())
+            .expect("buttons[]");
         assert_eq!(tasten.len(), MAX_BUTTONS);
-        assert_eq!(
-            tasten[79].get("name"),
-            Some(&Wert::text("Letzte")),
-        );
+        assert_eq!(tasten[79].get("name"), Some(&Wert::text("Letzte")),);
     }
 
     /// `status_json` ist für die UI lesbar: Name, display, latched, Zähler.
@@ -549,7 +599,11 @@ mod tests {
     fn status_json_liefert_tasten_fuer_die_ui() {
         let c = steuer(&[(
             0,
-            taste("Mute A1", ButtonState::On, vec![Action::toggle("strip", 0, "mute")]),
+            taste(
+                "Mute A1",
+                ButtonState::On,
+                vec![Action::toggle("strip", 0, "mute")],
+            ),
         )]);
         c.press(0).unwrap();
         let vor_drain = c.status_json();
@@ -561,7 +615,10 @@ mod tests {
         assert_eq!(v.get("fires").and_then(|x| x.als_zahl()), Some(1.0));
         // Vor dem drain stand ein Kommando in der Schlange.
         let vorher = macros::json::parse(&vor_drain).unwrap();
-        assert_eq!(vorher.get("warteschlange").and_then(|x| x.als_zahl()), Some(1.0));
+        assert_eq!(
+            vorher.get("warteschlange").and_then(|x| x.als_zahl()),
+            Some(1.0)
+        );
 
         let tasten = v.get("buttons").and_then(|x| x.als_liste()).unwrap();
         assert_eq!(tasten[0].get("name"), Some(&Wert::text("Mute A1")));
@@ -582,7 +639,11 @@ mod tests {
     #[test]
     fn standardpfad_zeigt_auf_konfiguration() {
         let p = standard_pfad();
-        assert!(p.ends_with(Path::new(KONFIG_ORDNER).join(MAKROS_DATEI)), "war {}", p.display());
+        assert!(
+            p.ends_with(Path::new(KONFIG_ORDNER).join(MAKROS_DATEI)),
+            "war {}",
+            p.display()
+        );
         assert!(p.is_absolute(), "war {}", p.display());
     }
 
@@ -594,10 +655,15 @@ mod tests {
         let c = MacroControl::mit_pfad(&pfad);
         assert_eq!(c.belegung().len(), MAX_BUTTONS, "leere Bank statt Panik");
         let v = macros::json::parse(&c.status_json()).unwrap();
-        assert!(v.get("ladefehler").and_then(|x| match x {
-            Wert::Text(s) => Some(s.clone()),
-            _ => None,
-        }).is_some(), "ladefehler fehlt");
+        assert!(
+            v.get("ladefehler")
+                .and_then(|x| match x {
+                    Wert::Text(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .is_some(),
+            "ladefehler fehlt"
+        );
         assert!(c.load().is_err());
         std::fs::remove_file(&pfad).ok();
     }

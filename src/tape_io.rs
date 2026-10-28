@@ -215,7 +215,10 @@ impl MultiRing {
         if out.len() < ch {
             return None;
         }
-        let frames = self.lens[slot].load(Relaxed).clamp(1, self.frames).min(out.len() / ch);
+        let frames = self.lens[slot]
+            .load(Relaxed)
+            .clamp(1, self.frames)
+            .min(out.len() / ch);
         let base = slot * self.frames * self.pairs * 2;
         unsafe {
             let src = self.data.as_ptr().add(base) as *const f32;
@@ -680,7 +683,11 @@ mod tests {
         assert!(warte(|| ctl.multi.is_empty(), 3000));
 
         ctl.set_busse(&[0, 1]);
-        warte_status(&ctl, |s| s.starts_with("rec") && s.contains("4 Kanaele"), 3000);
+        warte_status(
+            &ctl,
+            |s| s.starts_with("rec") && s.contains("4 Kanaele"),
+            3000,
+        );
         schiebe(&ctl, 2, 12);
         assert!(warte(|| ctl.multi.is_empty(), 3000));
 
@@ -693,7 +700,11 @@ mod tests {
         // Reihenfolge im Verzeichnis ist alphabetisch, nicht chronologisch.
         let mut kanaele: Vec<u16> = dateien.iter().map(|p| wav_kanaele(p)).collect();
         kanaele.sort_unstable();
-        assert_eq!(kanaele, vec![2, 4], "je Auswahl eine Datei mit eigener Kanalzahl");
+        assert_eq!(
+            kanaele,
+            vec![2, 4],
+            "je Auswahl eine Datei mit eigener Kanalzahl"
+        );
         for p in &dateien {
             assert_eq!(wav_frames(p), 12 * 64, "{}", p.display());
         }
@@ -711,7 +722,11 @@ mod tests {
         schiebe(&ctl, 1, 8);
         assert!(warte(|| ctl.multi.is_empty(), 3000));
         ctl.set_busse(&[3, 4]);
-        warte_status(&ctl, |s| s.starts_with("rec") && s.contains("4 Kanaele"), 3000);
+        warte_status(
+            &ctl,
+            |s| s.starts_with("rec") && s.contains("4 Kanaele"),
+            3000,
+        );
         schiebe(&ctl, 2, 8);
         assert!(warte(|| ctl.multi.is_empty(), 3000));
 
@@ -726,10 +741,18 @@ mod tests {
             let b = std::fs::read(p).expect("lesen");
             let len = b.len();
             let data = u32::from_le_bytes([b[40], b[41], b[42], b[43]]) as usize;
-            assert_eq!(data + tape::HEADER_LEN, len, "{} nicht finalisiert", p.display());
+            assert_eq!(
+                data + tape::HEADER_LEN,
+                len,
+                "{} nicht finalisiert",
+                p.display()
+            );
             assert!(wav_frames(p) > 0);
         }
-        assert!(s.contains("gestoppt") && s.contains("4 Kanaele"), "Status: {s}");
+        assert!(
+            s.contains("gestoppt") && s.contains("4 Kanaele"),
+            "Status: {s}"
+        );
     }
 
     #[test]
