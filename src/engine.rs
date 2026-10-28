@@ -221,6 +221,29 @@ impl Params {
         }
     }
 
+    /// EQ-Zellen eines Streifens als JSON (Kanal 0; die Zellen sind fuer beide
+    /// Kanaele gleich belegt, nur der Speicher ist getrennt).
+    pub fn eq_json(&self, strip: usize) -> Option<crate::json::Value> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let s = self.strips.get(strip)?;
+        let cells: Vec<crate::json::Value> = s.eq[0]
+            .iter()
+            .map(|c| {
+                crate::json::Value::Obj(vec![
+                    ("on".into(), crate::json::Value::Bool(c.on.load(Relaxed))),
+                    ("kind".into(), crate::json::Value::Num(c.kind.load(Relaxed) as f64)),
+                    ("freq".into(), crate::json::Value::Num(f32::from_bits(c.freq.load(Relaxed)) as f64)),
+                    ("q".into(), crate::json::Value::Num(f32::from_bits(c.q.load(Relaxed)) as f64)),
+                    ("gain".into(), crate::json::Value::Num(f32::from_bits(c.gain.load(Relaxed)) as f64)),
+                ])
+            })
+            .collect();
+        Some(crate::json::Value::Obj(vec![
+            ("strip".into(), crate::json::Value::Num(strip as f64)),
+            ("cells".into(), crate::json::Value::Arr(cells)),
+        ]))
+    }
+
     pub fn to_json(&self) -> Value {
         Value::obj(vec![
             (

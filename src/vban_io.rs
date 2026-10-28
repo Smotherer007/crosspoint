@@ -666,6 +666,18 @@ mod tests {
         assert_eq!(frame.header().stream_name, "vm8busA1");
         assert_eq!(frame.sample_frames(), BLOCK_FRAMES);
         assert_eq!(frame.samples_f32().expect("f32")[..2], [0.25f32, -0.25f32]);
+        // Der Empfänger kann das Datagramm bereits haben, während der
+        // Sender-Thread den Zähler noch nicht hochgesetzt hat: `send_frame`
+        // kehrt zurück, bevor `setze_frames` läuft. Deshalb pollen statt
+        // sofort prüfen – sonst ist der Test ein Timing-Test.
+        let start = std::time::Instant::now();
+        while c.gesendete_frames() == 0 {
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "Zähler wurde erhöht"
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
         assert!(c.gesendete_frames() >= 1, "Zähler wurde erhöht");
         assert_eq!(c.letzter_fehler(), "", "kein Fehler beim Senden");
         c.set_enabled(false);

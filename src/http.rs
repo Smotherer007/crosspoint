@@ -190,6 +190,21 @@ fn handle(
                 }
             }
         }
+        ("GET", p) if p.starts_with("/api/eq") => {
+            let strip: usize = p
+                .split("strip=")
+                .nth(1)
+                .and_then(|s| s.split(&['&', ' '][..]).next())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            match params.eq_json(strip) {
+                Some(v) => {
+                    let body = v.to_json();
+                    reply(stream, "200 OK", "application/json", body.as_bytes())
+                }
+                None => reply(stream, "404 Not Found", "application/json", b"{\"error\":\"strip\"}"),
+            }
+        }
         ("GET", p) if p.starts_with("/api/inputs") => {
             let body = crate::inputs::status_json(&crate::inputs::RealRunner);
             reply(stream, "200 OK", "application/json", body.as_bytes())
