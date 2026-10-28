@@ -29,8 +29,8 @@ sink() {
 
 case "${1:-up}" in
 up)
-  for i in 1 2 3; do sink "vm8_in_$i" "VM8-Virt-In-$i"; done
-  for b in B1 B2 B3; do sink "vm8_out_$b" "VM8-Virt-Out-$b"; done
+  for i in 1 2 3; do sink "vm8_in_$i" "VM8-Input-$i"; done
+  for b in B1 B2 B3; do sink "vm8_out_$b" "VM8-Output-$b"; done
   sleep 0.5
   for i in 1 2 3; do
     s=$((5 + i))

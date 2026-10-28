@@ -854,7 +854,7 @@
     } catch (e) {
       toast("Eingangswahl fehlgeschlagen (" + e.message + ")");
     } finally {
-      if (insel.sources.length) fuelleInsel(s);
+      if (insel.ok) fuelleInsel(s);
       else s.disabled = true;
     }
   }
@@ -1353,7 +1353,7 @@
     ui.strips[i] = {
       root, gain, compK, gateK, fader, meter, sends, pan, panVal,
       eqBtn, eqbox, cells: cellBtns, mute: bMute, solo: bSolo,
-      mono: bMono, m: bM, den: bDen
+      mono: bMono, m: bM, den: bDen, name: s.name, insel: insel.selects[i] || null
     };
   }
 
@@ -1645,6 +1645,7 @@
       state = st;
       if (!built) build(st);
       applyState(st);
+      pflegeEingaenge();
       const lv = await api("/api/levels");
       applyLevels(lv);
       setStatus(true);
