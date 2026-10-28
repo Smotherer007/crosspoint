@@ -451,7 +451,7 @@ pub fn spawn_writer(ctl: Arc<TapeControl>, base: PathBuf, sample_rate: u32) {
                         aktiv = Some((ch_block, sel.clone()));
                     }
                 }
-                let Some((ch, _)) = aktiv.as_ref().map(|a| (a.0, ())) else {
+                let Some(&(ch, _)) = aktiv.as_ref() else {
                     break;
                 };
                 let block = if mehrspurig {
@@ -616,8 +616,8 @@ mod tests {
     #[test]
     fn multi_ring_kleinere_bloecke_als_kapazitaet() {
         let ring = MultiRing::new(4, 32, MAX_BUSSE);
-        let mut b2 = vec![0.11f32; 32 * 4];
-        let mut b6 = vec![-0.22f32; 32 * 12];
+        let b2 = vec![0.11f32; 32 * 4];
+        let b6 = vec![-0.22f32; 32 * 12];
         assert!(ring.push_pairs(&b2, 2));
         assert!(ring.push_pairs(&b6, 6));
         let mut out = vec![0.0f32; 32 * MAX_BUSSE * 2];
@@ -627,8 +627,6 @@ mod tests {
         assert_eq!(ring.pop_block(&mut out), Some(32));
         assert_eq!(ring.last_channels(), 12);
         assert!(out[..32 * 12].iter().all(|v| (*v + 0.22).abs() < 1e-6));
-        b2.fill(0.5);
-        b6.fill(0.5);
     }
 
     #[test]
@@ -691,14 +689,14 @@ mod tests {
         ctl.shutdown.store(true, Relaxed);
 
         let dateien = wav_dateien(&dir);
-        for d in &dateien {
-            eprintln!("DEBUG {} ch={} frames={}", d.display(), wav_kanaele(d), wav_frames(d));
-        }
         assert_eq!(dateien.len(), 2, "Wechsel = neue Datei: {dateien:?}");
-        assert_eq!(wav_kanaele(&dateien[0]), 2);
-        assert_eq!(wav_kanaele(&dateien[1]), 4);
-        assert!(wav_frames(&dateien[0]) > 0);
-        assert!(wav_frames(&dateien[1]) > 0);
+        // Reihenfolge im Verzeichnis ist alphabetisch, nicht chronologisch.
+        let mut kanaele: Vec<u16> = dateien.iter().map(|p| wav_kanaele(p)).collect();
+        kanaele.sort_unstable();
+        assert_eq!(kanaele, vec![2, 4], "je Auswahl eine Datei mit eigener Kanalzahl");
+        for p in &dateien {
+            assert_eq!(wav_frames(p), 12 * 64, "{}", p.display());
+        }
     }
 
     #[test]
