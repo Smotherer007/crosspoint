@@ -19,7 +19,6 @@ pub mod engine;
 pub mod devices;
 pub mod macros_io;
 pub mod tape_io;
-pub mod ui;
 pub mod vban_io;
 pub mod http;
 pub mod jack;

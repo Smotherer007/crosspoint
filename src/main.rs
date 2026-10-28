@@ -85,18 +85,14 @@ extern "C" fn process_cb(nframes: u32, arg: *mut c_void) -> i32 {
 fn main() {
     let mut client_name = String::from("vm8");
     let mut listen = String::from("127.0.0.1:8770");
-    let mut native = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--client" => client_name = args.next().unwrap_or(client_name),
             "--listen" => listen = args.next().unwrap_or(listen),
-            "--native" => native = true,
-            "--headless" => native = false,
             "-h" | "--help" => {
                 println!("vm8-engine [--client NAME] [--listen ADDR] [--headless]");
-                println!("  Standard: Web-UI auf 127.0.0.1:8770 (funktionsvollständig)");
-                println!("  --native:  natives egui-Fenster (Rohbau, ohne Port)");
+                println!("  startet die Engine und die Web-UI auf 127.0.0.1:8770");
                 return;
             }
             other => {
@@ -187,7 +183,7 @@ fn main() {
         vm8::devices::DeviceMap::load_default(),
     ));
 
-    if !native {
+    {
         let listen_owned = listen.clone();
         let params_ui = params.clone();
         let tape_ui = tape.clone();
@@ -201,15 +197,6 @@ fn main() {
                 eprintln!("HTTP: {e}");
             }
         });
-    } else {
-        // Natives Fenster im selben Prozess – kein Server, kein Port.
-        // Achtung: noch nicht funktionsgleich zur Web-UI (siehe README).
-        let params_gui = params.clone();
-        let tape_gui = tape.clone();
-        if let Err(e) = vm8::ui::Ui::start(params_gui, tape_gui) {
-            eprintln!("Fenster: {e}");
-        }
-        return;
     }
 
     loop {
