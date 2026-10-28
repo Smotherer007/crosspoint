@@ -9,7 +9,7 @@
 //! Es gibt **keinen** Mutex im Audio-Pfad: die Steuerung schreibt Atome, der
 //! Callback liest sie mit `Relaxed`.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, Ordering::Relaxed};
 
 use crate::dsp::*;
 use crate::json::Value;
@@ -195,6 +195,13 @@ pub struct Params {
     pub buses: [BusParam; BUSES],
     pub sample_rate: AtomicU32,
     pub block: AtomicU32,
+    /// Monoton steigender Zaehler der im Callback verarbeiteten Audio-Frames.
+    ///
+    /// Wird als Letztes je Block geschrieben (`Release`), nachdem die Pegel
+    /// gespeichert sind. Der Pegel-Sender erkennt daran, ob es neue Daten
+    /// gibt, statt blind zu schlafen; `Acquire` beim Lesen sorgt dafuer, dass
+    /// er die zugehoerigen Pegel auch wirklich sieht.
+    pub frames: AtomicU64,
 }
 
 impl Params {
@@ -204,7 +211,14 @@ impl Params {
             buses: std::array::from_fn(|_| BusParam::new()),
             sample_rate: AtomicU32::new(sample_rate.to_bits()),
             block: AtomicU32::new(block),
+            frames: AtomicU64::new(0),
         }
+    }
+
+    /// Stand des Frame-Zaehlers (siehe [`Params::frames`]).
+    #[inline]
+    pub fn frame_counter(&self) -> u64 {
+        self.frames.load(Ordering::Acquire)
     }
 
     pub fn set(&self, target: &str, index: usize, param: &str, value: f32) -> bool {
@@ -301,21 +315,35 @@ impl Params {
     }
 
     pub fn levels_json(&self) -> String {
-        let s: Vec<String> = self
-            .strips
-            .iter()
-            .map(|x| format!("{:.1}", lin_to_db(fget(&x.level))))
-            .collect();
-        let b: Vec<String> = self
-            .buses
-            .iter()
-            .map(|x| format!("{:.1}", lin_to_db(fget(&x.level))))
-            .collect();
-        format!(
-            "{{\"strips\":[{}],\"buses\":[{}]}}",
-            s.join(","),
-            b.join(",")
-        )
+        let mut s = String::with_capacity(256);
+        self.levels_into(&mut s);
+        s
+    }
+
+    /// Schreibt die Pegel in einen vorhandenen Text-Puffer (wird geleert).
+    ///
+    /// Kein Vec, keine Einzel-`format!`-Allokationen: der Sender baut damit
+    /// einen einzigen Text je Takt und haengt ihn an alle Clients. `f` ist der
+    /// Stand des Frame-Zaehlers – daran sieht der Empfaenger, ob der Frame neu
+    /// ist, und Tests koennen die Frische belegen.
+    pub fn levels_into(&self, out: &mut String) {
+        use std::fmt::Write as _;
+        out.clear();
+        out.push_str("{\"strips\":[");
+        for (i, x) in self.strips.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let _ = write!(out, "{:.1}", lin_to_db(fget(&x.level)));
+        }
+        out.push_str("],\"buses\":[");
+        for (i, x) in self.buses.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let _ = write!(out, "{:.1}", lin_to_db(fget(&x.level)));
+        }
+        let _ = write!(out, "],\"f\":{}}}", self.frame_counter());
     }
 }
 
@@ -685,6 +713,10 @@ impl EngineDsp {
                     let old = fget(&p.buses[bi].level);
                     fset(&p.buses[bi].level, peak_b[bi].max(old * 0.72));
                 }
+                // Letzte Handlung des Blocks: der Zaehler zeigt an, dass die
+                // Pegel oben vollstaendig geschrieben sind. Nur ein Store,
+                // keine Allokation, kein Lock.
+                p.frames.fetch_add(frames as u64, Ordering::Release);
             }
         }
         self.prev_strip_gain = std::array::from_fn(|i| db_to_lin(fget(&p.strips[i].gain)));
@@ -798,6 +830,51 @@ mod tests {
         let io = buf.io();
         dsp.process(&p, &io, 64);
         assert!((buf.bus(0) - 0.4).abs() < 1e-6, "nur Streifen 2 darf durch: {}", buf.bus(0));
+    }
+
+    #[test]
+    fn frame_zaehler_steigt_je_block() {
+        let p = params();
+        let mut dsp = EngineDsp::new(64);
+        let mut buf = Buf::new(0.5, 64);
+        assert_eq!(p.frame_counter(), 0);
+        for erwartet in 1..=3u64 {
+            let io = buf.io();
+            dsp.process(&p, &io, 64);
+            assert_eq!(p.frame_counter(), erwartet * 64);
+        }
+        // Ein Block anderer Laenge zaehlt seine echten Frames.
+        let io = buf.io();
+        dsp.process(&p, &io, 32);
+        assert_eq!(p.frame_counter(), 3 * 64 + 32);
+    }
+
+    #[test]
+    fn pegel_json_ist_ein_text_mit_frame_stand() {
+        let p = params();
+        let mut dsp = EngineDsp::new(64);
+        let mut buf = Buf::new(0.5, 64);
+        let io = buf.io();
+        dsp.process(&p, &io, 64);
+
+        let mut s = String::with_capacity(256);
+        p.levels_into(&mut s);
+        let j = crate::json::parse(&s).expect("JSON parsebar");
+        assert_eq!(j.get("strips").and_then(|v| v.as_arr()).map(|a| a.len()), Some(STRIPS));
+        assert_eq!(j.get("buses").and_then(|v| v.as_arr()).map(|a| a.len()), Some(BUSES));
+        assert_eq!(j.get("f").and_then(|v| v.as_f64()), Some(64.0));
+        // Streifen 1 liegt bei -6 dB (0,5 linear), die stillen Streifen bei -140.
+        let strips = j.get("strips").and_then(|v| v.as_arr()).unwrap();
+        assert_eq!(strips[0].as_f64().map(|x| x.round()), Some(-6.0));
+        assert_eq!(strips[7].as_f64(), Some(-140.0));
+
+        // Zweiter Aufruf schreibt in denselben Puffer, ohne Reste.
+        // (Seit dem Frame-Zaehler endet das JSON auf "f":<n>}.)
+        p.levels_into(&mut s);
+        assert!(s.starts_with("{\"strips\":["), "{s}");
+        assert!(s.ends_with('}'), "{s}");
+        assert_eq!(s.matches("\"strips\":").count(), 1, "keine Reste: {s}");
+        assert_eq!(s.matches("\"buses\":").count(), 1, "keine Reste: {s}");
     }
 
     #[test]
