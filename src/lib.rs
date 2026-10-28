@@ -14,6 +14,13 @@
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod dsp;
+pub mod engine;
+pub mod http;
+pub mod jack;
+pub mod json;
+
+
 pub const STRIPS: usize = 8;
 pub const BUSES: usize = 8;
 pub const EQ_CELLS: usize = 6;

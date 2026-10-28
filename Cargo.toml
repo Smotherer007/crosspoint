@@ -9,3 +9,7 @@ name = "vm8"
 path = "src/lib.rs"
 
 [dependencies]
+
+[[bin]]
+name = "vm8-engine"
+path = "src/main.rs"
