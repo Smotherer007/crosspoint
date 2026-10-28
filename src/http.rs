@@ -314,15 +314,17 @@ fn handle(
                 .unwrap_or_default();
             let runner = RealRunner;
             let ergebnis = (|| -> Result<(), String> {
-                let sinks = crate::devices::list_sinks(&runner)?;
-                let sink = sinks
-                    .iter()
-                    .find(|s| s.name == sink_name)
-                    .ok_or_else(|| format!("Sink {sink_name} nicht gefunden"))?;
                 let mut map = devices.lock().map_err(|_| "gesperrt".to_string())?;
+                // Abwaehlen: leeren Namen zuerst behandeln, sonst scheitert die
+                // Sink-Suche und die Verbindung bleibt bestehen.
                 if sink_name.is_empty() {
                     map.clear(&runner, &bus)
                 } else {
+                    let sinks = crate::devices::list_sinks(&runner)?;
+                    let sink = sinks
+                        .iter()
+                        .find(|s| s.name == sink_name)
+                        .ok_or_else(|| format!("Sink {sink_name} nicht gefunden"))?;
                     map.assign(&runner, &bus, sink)?;
                     map.save()
                 }
