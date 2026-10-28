@@ -246,6 +246,13 @@ mod tests {
                 .push(format!("{program} {}", args.join(" ")));
             if program == "pactl" {
                 Ok(self.ausgabe.clone())
+            } else if args.contains(&"-o") {
+                // Portliste, wie pw-link -o sie liefert
+                Ok("alsa_input.usb-mic:capture_FL\n\
+                    alsa_input.usb-mic:capture_FR\n\
+                    alsa_output.hdmi:monitor_FL\n\
+                    alsa_output.hdmi:monitor_FR\n"
+                    .to_string())
             } else {
                 Ok(String::new())
             }
