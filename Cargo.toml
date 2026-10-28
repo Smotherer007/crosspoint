@@ -10,6 +10,9 @@ path = "src/lib.rs"
 
 [dependencies]
 tape = { path = "crates/tape" }
+vban = { path = "crates/vban" }
+macros = { path = "crates/macros" }
+eframe = { version = "0.29", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
 
 [[bin]]
 name = "vm8-engine"

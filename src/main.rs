@@ -6,6 +6,8 @@ use std::sync::Arc;
 use std::thread;
 
 use vm8::engine::{EngineDsp, Io, Params};
+use vm8::macros_io::MacroControl;
+use vm8::vban_io::VbanControl;
 use vm8::jack::{self, Jack, Port};
 use vm8::{BUSES, BUS_NAMES, STRIPS};
 
@@ -15,6 +17,8 @@ struct Rt {
     ins: [[*mut Port; 2]; STRIPS],
     outs: [[*mut Port; 2]; BUSES],
     tape: Arc<vm8::tape_io::TapeControl>,
+    vban: Arc<VbanControl>,
+    vban_ring: Arc<vm8::tape_io::Ring>,
     scratch: Vec<f32>,
 }
 
@@ -55,6 +59,18 @@ impl Rt {
                 self.tape.ring.push(&self.scratch[..n * 2]);
             }
         }
+
+        // Derselbe Block geht zusätzlich in den VBAN-Ring, wenn VBAN aktiv ist.
+        if self.vban.enabled() && !io.outs[0][0].is_null() {
+            let n = frames.min(self.scratch.len() / 2);
+            unsafe {
+                for i in 0..n {
+                    self.scratch[i * 2] = *io.outs[0][0].add(i);
+                    self.scratch[i * 2 + 1] = *io.outs[0][1].add(i);
+                }
+            }
+            self.vban_ring.push(&self.scratch[..n * 2]);
+        }
     }
 }
 
@@ -69,13 +85,18 @@ extern "C" fn process_cb(nframes: u32, arg: *mut c_void) -> i32 {
 fn main() {
     let mut client_name = String::from("vm8");
     let mut listen = String::from("127.0.0.1:8770");
+    let mut native = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--client" => client_name = args.next().unwrap_or(client_name),
             "--listen" => listen = args.next().unwrap_or(listen),
+            "--native" => native = true,
+            "--headless" => native = false,
             "-h" | "--help" => {
-                println!("vm8-engine [--client NAME] [--listen ADDR]");
+                println!("vm8-engine [--client NAME] [--listen ADDR] [--headless]");
+                println!("  Standard: Web-UI auf 127.0.0.1:8770 (funktionsvollständig)");
+                println!("  --native:  natives egui-Fenster (Rohbau, ohne Port)");
                 return;
             }
             other => {
@@ -88,12 +109,17 @@ fn main() {
     let params = Arc::new(Params::new(48_000.0, 512));
     let ring = Arc::new(vm8::tape_io::Ring::new(8, 2048));
     let tape = Arc::new(vm8::tape_io::TapeControl::new(ring.clone(), 2048));
+    let vban = Arc::new(VbanControl::new());
+    let vban_ring = Arc::new(vm8::tape_io::Ring::new(8, 2048));
+    let macroctl = Arc::new(MacroControl::new());
     let rt: &'static mut Rt = Box::leak(Box::new(Rt {
         params: params.clone(),
         dsp: EngineDsp::new(2048),
         ins: [[std::ptr::null_mut(); 2]; STRIPS],
         outs: [[std::ptr::null_mut(); 2]; BUSES],
         tape: tape.clone(),
+        vban: vban.clone(),
+        vban_ring: vban_ring.clone(),
         scratch: vec![0.0f32; 2048 * 2],
     }));
 
@@ -145,18 +171,80 @@ fn main() {
     let _ = std::fs::create_dir_all(&tape_dir);
     vm8::tape_io::spawn_writer(tape.clone(), tape_dir, jack.sample_rate);
 
-    let listen_owned = listen.clone();
-    let params_ui = params.clone();
-    let tape_ui = tape.clone();
-    thread::spawn(move || {
-        if let Err(e) = vm8::http::serve(listen_owned, params_ui, preset, tape_ui) {
-            eprintln!("HTTP: {e}");
+    vm8::vban_io::spawn_sender(vban.clone(), vban_ring.clone(), jack.sample_rate);
+
+    // Macro-Kommandos aus der UI auf die Parameter anwenden.
+    let params_mac = params.clone();
+    let macro_worker = macroctl.clone();
+    thread::spawn(move || loop {
+        for cmd in macro_worker.drain() {
+            apply_macro_command(&params_mac, &cmd);
         }
+        thread::sleep(std::time::Duration::from_millis(25));
     });
+
+    let devices = Arc::new(std::sync::Mutex::new(
+        vm8::devices::DeviceMap::load_default(),
+    ));
+
+    if !native {
+        let listen_owned = listen.clone();
+        let params_ui = params.clone();
+        let tape_ui = tape.clone();
+        let vban_ui = vban.clone();
+        let macro_ui = macroctl.clone();
+        let dev_ui = devices.clone();
+        thread::spawn(move || {
+            if let Err(e) = vm8::http::serve(
+                listen_owned, params_ui, preset, tape_ui, vban_ui, macro_ui, dev_ui,
+            ) {
+                eprintln!("HTTP: {e}");
+            }
+        });
+    } else {
+        // Natives Fenster im selben Prozess – kein Server, kein Port.
+        // Achtung: noch nicht funktionsgleich zur Web-UI (siehe README).
+        let params_gui = params.clone();
+        let tape_gui = tape.clone();
+        if let Err(e) = vm8::ui::Ui::start(params_gui, tape_gui) {
+            eprintln!("Fenster: {e}");
+        }
+        return;
+    }
 
     loop {
         thread::sleep(std::time::Duration::from_secs(60));
     }
+}
+
+/// Wendet ein Makro-Kommando der Form `strip 0 gain -6` an.
+fn apply_macro_command(params: &Params, cmd: &str) {
+    let teile: Vec<&str> = cmd.split_whitespace().collect();
+    if teile.len() < 4 || teile[0] == "midi" || teile[0] == "wait" {
+        return;
+    }
+    let index: usize = match teile[1].parse() {
+        Ok(i) => i,
+        Err(_) => return,
+    };
+    let wert = match teile[3] {
+        "toggle" => {
+            let ist = params
+                .to_json()
+                .get("strips")
+                .and_then(|s| s.as_arr())
+                .and_then(|a| a.get(index))
+                .and_then(|s| s.get(teile[2]))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            if ist > 0.0 { 0.0 } else { 1.0 }
+        }
+        w => match w.parse::<f32>() {
+            Ok(f) => f,
+            Err(_) => return,
+        },
+    };
+    params.set(teile[0], index, teile[2], wert);
 }
 
 fn preset_path() -> PathBuf {
