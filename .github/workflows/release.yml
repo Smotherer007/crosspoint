@@ -131,8 +131,20 @@ jobs:
         with:
           path: pakete
           merge-multiple: true
-      - name: An das Release haengen
+      - name: Pakete pruefen
+        run: |
+          ls -l pakete
+          if ! ls pakete/*.flatpak pakete/*.tar.gz >/dev/null 2>&1; then
+            echo "Keine Pakete im Artefakt - Abbruch statt stillem Erfolg"; exit 1
+          fi
+      - name: Release sicherstellen und Pakete anhaengen
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release upload "$TAG" pakete/* -R "$GITHUB_REPOSITORY" --clobber
+        run: |
+          # Ein vorhandener Draft ist ueber die API unsichtbar, `view` findet ihn
+          # aber. Fehlt er ganz, wird er veroeffentlicht angelegt.
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
+          gh release upload "$TAG" pakete/* -R "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false
