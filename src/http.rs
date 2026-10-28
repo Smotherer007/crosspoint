@@ -13,7 +13,7 @@ use crate::json::{self, Value};
 use crate::devices::{DeviceMap, RealRunner};
 use crate::macros_io::MacroControl;
 use crate::tape_io::TapeControl;
-use crate::vban_io::VbanControl;
+use crate::vban_io::{VbanControl, VbanRecvControl};
 use std::sync::Mutex;
 
 const INDEX_HTML: &str = include_str!("../web/index.html");
@@ -24,6 +24,7 @@ pub fn serve(
     preset: PathBuf,
     tape: Arc<TapeControl>,
     vban: Arc<VbanControl>,
+    vban_recv: Arc<VbanRecvControl>,
     macros: Arc<MacroControl>,
     devices: Arc<Mutex<DeviceMap>>,
 ) -> io::Result<()> {
@@ -38,10 +39,20 @@ pub fn serve(
         let preset = preset.clone();
         let tape = tape.clone();
         let vban = vban.clone();
+        let vban_recv = vban_recv.clone();
         let macros = macros.clone();
         let devices = devices.clone();
         thread::spawn(move || {
-            let _ = handle(&params, &preset, &tape, &vban, &macros, &devices, &mut stream);
+            let _ = handle(
+                &params,
+                &preset,
+                &tape,
+                &vban,
+                &vban_recv,
+                &macros,
+                &devices,
+                &mut stream,
+            );
         });
     }
     Ok(())
@@ -52,6 +63,7 @@ fn handle(
     preset: &PathBuf,
     tape: &Arc<TapeControl>,
     vban: &Arc<VbanControl>,
+    vban_recv: &Arc<VbanRecvControl>,
     macros: &Arc<MacroControl>,
     devices: &Arc<Mutex<DeviceMap>>,
     stream: &mut TcpStream,
@@ -123,6 +135,41 @@ fn handle(
                         ),
                     }
                 }
+            };
+            reply(stream, "200 OK", "application/json", out.as_bytes())
+        }
+        ("GET", p) if p.starts_with("/api/vban/recv") => {
+            let body = vban_recv.status_json();
+            reply(stream, "200 OK", "application/json", body.as_bytes())
+        }
+        ("POST", p) if p.starts_with("/api/vban/recv") => {
+            let v = json::parse(&body).unwrap_or(Value::Null);
+            let mut fehler: Option<String> = None;
+            // Reihenfolge: erst Konfiguration, dann schalten – so startet ein
+            // {enabled:true, port:6981} direkt auf dem neuen Port.
+            if let Some(p) = v.get("port").and_then(|x| x.as_f64()) {
+                if let Err(e) = vban_recv.set_port(p as u32) {
+                    fehler = Some(e);
+                }
+            }
+            if fehler.is_none() {
+                if let Some(s) = v.get("stream").and_then(|x| match x {
+                    Value::Str(t) => Some(t.clone()),
+                    _ => None,
+                }) {
+                    if let Err(e) = vban_recv.set_stream(&s) {
+                        fehler = Some(e);
+                    }
+                }
+            }
+            if fehler.is_none() {
+                if let Some(an) = v.get("enabled").and_then(|x| x.as_bool()) {
+                    vban_recv.set_enabled(an);
+                }
+            }
+            let out = match fehler {
+                Some(e) => format!("{{\"error\":{}}}", json::quote(&e)),
+                None => vban_recv.status_json(),
             };
             reply(stream, "200 OK", "application/json", out.as_bytes())
         }

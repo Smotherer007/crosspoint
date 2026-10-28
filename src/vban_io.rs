@@ -41,13 +41,13 @@
 //!    Wert (z. B. 44100) wird auf 48000 gemappt **und** als Fehler gemeldet,
 //!    statt still ein Paket mit falscher Rate zu senden.
 
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use vban::{AudioFrame, SampleRate, Sender};
+use vban::{AudioFormat, AudioFrame, SampleRate, Sender};
 
 use crate::json::Value;
 use crate::tape_io::Ring;
@@ -432,6 +432,578 @@ fn verbinde(k: &VbanKonfig) -> Result<Sender, String> {
     Sender::new(addr).map_err(|e| format!("socket: {e}"))
 }
 
+// ---------------------------------------------------------------------------
+// Empfangsweg (VBAN -> SPSC-Ring -> JACK-Ports vm8:vban_L/R)
+// ---------------------------------------------------------------------------
+//
+// Ein eigener Thread liest ein nicht blockierendes `UdpSocket`, prüft den
+// Header und legt die Nutzdaten als Stereo-Samples in einen [`Ring`]. Der
+// JACK-Callback zieht von dort und schreibt in die beiden Zusatzports
+// `vban_L`/`vban_R`; diese lassen sich wie ein Hardware-Eingang per
+// `pw-link vm8:vban_L vm8:strip1_L` auf einen Streifen legen.
+//
+// Festlegungen:
+//
+// 1. **Nur Format FLOAT32** (Format-Code 4). Andere Formate werden verworfen
+//    und gezählt, nicht konvertiert – eine stille Fehlinterpretation von
+//    Integer-Bytes als Float wäre schlimmer als ein verworfener Frame.
+// 2. **Nur 1 oder 2 Kanäle.** Bei einem Kanal wird das Sample auf beide Seiten
+//    dupliziert; mehr als zwei Kanäle werden verworfen (kein Downmix, weil
+//    dessen Pegelregel hier nicht belegt ist).
+// 3. **Ringblöcke fester Länge** ([`RECV_BLOCK_FRAMES`]). Ankommende Pakete
+//    dürfen beliebig lang sein (bis [`RECV_BUFFER`]); der Empfänger-Thread
+//    sammelt sie in [`Sammler`] und legt nur volle Blöcke ab. Damit stimmt die
+//    Blocklänge im Ring mit der überein, die `Ring::pop` zurückmeldet.
+// 4. **Streamfilter:** leer = alle Streams, sonst exakter Namensvergleich
+//    (Groß-/Kleinschreibung zählt, so wie VBAN Namen behandelt).
+// 5. **Bindet an 0.0.0.0**, damit auch Sender aus dem LAN ankommen.
+// 6. **Ports 1..=65535** (0 wäre "vom System vergeben" und nicht adressierbar).
+
+/// Standardport des Empfängers (VBAN-Standard).
+pub const RECV_PORT_STANDARD: u16 = 6980;
+
+/// Stereo-Frames je Ringblock des Empfangswegs.
+pub const RECV_BLOCK_FRAMES: usize = BLOCK_FRAMES;
+
+/// Größter Datagrammpuffer: Header plus ein voller Ringblock.
+pub const RECV_BUFFER: usize = vban::HEADER_LEN + RECV_BLOCK_FRAMES * 2 * 4;
+
+/// Warum ein Datagramm verworfen wurde.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecvFehler {
+    /// Kürzer als der 28-Byte-Header.
+    ZuKurz { got: usize, need: usize },
+    /// Erste vier Bytes sind nicht `VBAN`.
+    FalschesMagic([u8; 4]),
+    /// Sub-Protokoll ist nicht Audio (0x00) – z. B. MIDI, Text, RT-Packet.
+    KeinAudio { sub: u8 },
+    /// Codec ist nicht PCM (0x00).
+    FalscherCodec { codec: u8 },
+    /// Format-Code ist nicht 4 (32-Bit-Float).
+    FalschesFormat { code: u8 },
+    /// Kein gültiger Samplerate-Code.
+    UnbekannteRate { code: u8 },
+    /// Kanalzahl ist weder 1 noch 2.
+    FalscheKanaele { kanaele: u16 },
+    /// Nutzdaten passen nicht ganzzahlig auf Kanäle × 4 Byte.
+    FalscheNutzdaten { len: usize, block: usize },
+    /// Streamname passt nicht zum eingestellten Filter.
+    FremderStream { stream: String },
+}
+
+impl std::fmt::Display for RecvFehler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RecvFehler::ZuKurz { got, need } => {
+                write!(f, "zu kurz: {got} Byte, mindestens {need} nötig")
+            }
+            RecvFehler::FalschesMagic(m) => {
+                write!(f, "kein VBAN-Magic: {:?}", String::from_utf8_lossy(m))
+            }
+            RecvFehler::KeinAudio { sub } => write!(f, "Sub-Protokoll 0x{sub:02X} ist kein Audio"),
+            RecvFehler::FalscherCodec { codec } => write!(f, "Codec 0x{codec:02X} ist nicht PCM"),
+            RecvFehler::FalschesFormat { code } => {
+                write!(f, "Format-Code {code} ist nicht FLOAT32 (4)")
+            }
+            RecvFehler::UnbekannteRate { code } => write!(f, "Samplerate-Code {code} unbekannt"),
+            RecvFehler::FalscheKanaele { kanaele } => {
+                write!(f, "{kanaele} Kanäle: erlaubt sind 1 oder 2")
+            }
+            RecvFehler::FalscheNutzdaten { len, block } => {
+                write!(f, "{len} Byte Nutzdaten sind kein Vielfaches von {block}")
+            }
+            RecvFehler::FremderStream { stream } => {
+                write!(f, "Stream '{stream}' passt nicht zum Filter")
+            }
+        }
+    }
+}
+
+/// Ein geprüftes Empfangspaket: höchstens die ersten zwei Kanäle, interleaved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Empfangsframe {
+    /// Streamname aus dem Header.
+    pub stream: String,
+    /// Abtastrate aus dem Header.
+    pub sample_rate: SampleRate,
+    /// Kanalzahl im Paket (1 oder 2).
+    pub kanaele: u16,
+    /// Stereo-Frames (Samples je Kanal nach der Duplizierung).
+    pub frames: usize,
+    /// Interleaved Stereo-Samples, `frames * 2` Stück.
+    pub samples: Vec<f32>,
+}
+
+/// Prüft ein Datagramm und wandelt es in Stereo-Samples.
+///
+/// Reine Funktion ohne Zustand – damit im Empfänger-Thread und in den Tests
+/// derselbe Code läuft.
+pub fn parse_empfang(bytes: &[u8]) -> Result<Empfangsframe, RecvFehler> {
+    if bytes.len() < vban::HEADER_LEN {
+        return Err(RecvFehler::ZuKurz {
+            got: bytes.len(),
+            need: vban::HEADER_LEN,
+        });
+    }
+    let mut magic = [0u8; 4];
+    magic.copy_from_slice(&bytes[0..4]);
+    if magic != vban::MAGIC {
+        return Err(RecvFehler::FalschesMagic(magic));
+    }
+    // Byte 20: Sub-Protokoll, untere vier Bit sind reserviert.
+    if bytes[20] & 0xF0 != 0 {
+        return Err(RecvFehler::KeinAudio { sub: bytes[20] });
+    }
+    // Byte 23: Codec, 0x00 = PCM.
+    if bytes[23] != 0 {
+        return Err(RecvFehler::FalscherCodec { codec: bytes[23] });
+    }
+    // Byte 21: Bits 0..=2 Rate, Bits 3..=5 Format.
+    let format_code = (bytes[21] >> 3) & 0x07;
+    if format_code != AudioFormat::F32.code() {
+        return Err(RecvFehler::FalschesFormat { code: format_code });
+    }
+    let rate_code = bytes[21] & 0x07;
+    let sample_rate = match SampleRate::from_code(rate_code) {
+        Ok(r) => r,
+        Err(_) => return Err(RecvFehler::UnbekannteRate { code: rate_code }),
+    };
+    // Byte 22: Kanalzahl minus eins.
+    let kanaele = u16::from(bytes[22]) + 1;
+    if kanaele != 1 && kanaele != 2 {
+        return Err(RecvFehler::FalscheKanaele { kanaele });
+    }
+    let name_end = bytes[4..20].iter().position(|&b| b == 0).unwrap_or(16);
+    let stream = String::from_utf8_lossy(&bytes[4..4 + name_end]).to_string();
+
+    let rest = &bytes[vban::HEADER_LEN..];
+    let block = 4 * kanaele as usize;
+    if rest.len() % block != 0 {
+        return Err(RecvFehler::FalscheNutzdaten {
+            len: rest.len(),
+            block,
+        });
+    }
+    let einzel: Vec<f32> = rest
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    let samples = if kanaele == 1 {
+        // Mono auf beide Seiten duplizieren.
+        let mut v = Vec::with_capacity(einzel.len() * 2);
+        for s in einzel {
+            v.push(s);
+            v.push(s);
+        }
+        v
+    } else {
+        einzel
+    };
+    Ok(Empfangsframe {
+        stream,
+        sample_rate,
+        kanaele,
+        frames: samples.len() / 2,
+        samples,
+    })
+}
+
+/// Streamfilter: leerer Filter nimmt alles, sonst exakter Namensvergleich.
+pub fn passt_stream(filter: &str, stream: &str) -> bool {
+    filter.is_empty() || filter == stream
+}
+
+/// Sammelt ankommende Stereo-Samples zu Blöcken fester Länge für den Ring.
+///
+/// Ohne diesen Puffer würde `Ring::pop` immer die volle Slot-Länge melden,
+/// auch wenn ein Paket kürzer war – der Callback bekäme dann stille Füllung
+/// mitten im Signal.
+pub struct Sammler {
+    puffer: Vec<f32>,
+    frames: usize,
+    n: usize,
+}
+
+impl Sammler {
+    /// `frames` Stereo-Frames pro Block.
+    pub fn new(frames: usize) -> Sammler {
+        let frames = frames.max(1);
+        Sammler {
+            puffer: vec![0.0f32; frames * 2],
+            frames,
+            n: 0,
+        }
+    }
+
+    /// Hängt `samples` (interleaved stereo) an und legt volle Blöcke ab.
+    ///
+    /// Rückgabe: `(abgelegt, verworfen)`; `verworfen` zählt Blöcke, die der
+    /// Ring nicht mehr aufnehmen konnte (Überlauf).
+    pub fn schiebe(&mut self, ring: &Ring, samples: &[f32]) -> (usize, usize) {
+        let mut abgelegt = 0;
+        let mut verloren = 0;
+        let total = samples.len() - samples.len() % 2;
+        let mut i = 0;
+        while i + 2 <= total {
+            let frei = self.frames - self.n;
+            let nehm = ((total - i) / 2).min(frei);
+            if nehm == 0 {
+                break;
+            }
+            let n = nehm * 2;
+            let dst = self.n * 2;
+            self.puffer[dst..dst + n].copy_from_slice(&samples[i..i + n]);
+            self.n += nehm;
+            i += n;
+            if self.n == self.frames {
+                if ring.push(&self.puffer[..self.frames * 2]) {
+                    abgelegt += 1;
+                } else {
+                    verloren += 1;
+                }
+                self.n = 0;
+            }
+        }
+        (abgelegt, verloren)
+    }
+
+    /// Wie viele Frames liegen noch im unfertigen Block?
+    pub fn rest(&self) -> usize {
+        self.n
+    }
+}
+
+impl std::fmt::Debug for Sammler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sammler")
+            .field("frames", &self.frames)
+            .field("rest", &self.n)
+            .finish()
+    }
+}
+
+/// Linearen Pegel in dB umrechnen, mit −120 dB als Untergrenze.
+fn lin_db(x: f32) -> f32 {
+    let db = if x <= 1e-6 { -120.0 } else { 20.0 * x.log10() };
+    ((db * 10.0).round() / 10.0).max(-120.0)
+}
+
+/// Steuerung und Zähler des Empfangswegs.
+///
+/// Alles, was der Empfänger-Thread und der HTTP-Handler gemeinsam brauchen,
+/// liegt in Atomen; nur Streamname und Fehlertext sind hinter einem `Mutex`
+/// (Zugriff ausschließlich außerhalb des Audio-Callbacks).
+#[derive(Debug)]
+pub struct VbanRecvControl {
+    enabled: AtomicBool,
+    port: AtomicU32,
+    packets: AtomicU64,
+    dropped: AtomicU64,
+    level: [AtomicU32; 2],
+    stream: Mutex<String>,
+    fehler: Mutex<String>,
+}
+
+impl Default for VbanRecvControl {
+    fn default() -> Self {
+        VbanRecvControl::new()
+    }
+}
+
+impl VbanRecvControl {
+    /// Aus, Port 6980, Streamfilter leer (alle).
+    pub fn new() -> VbanRecvControl {
+        VbanRecvControl {
+            enabled: AtomicBool::new(false),
+            port: AtomicU32::new(u32::from(RECV_PORT_STANDARD)),
+            packets: AtomicU64::new(0),
+            dropped: AtomicU64::new(0),
+            level: [AtomicU32::new(0f32.to_bits()), AtomicU32::new(0f32.to_bits())],
+            stream: Mutex::new(String::new()),
+            fehler: Mutex::new(String::new()),
+        }
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled.load(Relaxed)
+    }
+
+    pub fn set_enabled(&self, an: bool) {
+        self.enabled.store(an, Relaxed);
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port.load(Relaxed) as u16
+    }
+
+    /// Port setzen; 1..=65535. Bei Fehler bleibt der alte Wert stehen.
+    pub fn set_port(&self, port: u32) -> Result<(), String> {
+        if port == 0 || port > u32::from(u16::MAX) {
+            let e = format!("empfangs-port {port} ungültig: erlaubt sind 1..=65535");
+            self.set_fehler(e.clone());
+            return Err(e);
+        }
+        self.port.store(port, Relaxed);
+        Ok(())
+    }
+
+    pub fn stream(&self) -> String {
+        match self.stream.lock() {
+            Ok(g) => g.clone(),
+            Err(e) => e.into_inner().clone(),
+        }
+    }
+
+    /// Streamfilter setzen; leerer String = alle Streams.
+    pub fn set_stream(&self, s: &str) -> Result<(), String> {
+        if s.len() > MAX_STREAM {
+            let e = format!(
+                "empfangs-stream '{s}' hat {} Zeichen: erlaubt sind 0..={MAX_STREAM}",
+                s.len()
+            );
+            self.set_fehler(e.clone());
+            return Err(e);
+        }
+        if let Some(c) = s.chars().find(|c| !c.is_ascii_graphic()) {
+            let e = format!("empfangs-stream '{s}' enthält '{c}': nur druckbares ASCII");
+            self.set_fehler(e.clone());
+            return Err(e);
+        }
+        match self.stream.lock() {
+            Ok(mut g) => *g = s.to_string(),
+            Err(e) => *e.into_inner() = s.to_string(),
+        }
+        Ok(())
+    }
+
+    /// Angenommene Pakete.
+    pub fn packets(&self) -> u64 {
+        self.packets.load(Relaxed)
+    }
+
+    /// Verworfene Pakete (falscher Header, fremder Stream, voller Ring).
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(Relaxed)
+    }
+
+    /// Zuletzt gemessener Spitzenpegel je Kanal, linear (0.0 …).
+    pub fn level_linear(&self) -> [f32; 2] {
+        [
+            f32::from_bits(self.level[0].load(Relaxed)),
+            f32::from_bits(self.level[1].load(Relaxed)),
+        ]
+    }
+
+    /// Dasselbe in dB (−120 = Stille).
+    pub fn level_db(&self) -> [f32; 2] {
+        let l = self.level_linear();
+        [lin_db(l[0]), lin_db(l[1])]
+    }
+
+    pub fn letzter_fehler(&self) -> String {
+        match self.fehler.lock() {
+            Ok(g) => g.clone(),
+            Err(e) => e.into_inner().clone(),
+        }
+    }
+
+    pub fn set_fehler(&self, s: impl Into<String>) {
+        match self.fehler.lock() {
+            Ok(mut g) => *g = s.into(),
+            Err(e) => *e.into_inner() = s.into(),
+        }
+    }
+
+    /// Zählerstand setzen (nur Tests).
+    pub fn setze_zaehler(&self, packets: u64, dropped: u64) {
+        self.packets.store(packets, Relaxed);
+        self.dropped.store(dropped, Relaxed);
+    }
+
+    fn zaehle_paket(&self) {
+        self.packets.fetch_add(1, Relaxed);
+    }
+
+    fn zaehle_verworfen(&self) {
+        self.dropped.fetch_add(1, Relaxed);
+    }
+
+    /// Pegel aus einem Paket fortschreiben (Spitze, Abfall Faktor 0,85).
+    fn melde_pegel(&self, samples: &[f32]) {
+        let mut peak = [0.0f32; 2];
+        for f in samples.chunks_exact(2) {
+            let l = f[0].abs();
+            let r = f[1].abs();
+            if l > peak[0] {
+                peak[0] = l;
+            }
+            if r > peak[1] {
+                peak[1] = r;
+            }
+        }
+        for c in 0..2 {
+            let old = f32::from_bits(self.level[c].load(Relaxed));
+            let neu = peak[c].max(old * 0.85);
+            self.level[c].store(neu.to_bits(), Relaxed);
+        }
+    }
+
+    /// Pegel abklingen lassen (im Leerlauf des Empfänger-Threads).
+    fn altere_pegel(&self) {
+        for c in 0..2 {
+            let old = f32::from_bits(self.level[c].load(Relaxed));
+            self.level[c].store((old * 0.9).to_bits(), Relaxed);
+        }
+    }
+
+    /// Ein Datagramm verarbeiten: prüfen, filtern, zählen, in den Ring legen.
+    ///
+    /// Ohne Socket – so ist der ganze Weg (Header-Prüfung, Filter, Zähler,
+    /// Ring) im Unit-Test prüfbar.
+    pub fn verarbeite(
+        &self,
+        sammler: &mut Sammler,
+        ring: &Ring,
+        bytes: &[u8],
+    ) -> Result<Empfangsframe, RecvFehler> {
+        let frame = match parse_empfang(bytes) {
+            Ok(f) => f,
+            Err(e) => {
+                self.zaehle_verworfen();
+                self.set_fehler(format!("verworfen: {e}"));
+                return Err(e);
+            }
+        };
+        let filter = self.stream();
+        if !passt_stream(&filter, &frame.stream) {
+            let e = RecvFehler::FremderStream {
+                stream: frame.stream.clone(),
+            };
+            self.zaehle_verworfen();
+            self.set_fehler(format!("verworfen: '{filter}' != '{}'", frame.stream));
+            return Err(e);
+        }
+        self.zaehle_paket();
+        self.melde_pegel(&frame.samples);
+        let (_, verloren) = sammler.schiebe(ring, &frame.samples);
+        for _ in 0..verloren {
+            self.zaehle_verworfen();
+        }
+        Ok(frame)
+    }
+
+    /// JSON für `GET /api/vban/recv`.
+    pub fn status_json(&self) -> String {
+        let l = self.level_db();
+        Value::obj(vec![
+            ("enabled", Value::Bool(self.enabled())),
+            ("port", Value::Num(f64::from(self.port()))),
+            ("stream", Value::Str(self.stream())),
+            ("packets", Value::Num(self.packets() as f64)),
+            ("dropped", Value::Num(self.dropped() as f64)),
+            ("level_left", Value::Num(f64::from(l[0]))),
+            ("level_right", Value::Num(f64::from(l[1]))),
+            ("letzter_fehler", Value::Str(self.letzter_fehler())),
+        ])
+        .to_json()
+    }
+}
+
+/// Bindet den Empfangssocket an `0.0.0.0:port`, nicht blockierend.
+fn binde_empfang(port: u16) -> Result<UdpSocket, String> {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
+    let sock = UdpSocket::bind(addr).map_err(|e| format!("bind {addr}: {e}"))?;
+    sock.set_nonblocking(true)
+        .map_err(|e| format!("nonblocking auf {addr}: {e}"))?;
+    Ok(sock)
+}
+
+/// Startet den Empfänger-Thread.
+///
+/// Der Thread ist ein Aufseher: er liest die gewünschte Konfiguration aus der
+/// [`VbanRecvControl`] und hält den Socket passend dazu.
+///
+/// * aus → Socket wird geschlossen, 20 ms Pause,
+/// * (Port, Stream) geändert → Socket wird neu gebunden,
+/// * sonst → alle wartenden Datagramme werden abgearbeitet; ist keins da,
+///   schläft der Thread 2 ms (kein Busy-Loop).
+///
+/// Bindefehler (Port belegt, Port < 1024 ohne Rechte) landen in
+/// `letzter_fehler`; der Thread versucht es alle 250 ms erneut.
+pub fn spawn_empfaenger(
+    ctl: Arc<VbanRecvControl>,
+    ring: Arc<Ring>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let mut buf = vec![0u8; RECV_BUFFER];
+        let mut sammler = Sammler::new(RECV_BLOCK_FRAMES);
+        let mut sock: Option<UdpSocket> = None;
+        let mut aktiv: Option<(u16, String)> = None;
+        let mut letzte_alterung = Instant::now();
+
+        loop {
+            if !ctl.enabled() {
+                sock = None;
+                aktiv = None;
+                if !ctl.letzter_fehler().is_empty() {
+                    ctl.set_fehler(String::new());
+                }
+                sammler = Sammler::new(RECV_BLOCK_FRAMES);
+                thread::sleep(Duration::from_millis(20));
+                continue;
+            }
+
+            let gewuenscht = (ctl.port(), ctl.stream());
+            if aktiv.as_ref() != Some(&gewuenscht) {
+                sock = None;
+                aktiv = None;
+                match binde_empfang(gewuenscht.0) {
+                    Ok(s) => {
+                        sock = Some(s);
+                        aktiv = Some(gewuenscht);
+                        ctl.set_fehler(String::new());
+                    }
+                    Err(e) => {
+                        ctl.set_fehler(format!("vban recv {}: {e}", gewuenscht.0));
+                        thread::sleep(Duration::from_millis(250));
+                        continue;
+                    }
+                }
+            }
+
+            let mut empfangen = 0usize;
+            if let Some(s) = sock.as_ref() {
+                loop {
+                    match s.recv_from(&mut buf) {
+                        Ok((n, _src)) => {
+                            empfangen += 1;
+                            let _ = ctl.verarbeite(&mut sammler, &ring, &buf[..n]);
+                        }
+                        Err(e)
+                            if e.kind() == std::io::ErrorKind::WouldBlock
+                                || e.kind() == std::io::ErrorKind::TimedOut =>
+                        {
+                            break
+                        }
+                        Err(e) => {
+                            ctl.set_fehler(format!("vban recv: {e}"));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if empfangen == 0 {
+                if letzte_alterung.elapsed() >= Duration::from_millis(50) {
+                    ctl.altere_pegel();
+                    letzte_alterung = Instant::now();
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -689,5 +1261,295 @@ mod tests {
         let a = k.aufloesen().expect("Literal");
         assert_eq!(a.port(), 6980);
         assert!(a.ip().is_loopback());
+    }
+
+    // -----------------------------------------------------------------------
+    // Empfangsweg
+    // -----------------------------------------------------------------------
+
+    /// Baut ein gültiges VBAN-FLOAT32-Paket.
+    fn paket(stream: &str, kanaele: u16, rate: SampleRate, samples: &[f32]) -> Vec<u8> {
+        let mut f = AudioFrame::float32(stream, rate, kanaele).expect("Frame");
+        f.push_f32(samples).expect("push");
+        f.encode().expect("encode")
+    }
+
+    /// Kostenloser Port für den Socket-Test (binden, Nummer merken, freigeben).
+    fn freier_port() -> u16 {
+        let s = UdpSocket::bind("127.0.0.1:0").expect("bind");
+        let p = s.local_addr().expect("addr").port();
+        drop(s);
+        p
+    }
+
+    #[test]
+    fn empfang_parst_gueltigen_float32_frame() {
+        let roh = paket("test", 2, SampleRate::Hz48000, &[0.25, -0.25, 0.5, -0.5]);
+        let f = parse_empfang(&roh).expect("gültiges Paket");
+        assert_eq!(f.stream, "test");
+        assert_eq!(f.kanaele, 2);
+        assert_eq!(f.frames, 2);
+        assert_eq!(f.sample_rate, SampleRate::Hz48000);
+        assert_eq!(f.samples, vec![0.25, -0.25, 0.5, -0.5]);
+    }
+
+    #[test]
+    fn empfang_lehnt_falsches_magic_ab() {
+        let mut roh = paket("test", 2, SampleRate::Hz48000, &[0.0, 0.0]);
+        roh[0..4].copy_from_slice(b"VBAM");
+        match parse_empfang(&roh) {
+            Err(RecvFehler::FalschesMagic(m)) => assert_eq!(&m, b"VBAM"),
+            other => panic!("falsches Ergebnis: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empfang_lehnt_falsches_format_ab() {
+        // Format-Code 1 = 16 Bit, nicht FLOAT32.
+        let mut f = AudioFrame::pcm16("test", SampleRate::Hz48000, 2).expect("Frame");
+        f.push_i16(&[1, 2]).expect("push");
+        match parse_empfang(&f.encode().expect("encode")) {
+            Err(RecvFehler::FalschesFormat { code }) => assert_eq!(code, 1),
+            other => panic!("falsches Ergebnis: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empfang_lehnt_zu_kurzes_paket_ab() {
+        let roh = paket("test", 2, SampleRate::Hz48000, &[0.0, 0.0]);
+        match parse_empfang(&roh[..vban::HEADER_LEN - 1]) {
+            Err(RecvFehler::ZuKurz { got, need }) => {
+                assert_eq!(got, vban::HEADER_LEN - 1);
+                assert_eq!(need, vban::HEADER_LEN);
+            }
+            other => panic!("falsches Ergebnis: {other:?}"),
+        }
+        assert!(matches!(
+            parse_empfang(b""),
+            Err(RecvFehler::ZuKurz { got: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn empfang_dupliziert_einkanal_frame_auf_beide_seiten() {
+        let roh = paket("mono", 1, SampleRate::Hz48000, &[0.1, 0.2, 0.3]);
+        let f = parse_empfang(&roh).expect("Mono ist erlaubt");
+        assert_eq!(f.kanaele, 1);
+        assert_eq!(f.frames, 3);
+        assert_eq!(
+            f.samples,
+            vec![0.1, 0.1, 0.2, 0.2, 0.3, 0.3],
+            "Mono muss auf L und R liegen"
+        );
+    }
+
+    #[test]
+    fn empfang_lehnt_mehr_als_zwei_kanaele_ab() {
+        let roh = paket("acht", 4, SampleRate::Hz48000, &[0.0; 8]);
+        assert!(matches!(
+            parse_empfang(&roh),
+            Err(RecvFehler::FalscheKanaele { kanaele: 4 })
+        ));
+    }
+
+    #[test]
+    fn streamfilter_leer_nimmt_alles_sonst_exakt() {
+        assert!(passt_stream("", "beliebig"));
+        assert!(passt_stream("test", "test"));
+        assert!(!passt_stream("test", "Test"), "Groß-/Kleinschreibung zählt");
+        assert!(!passt_stream("test", "test2"));
+
+        let c = VbanRecvControl::new();
+        assert_eq!(c.stream(), "", "Vorgabe: alle Streams");
+        assert!(c.set_stream("test").is_ok());
+        assert_eq!(c.stream(), "test");
+        assert!(c.set_stream("").is_ok(), "leerer Filter ist erlaubt");
+        assert!(c.set_stream("viel_zu_langer_name").is_err());
+        assert!(c.set_stream("mit leer").is_err());
+    }
+
+    #[test]
+    fn zaehler_zaehlt_gueltige_und_verworfene_pakete() {
+        let c = VbanRecvControl::new();
+        let ring = Ring::new(4, RECV_BLOCK_FRAMES);
+        let mut sammler = Sammler::new(RECV_BLOCK_FRAMES);
+
+        let gut = paket("test", 2, SampleRate::Hz48000, &[0.1, -0.1]);
+        let mut falsches_magic = gut.clone();
+        falsches_magic[0] = b'X';
+        let falsches_format = {
+            let mut f = AudioFrame::pcm16("test", SampleRate::Hz48000, 2).expect("Frame");
+            f.push_i16(&[1, 2]).expect("push");
+            f.encode().expect("encode")
+        };
+
+        assert!(c.verarbeite(&mut sammler, &ring, &gut).is_ok());
+        assert!(c.verarbeite(&mut sammler, &ring, &falsches_magic).is_err());
+        assert!(c.verarbeite(&mut sammler, &ring, &falsches_format).is_err());
+        assert!(c.verarbeite(&mut sammler, &ring, b"zu kurz").is_err());
+        assert_eq!(c.packets(), 1, "nur das gültige Paket zählt");
+        assert_eq!(c.dropped(), 3, "drei Pakete verworfen");
+        assert!(
+            c.letzter_fehler().contains("zu kurz"),
+            "letzter Fehler: {}",
+            c.letzter_fehler()
+        );
+
+        // Fremder Stream wird gefiltert und als verworfen gezählt.
+        c.set_stream("test").expect("Filter");
+        let fremd = paket("anderer", 2, SampleRate::Hz48000, &[0.1, 0.1]);
+        assert!(matches!(
+            c.verarbeite(&mut sammler, &ring, &fremd),
+            Err(RecvFehler::FremderStream { .. })
+        ));
+        assert_eq!(c.packets(), 1);
+        assert_eq!(c.dropped(), 4);
+    }
+
+    #[test]
+    fn ring_rundlauf_ueber_den_sammler() {
+        // Vier Stereo-Frames je Ringblock; zwei Pakete füllen zwei Blöcke.
+        let ring = Ring::new(4, 4);
+        let mut sammler = Sammler::new(4);
+
+        let mut samples = Vec::new();
+        for i in 0..4 {
+            samples.push(i as f32 * 0.1);
+            samples.push(-(i as f32) * 0.1);
+        }
+        let a = paket("test", 2, SampleRate::Hz48000, &samples);
+        let (bloecke, verloren) = sammler.schiebe(&ring, &parse_empfang(&a).unwrap().samples);
+        assert_eq!((bloecke, verloren), (1, 0));
+        assert_eq!(sammler.rest(), 0);
+
+        // Kürzeres Paket: bleibt als Rest liegen, bis der Block voll ist.
+        let b = paket("test", 2, SampleRate::Hz48000, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let (bloecke, _) = sammler.schiebe(&ring, &parse_empfang(&b).unwrap().samples);
+        assert_eq!(bloecke, 0, "drei Frames füllen keinen Viererblock");
+        assert_eq!(sammler.rest(), 3);
+
+        // Ein Frame nachlegen: Block wird voll und abgelegt.
+        let c = paket("test", 2, SampleRate::Hz48000, &[7.0, 8.0]);
+        let (bloecke, _) = sammler.schiebe(&ring, &parse_empfang(&c).unwrap().samples);
+        assert_eq!(bloecke, 1);
+        assert_eq!(sammler.rest(), 0);
+
+        // Beide Blöcke in Reihenfolge aus dem Ring.
+        let mut out = vec![0.0f32; 8];
+        assert_eq!(ring.pop(&mut out), Some(4));
+        assert_eq!(out, samples, "erster Block unverändert");
+        assert_eq!(ring.pop(&mut out), Some(4));
+        assert_eq!(out, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+        assert!(ring.pop(&mut out).is_none(), "Ring ist dann leer");
+    }
+
+    #[test]
+    fn empfangs_status_json_hat_pflichtfelder() {
+        let c = VbanRecvControl::new();
+        c.set_enabled(true);
+        c.set_stream("test").expect("Filter");
+        c.setze_zaehler(12, 3);
+        let j = c.status_json();
+        for key in [
+            "enabled",
+            "port",
+            "stream",
+            "packets",
+            "dropped",
+            "level_left",
+            "level_right",
+        ] {
+            assert!(j.contains(&format!("\"{key}\":")), "Feld {key} fehlt in {j}");
+        }
+        assert!(j.contains("\"enabled\":true"), "{j}");
+        assert!(j.contains("\"port\":6980"), "{j}");
+        assert!(j.contains("\"stream\":\"test\""), "{j}");
+        assert!(j.contains("\"packets\":12"), "{j}");
+        assert!(j.contains("\"dropped\":3"), "{j}");
+        assert!(j.contains("\"level_left\":-120"), "Stille ist -120 dB: {j}");
+    }
+
+    #[test]
+    fn empfaenger_thread_empfaengt_ueber_udp() {
+        let port = freier_port();
+        let c = Arc::new(VbanRecvControl::new());
+        c.set_port(u32::from(port)).expect("Port");
+        c.set_stream("test").expect("Stream");
+        let ring = Arc::new(Ring::new(8, RECV_BLOCK_FRAMES));
+
+        let _t = spawn_empfaenger(Arc::clone(&c), Arc::clone(&ring));
+        c.set_enabled(true);
+
+        let tx = UdpSocket::bind("127.0.0.1:0").expect("tx");
+        let ziel: SocketAddr = format!("127.0.0.1:{port}").parse().expect("addr");
+        let roh = paket("test", 2, SampleRate::Hz48000, &[0.5, -0.5, 0.5, -0.5]);
+
+        // UDP wiederholt nicht: solange der Thread noch bindet, gehen Pakete
+        // verloren. Deshalb senden, bis die erwartete Zahl angekommen ist.
+        let mut versuche = 0;
+        while c.packets() < 5 && versuche < 200 {
+            let _ = tx.send_to(&roh, ziel);
+            thread::sleep(Duration::from_millis(10));
+            versuche += 1;
+        }
+        assert!(c.packets() >= 5, "nur {} Pakete angekommen", c.packets());
+        assert_eq!(c.dropped(), 0);
+
+        // 0.5 entspricht -6,0 dB (Pegel wird im Leerlauf gedämpft, daher Toleranz).
+        let [l, r] = c.level_db();
+        assert!(
+            (l - (-6.0)).abs() < 1.5,
+            "linker Pegel war {l} dB, erwartet ≈ -6,0"
+        );
+        assert!((r - (-6.0)).abs() < 1.5, "rechter Pegel war {r} dB");
+        c.set_enabled(false);
+    }
+
+    #[test]
+    fn empfaenger_wechselt_port_und_haelt_an() {
+        let port_a = freier_port();
+        let port_b = freier_port();
+        let c = Arc::new(VbanRecvControl::new());
+        c.set_port(u32::from(port_a)).expect("Port A");
+        let ring = Arc::new(Ring::new(8, RECV_BLOCK_FRAMES));
+        let _t = spawn_empfaenger(Arc::clone(&c), Arc::clone(&ring));
+        c.set_enabled(true);
+
+        let tx = UdpSocket::bind("127.0.0.1:0").expect("tx");
+        let roh = paket("test", 2, SampleRate::Hz48000, &[0.1, 0.1]);
+        while c.packets() < 3 {
+            let _ = tx.send_to(&roh, format!("127.0.0.1:{port_a}").parse::<SocketAddr>().unwrap());
+            thread::sleep(Duration::from_millis(20));
+        }
+
+        // Portwechsel: der Aufseher bindet neu, auf dem alten Port kommt nichts mehr.
+        c.set_port(u32::from(port_b)).expect("Port B");
+        thread::sleep(Duration::from_millis(100));
+        let vorher = c.packets();
+        for _ in 0..5 {
+            let _ = tx.send_to(&roh, format!("127.0.0.1:{port_a}").parse::<SocketAddr>().unwrap());
+        }
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(c.packets(), vorher, "alter Port darf nicht mehr zählen");
+
+        for _ in 0..5 {
+            let _ = tx.send_to(&roh, format!("127.0.0.1:{port_b}").parse::<SocketAddr>().unwrap());
+        }
+        let mut versuche = 0;
+        while c.packets() <= vorher && versuche < 100 {
+            thread::sleep(Duration::from_millis(10));
+            versuche += 1;
+        }
+        assert!(c.packets() > vorher, "neuer Port empfängt");
+
+        // Abschalten: Socket wird geschlossen, Zähler bleibt stehen.
+        c.set_enabled(false);
+        thread::sleep(Duration::from_millis(100));
+        let stand = c.packets();
+        for _ in 0..5 {
+            let _ = tx.send_to(&roh, format!("127.0.0.1:{port_b}").parse::<SocketAddr>().unwrap());
+        }
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(c.packets(), stand, "ausgeschaltet zählt nichts mehr");
     }
 }

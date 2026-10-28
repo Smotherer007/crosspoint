@@ -85,9 +85,16 @@ down)
   if [ -f "$MODFILE" ]; then
     while read -r id name; do pactl unload-module "$id" 2>/dev/null && echo "  $name entfernt"; done < "$MODFILE"
     rm -f "$MODFILE"
-  else
-    echo "keine gemerkten Knoten" >&2
   fi
+  # Nachzuegler: Module, die nicht (mehr) in der Merkliste stehen, z. B. nach
+  # einem Absturz oder wenn die Liste geloescht wurde. Sonst bleiben die
+  # virtuellen Geraete nach dem Schliessen im System stehen.
+  n=0
+  for id in $(pactl list short modules | awk -F'\t' '/sink_name=vm8|source_name=vm8/{print $1}'); do
+    pactl unload-module "$id" 2>/dev/null && { echo "  Modul $id entfernt (Nachzuegler)"; n=$((n+1)); }
+  done
+  [ "$n" -eq 0 ] && [ ! -f "$MODFILE" ] && echo "  nichts zu entfernen" >&2
+  exit 0
   ;;
 status)
   pw-link -l 2>/dev/null | grep -A4 -E "^$CLIENT:" || echo "Client '$CLIENT' nicht verbunden"

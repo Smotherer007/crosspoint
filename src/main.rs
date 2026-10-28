@@ -7,7 +7,7 @@ use std::thread;
 
 use vm8::engine::{EngineDsp, Io, Params};
 use vm8::macros_io::MacroControl;
-use vm8::vban_io::VbanControl;
+use vm8::vban_io::{VbanControl, VbanRecvControl};
 use vm8::jack::{self, Jack, Port};
 use vm8::{BUSES, BUS_NAMES, STRIPS};
 
@@ -16,13 +16,68 @@ struct Rt {
     dsp: EngineDsp,
     ins: [[*mut Port; 2]; STRIPS],
     outs: [[*mut Port; 2]; BUSES],
+    /// Ausgangspaare für empfangenes VBAN-Audio (`vban_L`/`vban_R`).
+    vban_out: [*mut Port; 2],
     tape: Arc<vm8::tape_io::TapeControl>,
     vban: Arc<VbanControl>,
     vban_ring: Arc<vm8::tape_io::Ring>,
+    vban_recv_ring: Arc<vm8::tape_io::Ring>,
+    /// Blockpuffer für den VBAN-Eingang (fest, keine Allokation im Callback).
+    vban_buf: Vec<f32>,
+    vban_pos: usize,
+    vban_len: usize,
     scratch: Vec<f32>,
 }
 
 impl Rt {
+    /// Legt empfangenes VBAN-Audio auf `vban_L`/`vban_R`.
+    ///
+    /// Arbeitet blockweise: ein Ringblock (1024 Frames) wird gepuffert und über
+    /// so viele Callbacks verteilt, wie nötig – so bleiben Blockgröße des Rings
+    /// und des JACK-Callbacks unabhängig. Ist der Ring leer, wird der Rest des
+    /// Puffers still geschrieben. Kein Lock, keine Allokation.
+    fn vban_eingang(&mut self, frames: usize) {
+        let (l, r) = unsafe {
+            (
+                jack::buffer(self.vban_out[0], frames as u32).as_mut_ptr(),
+                jack::buffer(self.vban_out[1], frames as u32).as_mut_ptr(),
+            )
+        };
+        let mut i = 0;
+        while i < frames {
+            if self.vban_pos >= self.vban_len {
+                match self.vban_recv_ring.pop(&mut self.vban_buf) {
+                    Some(n) => {
+                        self.vban_pos = 0;
+                        self.vban_len = (n * 2).min(self.vban_buf.len());
+                    }
+                    None => {
+                        // Ring leer: Stille bis zum Blockende.
+                        unsafe {
+                            std::ptr::write_bytes(l.add(i), 0, frames - i);
+                            std::ptr::write_bytes(r.add(i), 0, frames - i);
+                        }
+                        return;
+                    }
+                }
+            }
+            let verfuegbar = (self.vban_len - self.vban_pos) / 2;
+            if verfuegbar == 0 {
+                self.vban_pos = self.vban_len;
+                continue;
+            }
+            let n = verfuegbar.min(frames - i);
+            unsafe {
+                for k in 0..n {
+                    *l.add(i + k) = self.vban_buf[self.vban_pos + k * 2];
+                    *r.add(i + k) = self.vban_buf[self.vban_pos + k * 2 + 1];
+                }
+            }
+            self.vban_pos += n * 2;
+            i += n;
+        }
+    }
+
     fn run(&mut self, frames: usize) {
         let mut io = Io {
             ins: [[std::ptr::null(); 2]; STRIPS],
@@ -71,6 +126,11 @@ impl Rt {
             }
             self.vban_ring.push(&self.scratch[..n * 2]);
         }
+
+        // Empfangenes VBAN-Audio auf die beiden Zusatzports legen.
+        if !self.vban_out[0].is_null() && !self.vban_out[1].is_null() {
+            self.vban_eingang(frames);
+        }
     }
 }
 
@@ -107,15 +167,25 @@ fn main() {
     let tape = Arc::new(vm8::tape_io::TapeControl::new(ring.clone(), 2048));
     let vban = Arc::new(VbanControl::new());
     let vban_ring = Arc::new(vm8::tape_io::Ring::new(8, 2048));
+    let vban_recv = Arc::new(VbanRecvControl::new());
+    let vban_recv_ring = Arc::new(vm8::tape_io::Ring::new(
+        16,
+        vm8::vban_io::RECV_BLOCK_FRAMES,
+    ));
     let macroctl = Arc::new(MacroControl::new());
     let rt: &'static mut Rt = Box::leak(Box::new(Rt {
         params: params.clone(),
         dsp: EngineDsp::new(2048),
         ins: [[std::ptr::null_mut(); 2]; STRIPS],
         outs: [[std::ptr::null_mut(); 2]; BUSES],
+        vban_out: [std::ptr::null_mut(); 2],
         tape: tape.clone(),
         vban: vban.clone(),
         vban_ring: vban_ring.clone(),
+        vban_recv_ring: vban_recv_ring.clone(),
+        vban_buf: vec![0.0f32; vm8::vban_io::RECV_BLOCK_FRAMES * 2],
+        vban_pos: 0,
+        vban_len: 0,
         scratch: vec![0.0f32; 2048 * 2],
     }));
 
@@ -148,6 +218,14 @@ fn main() {
         let r = jack.port_out(&format!("bus{}_R", BUS_NAMES[b])).expect("Port");
         rt.outs[b] = [l, r];
     }
+    // Zusatz-Ausgänge für empfangenes VBAN-Audio. Sie werden wie ein
+    // Hardware-Eingang per pw-link auf einen Streifen gelegt, z. B.
+    //   pw-link vm8:vban_L vm8:strip1_L
+    //   pw-link vm8:vban_R vm8:strip1_R
+    rt.vban_out = [
+        jack.port_out("vban_L").expect("Port"),
+        jack.port_out("vban_R").expect("Port"),
+    ];
     if let Err(e) = jack.activate() {
         eprintln!("{e}");
         std::process::exit(1);
@@ -160,6 +238,7 @@ fn main() {
     for b in 0..BUSES {
         println!("  bus{}_L / bus{}_R", BUS_NAMES[b], BUS_NAMES[b]);
     }
+    println!("  vban_L / vban_R (VBAN-Eingang, /api/vban/recv)");
     println!("\nVerdrahtung: scripts/vm8-wire.sh up\n");
 
     let preset = preset_path();
@@ -168,6 +247,7 @@ fn main() {
     vm8::tape_io::spawn_writer(tape.clone(), tape_dir, jack.sample_rate);
 
     vm8::vban_io::spawn_sender(vban.clone(), vban_ring.clone(), jack.sample_rate);
+    vm8::vban_io::spawn_empfaenger(vban_recv.clone(), vban_recv_ring.clone());
 
     // Macro-Kommandos aus der UI auf die Parameter anwenden.
     let params_mac = params.clone();
@@ -188,11 +268,19 @@ fn main() {
         let params_ui = params.clone();
         let tape_ui = tape.clone();
         let vban_ui = vban.clone();
+        let vban_recv_ui = vban_recv.clone();
         let macro_ui = macroctl.clone();
         let dev_ui = devices.clone();
         thread::spawn(move || {
             if let Err(e) = vm8::http::serve(
-                listen_owned, params_ui, preset, tape_ui, vban_ui, macro_ui, dev_ui,
+                listen_owned,
+                params_ui,
+                preset,
+                tape_ui,
+                vban_ui,
+                vban_recv_ui,
+                macro_ui,
+                dev_ui,
             ) {
                 eprintln!("HTTP: {e}");
             }

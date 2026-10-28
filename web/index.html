@@ -1669,7 +1669,7 @@
   });
 
   tick();
-  setInterval(tick, 500);
+  setInterval(tick, 120);
 })();
 </script>
 <script>
@@ -2081,6 +2081,21 @@
   setInterval(loadDevices, 2500);
   setInterval(loadMacros, 900);
 })();
+
+    /* --- Skalierung: die Konsole ist in festen Pixeln gezeichnet (Original-
+       Look), bei grossen Fenstern wird sie deshalb hochskaliert, damit die
+       Schrift lesbar bleibt. Mindestens Faktor 1, gehoert auf max. 2.6. --- */
+    function vm8Fit() {
+      const b = document.body;
+      b.style.zoom = "1";
+      const w = b.scrollWidth, hh = b.scrollHeight;
+      if (!w || !hh) return;
+      const z = Math.min(window.innerWidth / w, window.innerHeight / hh);
+      b.style.zoom = String(Math.min(2.6, Math.max(1, z)));
+    }
+    window.addEventListener("resize", vm8Fit);
+    window.addEventListener("load", vm8Fit);
+    setTimeout(vm8Fit, 60);
 </script>
 </body>
 </html>

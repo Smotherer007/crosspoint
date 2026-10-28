@@ -81,6 +81,96 @@ pub fn list_sources(runner: &dyn Runner) -> Result<Vec<Source>, String> {
     Ok(out)
 }
 
+/// Alle Ausgangsports einer Quelle, so wie PipeWire sie gerade anbietet.
+/// Nötig, weil z. B. das Corsair-Headset-Mikrofon nur `capture_MONO` hat -
+/// ein blindes `capture_FL`/`capture_FR` schlägt dort fehl und der Streifen
+/// bleibt stumm.
+pub fn source_ports(runner: &dyn Runner, source: &str) -> Vec<String> {
+    let basis = source.strip_suffix(".monitor").unwrap_or(source);
+    let text = runner.run("pw-link", &["-o"]).unwrap_or_default();
+    let mut ports: Vec<String> = text
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|p| p.starts_with(&format!("{basis}:")))
+        .collect();
+    ports.sort();
+    ports.dedup();
+    ports
+}
+
+/// Verbindet Quellports mit den beiden Streifen-Eingängen. Mono-Quellen
+/// werden auf beide Seiten gelegt, Stereo-Quellen paarweise.
+pub fn link_source(runner: &dyn Runner, source: &str, in_l: &str, in_r: &str) -> Result<(), String> {
+    let ports = source_ports(runner, source);
+    let find = |suffix: &str| {
+        ports
+            .iter()
+            .find(|p| p.ends_with(suffix))
+            .cloned()
+    };
+    if let (Some(fl), Some(fr)) = (find(":capture_FL"), find(":capture_FR")) {
+        runner.run("pw-link", &[&fl, in_l])?;
+        runner.run("pw-link", &[&fr, in_r])?;
+        return Ok(());
+    }
+    if let (Some(fl), Some(fr)) = (find(":monitor_FL"), find(":monitor_FR")) {
+        runner.run("pw-link", &[&fl, in_l])?;
+        runner.run("pw-link", &[&fr, in_r])?;
+        return Ok(());
+    }
+    match ports.len() {
+        0 => Err(format!("Quelle {source} hat keinen Ausgangsport")),
+        1 => {
+            runner.run("pw-link", &[&ports[0], in_l])?;
+            runner.run("pw-link", &[&ports[0], in_r])?;
+            Ok(())
+        }
+        _ => {
+            runner.run("pw-link", &[&ports[0], in_l])?;
+            runner.run("pw-link", &[&ports[1], in_r])?;
+            Ok(())
+        }
+    }
+}
+
+/// Merkliste: welche Quelle an welchem Streifen hängt (überlebt Neustarts).
+fn mapping_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    std::path::PathBuf::from(home).join(".config/vm8-linux/inputs.conf")
+}
+
+pub fn mapping() -> [Option<String>; MAX_HW_STRIPS] {
+    let mut out: [Option<String>; MAX_HW_STRIPS] = Default::default();
+    if let Ok(text) = std::fs::read_to_string(mapping_path()) {
+        for line in text.lines() {
+            if let Some((n, src)) = line.split_once('=') {
+                if let Ok(i) = n.trim().parse::<usize>() {
+                    if (1..=MAX_HW_STRIPS).contains(&i) && !src.trim().is_empty() {
+                        out[i - 1] = Some(src.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn save_mapping(strip: usize, source: Option<&str>) {
+    let mut m = mapping();
+    m[strip - 1] = source.map(|s| s.to_string());
+    let mut text = String::new();
+    for (i, eintrag) in m.iter().enumerate() {
+        if let Some(s) = eintrag {
+            text.push_str(&format!("{}={}\n", i + 1, s));
+        }
+    }
+    let p = mapping_path();
+    if let Some(dir) = p.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&p, text);
+}
+
 /// Verbindet einen Streifen mit einer Quelle (bzw. löst die Verbindung).
 pub fn assign(
     runner: &dyn Runner,
@@ -98,10 +188,9 @@ pub fn assign(
     }
 
     if let Some(src) = source {
-        let (fl, fr) = ports_for(src);
-        runner.run("pw-link", &[&fl, &in_l])?;
-        runner.run("pw-link", &[&fr, &in_r])?;
+        link_source(runner, src, &in_l, &in_r)?;
     }
+    save_mapping(strip, source);
     Ok(())
 }
 
@@ -111,16 +200,31 @@ pub fn status_json(runner: &dyn Runner) -> String {
     let eintraege: Vec<String> = quellen
         .iter()
         .map(|s| {
+            let zuordnung = mapping()
+                .iter()
+                .position(|m| m.as_deref() == Some(s.name.as_str()))
+                .map(|i| (i + 1).to_string())
+                .unwrap_or_else(|| "null".to_string());
             format!(
-                "{{\"name\":{},\"monitor\":{}}}",
+                "{{\"name\":{},\"monitor\":{},\"strip\":{}}}",
                 crate::json::quote(&s.name),
-                s.is_monitor
+                s.is_monitor,
+                zuordnung
             )
         })
         .collect();
+    let binds: Vec<String> = mapping()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| {
+            m.as_ref()
+                .map(|s| format!("{{\"strip\":{},\"source\":{}}}", i + 1, crate::json::quote(s)))
+        })
+        .collect();
     format!(
-        "{{\"sources\":[{}],\"strips\":{}}}",
+        "{{\"sources\":[{}],\"assigned\":[{}],\"strips\":{}}}",
         eintraege.join(","),
+        binds.join(","),
         MAX_HW_STRIPS
     )
 }
