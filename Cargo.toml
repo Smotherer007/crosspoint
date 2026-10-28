@@ -1,0 +1,11 @@
+[package]
+name = "vm8"
+version = "0.1.0"
+edition = "2021"
+description = "VoiceMeeter-Nachbau in Rust: Parametermodell und Mixer-Kern"
+
+[lib]
+name = "vm8"
+path = "src/lib.rs"
+
+[dependencies]

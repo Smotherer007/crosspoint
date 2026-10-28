@@ -1,0 +1,4 @@
+/target
+**/*.rs.bk
+*.wav
+/Voicemeeter8Setup_v3130.zip
