@@ -22,6 +22,7 @@ pub mod tape_io;
 pub mod vban_io;
 pub mod http;
 pub mod inputs;
+pub mod remote_api;
 pub mod jack;
 pub mod json;
 
