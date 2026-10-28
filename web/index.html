@@ -3,143 +3,188 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>vm8 — 8×8 Mixer</title>
+<title>vm8 — Virtual Mixing Console</title>
 <style>
-  :root{--bg:#0a0e14;--panel:#111823;--panel2:#0d141d;--line:#1e2b3d;--txt:#c9d6e6;
-        --dim:#6b7f96;--accent:#28d2c8;--warn:#ffb454;--hot:#ff5c5c;
-        --mono:ui-monospace,"JetBrains Mono","DejaVu Sans Mono",monospace}
+  :root{--bg:#0d1522;--panel:#1b2a44;--edge:#2e4468;--edge2:#0a1220;--txt:#c6d3e6;
+        --dim:#7c92b0;--accent:#37b6ff;--on:#2ee6a8;--warn:#ffb454;--hot:#ff4d4d;
+        --mono:"DejaVu Sans Mono",ui-monospace,monospace}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--mono);font-size:12px}
-  header{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--line)}
-  h1{font-size:13px;margin:0;letter-spacing:.16em;text-transform:uppercase}
-  h1 span{color:var(--accent)}
-  .tag{color:var(--dim);font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--mono);
+       font-size:11px;user-select:none;overflow:hidden}
+  .console{height:100vh;display:flex;flex-direction:column;padding:6px;gap:6px}
+  .topbar{display:flex;align-items:center;gap:8px;height:26px}
+  .brand{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#eaf2ff}
+  .brand b{color:var(--accent)}
+  .tbox{min-width:88px;text-align:center;background:#05080f;border:1px solid var(--edge);
+        border-radius:2px;font-size:10px;color:var(--on);padding:2px 6px}
   .spacer{flex:1}
-  button{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
-         background:var(--panel2);color:var(--txt);border:1px solid var(--line);padding:4px 8px;
-         border-radius:3px;cursor:pointer}
-  button:hover{border-color:var(--accent);color:#fff}
-  main{padding:12px;display:flex;flex-direction:column;gap:12px}
-  .row{display:grid;grid-template-columns:repeat(8,minmax(112px,1fr));gap:8px}
-  .section-title{font-size:10px;letter-spacing:.18em;color:var(--dim);text-transform:uppercase;margin-bottom:-6px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:7px;
-        display:flex;flex-direction:column;gap:5px}
-  .card.bus{background:var(--panel2)}
-  .name{font-size:11px;display:flex;justify-content:space-between}
-  .body{display:flex;gap:6px;align-items:stretch}
-  .meter{width:8px;background:#060a10;border:1px solid var(--line);border-radius:2px;position:relative;overflow:hidden}
-  .meter i{position:absolute;left:0;right:0;bottom:0;height:0%;background:linear-gradient(0deg,var(--accent),#7ef7b4 70%,var(--hot))}
-  .fader{writing-mode:vertical-lr;direction:rtl;width:24px;height:104px;accent-color:var(--accent);cursor:ns-resize}
-  .db{font-size:10px;color:var(--accent);text-align:center}
-  .btns{display:flex;gap:3px}
-  .btns button{flex:1;padding:2px 0;font-size:9px}
-  .btns button.on{background:var(--accent);color:#04121a;border-color:var(--accent)}
-  .btns button.solo.on{background:var(--warn);border-color:var(--warn)}
-  .sends{display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
-  .sends button{padding:2px 0;font-size:9px}
-  .sends button.on{background:#1d5f5b;color:#d8fffb;border-color:var(--accent)}
-  footer{color:var(--dim);font-size:10px;padding:0 14px 16px}
-  #notice{color:var(--warn);font-size:10px}
+  .btn{background:linear-gradient(#243a5e,#16233a);border:1px solid var(--edge);color:var(--txt);
+       border-radius:2px;font-family:var(--mono);font-size:9px;letter-spacing:.06em;
+       text-transform:uppercase;padding:3px 7px;cursor:pointer}
+  .btn:hover{border-color:var(--accent);color:#fff}
+  .rack{flex:1;display:flex;gap:5px;min-height:0}
+  .strip{flex:1;display:flex;flex-direction:column;background:linear-gradient(#1d2d49,#131f33);
+         border:1px solid var(--edge);border-radius:3px;box-shadow:inset 0 1px 0 #33507d;min-width:0}
+  .strip.bus{flex:.82;background:linear-gradient(#1a2740,#101a2b)}
+  .cap{height:20px;display:flex;align-items:center;justify-content:center;font-size:9.5px;
+       letter-spacing:.08em;text-transform:uppercase;color:#eaf2ff;border-bottom:1px solid var(--edge2);
+       white-space:nowrap;overflow:hidden}
+  .body{flex:1;display:flex;flex-direction:column;gap:4px;padding:4px;min-height:0}
+  .faderzone{flex:1;display:flex;gap:4px;justify-content:center;min-height:60px}
+  .meter{width:10px;background:#05080f;border:1px solid var(--edge2);border-radius:1px;
+         position:relative;overflow:hidden;display:flex;flex-direction:column-reverse}
+  .meter i{display:block;width:100%;height:0%;
+           background:linear-gradient(0deg,#2ee6a8,#9fef6a 65%,#ffd166 85%,#ff4d4d)}
+  .fader{writing-mode:vertical-lr;direction:rtl;width:22px;height:100%;accent-color:var(--accent)}
+  .db{text-align:center;font-size:9.5px;color:var(--accent);background:#05080f;
+      border:1px solid var(--edge2);padding:1px 0}
+  .routing{display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
+  .routing.hw{border-bottom:1px dashed var(--edge);padding-bottom:3px}
+  .rb{font-family:var(--mono);font-size:8.5px;padding:3px 0;border-radius:2px;cursor:pointer;
+      background:linear-gradient(#22314c,#141f31);border:1px solid var(--edge2);color:#93a8c4}
+  .rb.on{background:linear-gradient(#1f6f5a,#12503f);border-color:var(--on);color:#c9ffe9;
+         box-shadow:0 0 5px rgba(46,230,168,.45)}
+  .row{display:flex;gap:2px}
+  .row .btn{flex:1;padding:3px 0;font-size:8.5px}
+  .row .btn.on{background:linear-gradient(#2f6f9e,#1d4a6b);border-color:var(--accent);color:#eaf7ff}
+  .row .btn.solo.on{background:linear-gradient(#8a6520,#5d4416);border-color:var(--warn);color:#ffe9c2}
+  .row .btn.mute.on{background:linear-gradient(#8c2b2b,#5c1c1c);border-color:var(--hot);color:#ffd9d9}
+  .pan{display:flex;align-items:center;gap:3px;font-size:8px;color:var(--dim)}
+  .pan input{flex:1;height:10px;accent-color:var(--warn)}
+  .tape{display:flex;align-items:center;gap:6px;height:30px;padding:0 4px;
+        background:linear-gradient(#1a2740,#0f1827);border:1px solid var(--edge);border-radius:3px}
+  .lamp{width:8px;height:8px;border-radius:50%;background:#3a1414;border:1px solid #000}
+  .lamp.on{background:var(--hot);box-shadow:0 0 6px var(--hot)}
+  footer{font-size:9px;color:var(--dim);padding:0 4px 2px}
 </style>
 </head>
 <body>
-<header>
-  <h1>vm8<span>-linux</span></h1>
-  <span class="tag">8×8 · PipeWire/JACK</span>
-  <span class="spacer"></span>
-  <span id="notice"></span>
-  <span class="tag" id="status">lade…</span>
-  <button id="save">Preset speichern</button>
-  <button id="load">Preset laden</button>
-</header>
-<main>
-  <div class="section-title">Streifen — EQ → Comp → Gate → Denoiser → Gain → Pan → Routing</div>
-  <div class="row" id="strips"></div>
-  <div class="section-title">Busse — A1…A5 Hardware, B1…B3 virtuell</div>
-  <div class="row" id="buses"></div>
-</main>
-<footer>Pegel = Block-Peak, 2×/s vom Server gelesen. Preset: ~/.config/vm8-linux/preset.json</footer>
+<div class="console">
+  <div class="topbar">
+    <span class="brand">vm8<b>·</b>linux <span style="color:var(--dim);font-size:9px">VIRTUAL MIXING CONSOLE</span></span>
+    <span class="tbox" id="sr">48000</span>
+    <span class="tbox" id="buf">1024</span>
+    <span class="tbox" id="state">OFFLINE</span>
+    <span class="spacer"></span>
+    <button class="btn" id="save">Preset speichern</button>
+    <button class="btn" id="load">Preset laden</button>
+  </div>
+  <div class="rack" id="rack"></div>
+  <div class="tape">
+    <span style="font-size:9px;color:var(--dim);letter-spacing:.1em">TAPE</span>
+    <span class="lamp" id="reclamp"></span>
+    <button class="btn" id="tapeRec">REC</button>
+    <button class="btn">PLAY</button>
+    <button class="btn">STOP</button>
+    <span style="font-size:9px;color:var(--dim);margin-left:8px">Ziel:</span>
+    <span id="tapeTargets" style="display:flex;gap:2px"></span>
+    <span class="spacer"></span>
+    <span style="font-size:9px;color:var(--dim)">Fader = Gain · Routing A1…B3 je Streifen</span>
+  </div>
+  <footer>8 Streifen × 8 Busse · PipeWire/JACK · Presets in ~/.config/vm8-linux/</footer>
+</div>
 <script>
-const BUSNAMES=["A1","A2","A3","A4","A5","B1","B2","B3"];
-let stripEls=[],busEls=[],built=false;
-
+const BUSN=["A1","A2","A3","A4","A5","B1","B2","B3"];
+const COL=["#2b4a7a","#2f5a6b","#3b5f3f","#5a4a2b","#6b3548","#3a3f6b","#2b5f6b","#5f2b3a"];
+let S=[],B=[],built=false;
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e;};
-const api=(path,body)=>fetch(path,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{}).then(r=>r.json());
+const api=(p,b)=>fetch(p,b?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}:{}).then(r=>r.json());
 const setP=(target,index,param,value)=>api("/api/set",{target,index,param,value});
 
-function build(s){
-  const sc=document.getElementById("strips");sc.innerHTML="";stripEls=[];
-  s.strips.forEach((st,i)=>{
-    const c=el("div","card");
-    const n=el("div","name");n.appendChild(el("span",null,st.name));c.appendChild(n);
-    const body=el("div","body"),m=el("div","meter"),bar=el("i");m.appendChild(bar);body.appendChild(m);
-    const w=el("div");w.style.cssText="display:flex;flex-direction:column;align-items:center";
-    const f=el("input","fader");f.type="range";f.min=-60;f.max=12;f.step=0.5;f.value=st.gain;
-    const db=el("div","db",(+st.gain).toFixed(1)+" dB");
-    w.append(f,db);body.appendChild(w);c.appendChild(body);
-    const b=el("div","btns");const bm=el("button",null,"M"),bs=el("button","solo","S"),bo=el("button",null,"Ø");
+function buildStrip(st,i,isBus){
+  const c=el("div","strip"+(isBus?" bus":""));
+  const cap=el("div","cap",isBus?("BUS "+st.name):st.name);
+  cap.style.background=isBus?"linear-gradient(#2b3f66,#1b2a44)":"linear-gradient("+COL[i]+",#16233a)";
+  c.appendChild(cap);
+  const body=el("div","body");
+  const fz=el("div","faderzone");
+  const m=el("div","meter"),bar=el("i");m.appendChild(bar);
+  const f=el("input","fader");f.type="range";f.min=-60;f.max=12;f.step=0.5;f.value=st.gain;
+  fz.append(m,f);body.appendChild(fz);
+  const db=el("div","db",(+st.gain).toFixed(1)+" dB");body.appendChild(db);
+  if(!isBus){
+    const pan=el("div","pan");pan.appendChild(el("span",null,"PAN"));
+    const pi=el("input");pi.type="range";pi.min=-1;pi.max=1;pi.step=0.05;pi.value=st.pan;
+    pan.appendChild(pi);body.appendChild(pan);
+    const sEls=[];
+    const hw=el("div","routing hw");
+    for(let k=0;k<5;k++){const b=el("button","rb",BUSN[k]);
+      b.onclick=()=>setP("strip",i,"send"+k,sEls[k].classList.contains("on")?0:1);
+      hw.appendChild(b);sEls.push(b);}
+    body.appendChild(hw);
+    const vw=el("div","routing");
+    for(let k=5;k<8;k++){const b=el("button","rb",BUSN[k]);
+      b.onclick=()=>setP("strip",i,"send"+k,sEls[k].classList.contains("on")?0:1);
+      vw.appendChild(b);sEls.push(b);}
+    body.appendChild(vw);
+    const r1=el("div","row");
+    const bm=el("button","btn mute","M"),bs=el("button","btn solo","S"),bo=el("button","btn","Ø");
     bm.onclick=()=>setP("strip",i,"mute",bm.classList.contains("on")?0:1);
     bs.onclick=()=>setP("strip",i,"solo",bs.classList.contains("on")?0:1);
     bo.onclick=()=>setP("strip",i,"mono",bo.classList.contains("on")?0:1);
-    b.append(bm,bs,bo);c.appendChild(b);
-    const fx=el("div","btns");const be=el("button",null,"EQ"),bc=el("button",null,"C"),bg=el("button",null,"G");
+    r1.append(bm,bs,bo);body.appendChild(r1);
+    const r2=el("div","row");
+    const be=el("button","btn","EQ"),bc=el("button","btn","C"),bg=el("button","btn","G");
     be.onclick=()=>setP("strip",i,"eq",be.classList.contains("on")?0:1);
     bc.onclick=()=>setP("strip",i,"comp",bc.classList.contains("on")?0:1);
     bg.onclick=()=>setP("strip",i,"gate",bg.classList.contains("on")?0:1);
-    fx.append(be,bc,bg);c.appendChild(fx);
-    const sd=el("div","sends");const sdEls=[];
-    BUSNAMES.forEach((bn,k)=>{const sb=el("button",null,bn);
-      sb.onclick=()=>setP("strip",i,"send"+k,sb.classList.contains("on")?0:1);
-      sd.appendChild(sb);sdEls.push(sb);});
-    c.appendChild(sd);sc.appendChild(c);
+    r2.append(be,bc,bg);body.appendChild(r2);
     f.oninput=()=>{db.textContent=(+f.value).toFixed(1)+" dB";setP("strip",i,"gain",+f.value);};
-    stripEls.push({bar,f,db,bm,bs,bo,be,bc,bg,sd:sdEls});
-  });
-  const bc2=document.getElementById("buses");bc2.innerHTML="";busEls=[];
-  s.buses.forEach((bs,i)=>{
-    const c=el("div","card bus");
-    const n=el("div","name");n.append(el("span",null,"Bus "+bs.name),el("span","tag",bs.limiter?"LIM":""));c.appendChild(n);
-    const body=el("div","body"),m=el("div","meter"),bar=el("i");m.appendChild(bar);body.appendChild(m);
-    const w=el("div");w.style.cssText="display:flex;flex-direction:column;align-items:center";
-    const f=el("input","fader");f.type="range";f.min=-60;f.max=12;f.step=0.5;f.value=bs.gain;
-    const db=el("div","db",(+bs.gain).toFixed(1)+" dB");
-    w.append(f,db);body.appendChild(w);c.appendChild(body);
-    const b=el("div","btns");const bm=el("button",null,"M"),bl=el("button",null,"LIM");
+    pi.oninput=()=>setP("strip",i,"pan",+pi.value);
+    S.push({bar,f,db,bm,bs,bo,be,bc,bg,sends:sEls,pan:pi});
+  }else{
+    const r1=el("div","row");
+    const bm=el("button","btn mute","M"),bl=el("button","btn","LIM");
     bm.onclick=()=>setP("bus",i,"mute",bm.classList.contains("on")?0:1);
     bl.onclick=()=>setP("bus",i,"limiter",bl.classList.contains("on")?0:1);
-    b.append(bm,bl);c.appendChild(b);
+    r1.append(bm,bl);body.appendChild(r1);
     f.oninput=()=>{db.textContent=(+f.value).toFixed(1)+" dB";setP("bus",i,"gain",+f.value);};
-    bc2.appendChild(c);busEls.push({bar,f,db,bm,bl});
-  });
-  built=true;
+    B.push({bar,f,db,bm,bl});
+  }
+  c.appendChild(body);
+  return c;
 }
 
-function apply(s){
-  s.strips.forEach((st,i)=>{const e=stripEls[i];if(!e)return;
+function build(state){
+  const rack=document.getElementById("rack");rack.innerHTML="";S=[];B=[];
+  state.strips.forEach((st,i)=>rack.appendChild(buildStrip(st,i,false)));
+  const gap=el("div");gap.style.cssText="width:6px";rack.appendChild(gap);
+  state.buses.forEach((bs,i)=>rack.appendChild(buildStrip(bs,i,true)));
+  const tt=document.getElementById("tapeTargets");tt.innerHTML="";
+  BUSN.forEach(bn=>{const b=el("button","btn",bn);b.style.opacity=".55";tt.appendChild(b);});
+  built=true;apply(state);
+}
+
+function apply(state){
+  state.strips.forEach((st,i)=>{const e=S[i];if(!e)return;
     if(document.activeElement!==e.f){e.f.value=st.gain;e.db.textContent=(+st.gain).toFixed(1)+" dB";}
+    if(document.activeElement!==e.pan)e.pan.value=st.pan;
     e.bm.classList.toggle("on",!!st.mute);e.bs.classList.toggle("on",!!st.solo);
     e.bo.classList.toggle("on",!!st.mono);e.be.classList.toggle("on",!!st.eq);
     e.bc.classList.toggle("on",!!st.comp);e.bg.classList.toggle("on",!!st.gate);
-    st.sends.forEach((v,k)=>e.sd[k].classList.toggle("on",v>0));});
-  s.buses.forEach((bs,i)=>{const e=busEls[i];if(!e)return;
+    st.sends.forEach((v,k)=>{if(e.sends[k])e.sends[k].classList.toggle("on",v>0);});});
+  state.buses.forEach((bs,i)=>{const e=B[i];if(!e)return;
     if(document.activeElement!==e.f){e.f.value=bs.gain;e.db.textContent=(+bs.gain).toFixed(1)+" dB";}
     e.bm.classList.toggle("on",!!bs.mute);e.bl.classList.toggle("on",!!bs.limiter);});
+  document.getElementById("sr").textContent=state.sample_rate;
+  document.getElementById("buf").textContent=state.block;
 }
 
 async function tick(){
   try{
     const st=await api("/api/state");
-    if(!built) build(st); else apply(st);
+    if(!built)build(st);else apply(st);
     const lv=await api("/api/levels");
     const px=db=>Math.max(0,Math.min(100,(db+60)/72*100))+"%";
-    lv.strips.forEach((db,i)=>{if(stripEls[i])stripEls[i].bar.style.height=px(db);});
-    lv.buses.forEach((db,i)=>{if(busEls[i])busEls[i].bar.style.height=px(db);});
-    document.getElementById("status").textContent="läuft · "+st.sample_rate+" Hz";
-    document.getElementById("notice").textContent="";
-  }catch(e){document.getElementById("status").textContent="getrennt";}
+    lv.strips.forEach((db,i)=>{if(S[i])S[i].bar.style.height=px(db);});
+    lv.buses.forEach((db,i)=>{if(B[i])B[i].bar.style.height=px(db);});
+    const s=document.getElementById("state");s.textContent="ON AIR";s.style.color="var(--on)";
+  }catch(e){const s=document.getElementById("state");s.textContent="OFFLINE";s.style.color="var(--hot)";}
 }
 document.getElementById("save").onclick=()=>api("/api/preset",{action:"save"});
 document.getElementById("load").onclick=()=>api("/api/preset",{action:"load"});
+document.getElementById("tapeRec").onclick=()=>document.getElementById("reclamp").classList.toggle("on");
 setInterval(tick,500);tick();
 </script>
 </body>
