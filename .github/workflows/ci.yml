@@ -33,8 +33,14 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # Die Engine linkt gegen libjack.so.0 aus pipewire; im CI gibt es kein
-      # PipeWire, deshalb wird nur gebaut und getestet, nicht gestartet.
+      # Die Engine linkt gegen libjack.so.0 (Soname). Auf dem Runner fehlt sie
+      # ohne dieses Paket - dann baut die Lib, aber das Test-Binary scheitert
+      # beim Laden. jackd2 liefert die ABI-kompatible Client-Bibliothek.
+      - name: JACK-Bibliothek
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libjack-jackd2-dev
+      # Gestartet wird im CI nichts: kein PipeWire, kein Audio.
       - name: Clippy (nur echte Fehler blockieren)
         run: cargo clippy --all-targets --locked -- -D clippy::correctness
       - name: Tests
