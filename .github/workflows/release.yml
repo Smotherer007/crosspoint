@@ -68,6 +68,10 @@ jobs:
 
   linux:
     needs: prepare
+    # `prepare` haengt an release-please, das bei einem Tag-Push uebersprungen
+    # wird. Ohne diese Bedingung ueberspringt GitHub die abhaengigen Jobs gleich
+    # mit - dann entsteht ein Release ohne Pakete.
+    if: always() && needs.prepare.result == 'success'
     name: Linux-Pakete
     runs-on: ubuntu-22.04
     env:
@@ -114,6 +118,7 @@ jobs:
 
   attach:
     needs: [prepare, linux]
+    if: always() && needs.linux.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
