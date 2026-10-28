@@ -113,9 +113,9 @@ jobs:
           } 2>&1 | tee /tmp/flatpak.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            tail -c 3000 /tmp/flatpak.log | sed 's/%/%25/g; s/\r//g' | \
-              awk 'BEGIN{ORS=""} {printf "%s%%0A", $0} END{print ""}' > /tmp/annot.txt
-            echo "::error title=Flatpak-Build fehlgeschlagen::$(cat /tmp/annot.txt)"
+            # Log an das Release haengen: die Actions-Logs sind ohne Token nicht
+            # lesbar, ein Release-Asset schon.
+            gh release upload "v${VERSION}" /tmp/flatpak.log --clobber -R "$GITHUB_REPOSITORY" || true
             exit "$status"
           fi
 
