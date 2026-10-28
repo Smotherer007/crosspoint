@@ -6,45 +6,48 @@
 //! Workspace-Typen – spaetere Integration als Workspace-Member ist damit
 //! unkritisch.
 //!
-//! ## Header-Belegung (was belegt ist)
+//! ## Header-Belegung (VBAN-Spezifikation)
 //!
-//! Grundlage ist die oeffentliche VBAN-Protokollspezifikation von VB-Audio.
-//! Header = **28 Byte**, Little Endian, Nutzdaten folgen direkt danach:
+//! Grundlage ist die oeffentliche VBAN-Protokollspezifikation von VB-Audio
+//! (VBANProtocol_Specifications.pdf). Header = **28 Byte**, Little Endian,
+//! Nutzdaten folgen direkt danach:
 //!
 //! | Offset | Groesse | Feld | Belegung |
 //! |-------:|--------:|------|----------|
 //! | 0      | 4  | Magic | `VBAN` (ASCII) |
-//! | 4      | 16 | Stream-Name | ASCII, NUL-gefuellt, max. 15 Zeichen + NUL |
-//! | 20     | 1  | Sub-Protokoll | 0x00 Audio, 0x10 Serial, 0x20 MIDI, 0x40 Chat/Text, 0x60 RT-Packet, 0x80 Service/User |
-//! | 21     | 1  | Format_SR | Bits 0..=2 Sample-Rate-Code, Bits 3..=5 Format-Code, Bits 6..=7 unbenutzt |
-//! | 22     | 1  | Channels-1 | Kanalzahl minus eins (1..=256 Kanäle) |
-//! | 23     | 1  | Codec | 0x00 = PCM/unkomprimiert |
+//! | 4      | 1  | Format_SR | Bits 0..4 Sample-Rate-Index, Bits 5..7 Sub-Protokoll (0x00 Audio, 0x20 Serial, 0x40 Text, 0x60 Service) |
+//! | 5      | 1  | NUMSAMPLES | Samples pro Frame minus 1 (setzt `AudioFrame::encode`) |
+//! | 6      | 1  | Channels-1 | Kanalzahl minus eins (1..=256 Kanaele) |
+//! | 7      | 1  | Format_Bits | Bits 0..2 Datentyp, Bit 3 reserviert, Bits 4..7 Codec (0 = PCM) |
+//! | 8      | 16 | Stream-Name | ASCII, NUL-gefuellt, max. 15 Zeichen + NUL |
 //! | 24     | 4  | Frame-Zaehler | `u32` Little Endian, laeuft modulo 2^32 ueber |
 //!
-//! Sample-Rate-Codes (Bits 0..=2): 0 = 6000, 1 = 12000, 2 = 24000, 3 = 48000,
-//! 4 = 96000, 5 = 192000, 6 = 384000, 7 = 768000 Hz.
+//! Sample-Rate-Indizes (Bits 0..4 von Byte 4): 0 = 6000, 1 = 12000, 2 = 24000,
+//! 3 = 48000, 4 = 96000, 5 = 192000, 6 = 384000, 7 = 8000, 8 = 16000,
+//! 9 = 32000, 10 = 64000, 11 = 128000, 12 = 256000, 13 = 512000, 14 = 11025,
+//! 15 = 22050, 16 = 44100, 17 = 88200, 18 = 176400, 19 = 352800, 20 = 705600 Hz.
 //!
-//! Format-Codes (Bits 3..=5): 0 = 8 Bit uint, 1 = 16 Bit int, 2 = 24 Bit int,
-//! 3 = 32 Bit int, 4 = 32 Bit float, 5 = 64 Bit float, 6 = 12 Bit int (gepackt),
-//! 7 = 10 Bit int (gepackt). Integer- und Float-Samples stehen Little Endian und
-//! sind bei Float **nicht** auf [-1, 1] normiert, sondern rohe IEEE-754-Bits.
+//! Datentyp-Codes (Bits 0..2 von Byte 7): 0 = 8 Bit uint, 1 = 16 Bit int,
+//! 2 = 24 Bit int, 3 = 32 Bit int, 4 = 32 Bit float, 5 = 64 Bit float,
+//! 6 = 12 Bit int (gepackt), 7 = 10 Bit int (gepackt). Integer- und
+//! Float-Samples stehen Little Endian und sind bei Float **nicht** auf [-1, 1]
+//! normiert, sondern rohe IEEE-754-Bits.
 //!
 //! ## Annahmen und Grenzen (bewusst dokumentiert, nicht geraten)
 //!
-//! 1. **Reservebyte:** Die Aufgabe nennt zusaetzlich "1 Byte reserviert" am
-//!    Header-Ende. Die oeffentliche Spezifikation hat dieses Byte **nicht** –
-//!    dort beginnt nach dem Frame-Zaehler (Offset 24..28) bereits der Payload.
-//!    `Header` fuehrt das Feld `reserved` (muss 0 sein), es wird aber nicht auf
-//!    die Leitung geschrieben und `HEADER_LEN` bleibt 28, damit echte
-//!    Gegenstellen (Voicemeeter, vban-cmd) die Pakete verstehen. Ein 29-Byte-
-//!    Header waere nicht interoperabel.
-//! 2. **Sample-Rate-Code 7 = 768 kHz** ist eine Annahme: aeltere Fassungen der
-//!    Spezifikation fuehren Code 7 als "reserved". Wird Code 7 gesendet und die
-//!    Gegenstelle kennt ihn nicht, ist die Rate dort undefiniert.
-//! 3. **Bits 6..=7 von Format_SR** werden beim Schreiben auf 0 gesetzt und beim
-//!    Lesen ignoriert (Annahme: unbenutzt/reserviert). Ein Paket mit gesetzten
-//!    Bits wird daher nicht abgelehnt.
-//! 4. **Codec 0x00 = PCM** ist implementiert. Alle anderen Codec-Werte
+//! 1. **Ein Header ohne Nutzdaten** kann Byte 5 nicht sinnvoll fuellen; `pack`
+//!    schreibt dort 0 und erst `AudioFrame::encode` den echten Wert
+//!    (Samples pro Kanal minus 1). Das Feld ist **8 Bit** breit, also sind nur
+//!    1..=256 Samples pro Kanal exakt darstellbar; laengere Frames werden beim
+//!    Schreiben auf 255 gesaettigt, und der Empfaenger leitet die Laenge aus
+//!    den Nutzdaten ab.
+//! 2. **Bit 3 von Byte 7** ist laut Spezifikation reserviert. Es wird beim
+//!    Schreiben auf 0 gesetzt und beim Lesen ignoriert (kein Ablehnen fremder
+//!    Sender).
+//! 3. **Bits 5..7 von Byte 4** (Sub-Protokoll) werden mit 0xE0 maskiert. Eine
+//!    Maske 0xF0 waere falsch: ab Rate-Index 16 (44100 Hz) ist Bit 4 gesetzt
+//!    und gehoert noch zur Abtastrate.
+//! 4. **Codec 0x0 = PCM** ist implementiert. Alle anderen Codec-Werte
 //!    (komprimierte VBAN-Codecs) werden mit `UnsupportedCodec` abgelehnt statt
 //!    interpretiert – ihre Belegung ist hier nicht belegt.
 //! 5. **12-/10-Bit-Formate** sind gepackt (kein ganzzahliges Bytes-pro-Sample)
@@ -52,11 +55,12 @@
 //! 6. **Stream-Name** wird auf 1..=15 druckbare ASCII-Zeichen geprueft
 //!    (NUL-Abschluss noetig). Beim Lesen werden auch 16 Zeichen ohne NUL
 //!    akzeptiert, weil manche Sender das Feld voll ausfuellen.
-//! 7. **Untere 4 Bit des Sub-Protokoll-Bytes** werden beim Lesen ignoriert
-//!    (Annahme: reserviert), beim Schreiben auf 0 gesetzt.
+//! 7. **Sub-Protokolle** sind nur die vier spezifizierten implementiert
+//!    (Audio, Serial, Text, Service); die uebrigen Belegungen der oberen drei
+//!    Bit werden als `UnknownSubProtocol` abgelehnt.
 //! 8. **Kein Payload-Framing**: das Sub-Protokoll Audio hat laut Spezifikation
-//!    keinen eigenen Unterkopf; die Samples beginnen bei Offset 28. RT-Packet
-//!    und Text-Frames werden zwar im Header erkannt, ihr Payload aber nicht
+//!    keinen eigenen Unterkopf; die Samples beginnen bei Offset 28. Text- und
+//!    Serial-Frames werden zwar im Header erkannt, ihr Payload aber nicht
 //!    interpretiert.
 //!
 //! ## Beispiel

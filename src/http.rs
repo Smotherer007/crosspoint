@@ -1,17 +1,16 @@
 //! Steuer-API über HTTP (JSON) und ein WebSocket für die Pegelanzeige.
 //! Parameteränderungen gehen als POST an `/api/set`, den Zustand liefert
-//! `/api/state`. Die Pegel schickt `/ws/levels` 40×/s von sich aus (ein
-//! eigener Thread, nie der Audio-Callback); `/api/levels` bleibt als
-//! HTTP-Abfrage und als Rückfallebene erhalten.
+//! `/api/state`. Die Pegel schickt `/ws/levels` im 60-Hz-Takt von sich aus,
+//! aber nur bei neuen Daten des Audio-Callbacks (ein eigener Thread, nie der
+//! Callback selbst); `/api/levels` bleibt als HTTP-Abfrage und als
+//! Rückfallebene erhalten.
 
-use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -113,7 +112,7 @@ fn handle(
 
     // Pegel-Abo: hier endet HTTP, ab jetzt laufen WebSocket-Frames.
     if method == "GET" && path.split('?').next().unwrap_or("") == "/ws/levels" {
-        return ws_levels(params, hub, stream, &text);
+        return ws_levels(hub, stream, &text);
     }
 
     match (method.as_str(), path.as_str()) {
@@ -270,7 +269,8 @@ fn handle(
             }
         }
         ("GET", p) if p.starts_with("/api/inputs") => {
-            let body = crate::inputs::status_json(&crate::inputs::RealRunner);
+            let mit = p.contains("monitors=1");
+            let body = crate::inputs::status_json(&crate::inputs::RealRunner, mit);
             reply(stream, "200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/inputs") => {
@@ -283,15 +283,17 @@ fn handle(
                     _ => None,
                 });
             let runner = crate::inputs::RealRunner;
+            let mit = p.contains("monitors=1");
             let out = match crate::inputs::assign(&runner, strip, quelle.as_deref()) {
-                Ok(()) => crate::inputs::status_json(&runner),
+                Ok(()) => crate::inputs::status_json(&runner, mit),
                 Err(e) => format!("{{\"error\":{}}}", json::quote(&e)),
             };
             reply(stream, "200 OK", "application/json", out.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/devices") => {
+            let mit = p.contains("monitors=1");
             let body = match devices.lock() {
-                Ok(d) => d.status_json(&RealRunner),
+                Ok(d) => d.status_json(&RealRunner, mit),
                 Err(_) => "{\"error\":\"gesperrt\"}".to_string(),
             };
             reply(stream, "200 OK", "application/json", body.as_bytes())
@@ -320,18 +322,13 @@ fn handle(
                 if sink_name.is_empty() {
                     map.clear(&runner, &bus)
                 } else {
-                    let sinks = crate::devices::list_sinks(&runner)?;
-                    let sink = sinks
-                        .iter()
-                        .find(|s| s.name == sink_name)
-                        .ok_or_else(|| format!("Sink {sink_name} nicht gefunden"))?;
-                    map.assign(&runner, &bus, sink)?;
-                    map.save()
+                    map.assign(&runner, &bus, &sink_name)
                 }
             })();
+            let mit = p.contains("monitors=1");
             let body = match ergebnis {
                 Ok(()) => match devices.lock() {
-                    Ok(d) => d.status_json(&runner),
+                    Ok(d) => d.status_json(&runner, mit),
                     Err(_) => "{\"error\":\"gesperrt\"}".to_string(),
                 },
                 Err(e) => format!("{{\"error\":{}}}", json::quote(&e)),
@@ -417,7 +414,34 @@ fn handle(
     }
 }
 
+/// Zeitpunkt der letzten Anfrage (ms seit UNIX-Epoche) - die Engine beendet
+/// sich, wenn die Oberflaeche laenger weg ist, damit die virtuellen Geraete
+/// nicht als Leichen im System stehen bleiben.
+pub static LETZTE_ANFRAGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn setze_anfrage() {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    LETZTE_ANFRAGE.store(ms, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Millisekunden seit der letzten Anfrage (u64::MAX, wenn noch keine kam).
+pub fn leerlauf_ms() -> u64 {
+    let jetzt = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let letzte = LETZTE_ANFRAGE.load(std::sync::atomic::Ordering::Relaxed);
+    if letzte == 0 {
+        return u64::MAX;
+    }
+    jetzt.saturating_sub(letzte)
+}
+
 fn reply(stream: &mut TcpStream, status: &str, ctype: &str, body: &[u8]) -> io::Result<()> {
+    setze_anfrage();
     let head = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
         body.len()
@@ -473,18 +497,33 @@ pub fn apply_preset(params: &Arc<Params>, v: &Value) {
 /* ==================================================================
    WebSocket für die Pegelanzeige
    ------------------------------------------------------------------
-   Der Audio-Thread rechnet weiter nur in seine Atomics; ein eigener
-   Thread baut alle 25 ms (40 Hz) den JSON-Text und reicht ihn an die
-   verbundenen Clients weiter. Jeder Client hat einen eigenen
-   Sende-Puffer (2 Frames): hängt ein Browser, wird der nächste Frame
-   verworfen statt den Verteiler zu blockieren. Fällt ein Client weg,
-   endet sein Thread und räumt seinen Eintrag selbst aus der Liste.
+   Der Audio-Callback schreibt nur Atome und zählt am Blockende den
+   Frame-Zähler hoch. Der Sender-Thread läuft mit 60-Hz-Takt, schläft
+   aber nicht blind: er wacht am Frame-Zähler auf und sendet genau dann,
+   wenn es wirklich neue Pegel gibt (bei 1024 Frames @ 48 kHz sind das
+   ~47 Bilder/s; Duplikate im 60-Hz-Takt wären verschenkte Arbeit).
+
+   Der JSON-Text entsteht einmal pro Takt in einem wiederverwendeten
+   Puffer und liegt dann als ein gemeinsamer `Arc<str>` im Hub. Jeder
+   Client-Thread hängt nur per Condvar daran und schreibt denselben Text
+   in seinen Socket – keine Kopie je Client, kein Puffer je Client, kein
+   Verteiler, der auf einen hängenden Browser wartet.
    ================================================================== */
 
-/// Verbundene Pegel-Abonnenten. Wert ist der Sende-Puffer des Clients.
+/// Takt des Senders. Gesendet wird nur, wenn der Frame-Zähler sich bewegt hat.
+const SENDER_HZ: u64 = 60;
+
+struct SharedLevels {
+    seq: u64,
+    json: Arc<str>,
+}
+
+/// Gemeinsamer Pegel-Puffer für alle Abonnenten.
 pub struct WsHub {
-    clients: Mutex<HashMap<u64, SyncSender<Arc<String>>>>,
+    shared: Mutex<SharedLevels>,
+    cv: Condvar,
     next_id: AtomicU64,
+    clients: AtomicUsize,
     frames: AtomicU64,
     running: AtomicBool,
 }
@@ -492,77 +531,120 @@ pub struct WsHub {
 impl WsHub {
     pub fn new() -> WsHub {
         WsHub {
-            clients: Mutex::new(HashMap::new()),
+            shared: Mutex::new(SharedLevels {
+                seq: 0,
+                json: Arc::from(r#"{"strips":[],"buses":[],"f":0}"#),
+            }),
+            cv: Condvar::new(),
             next_id: AtomicU64::new(1),
+            clients: AtomicUsize::new(0),
             frames: AtomicU64::new(0),
             running: AtomicBool::new(true),
         }
     }
 
-    fn register(&self, tx: SyncSender<Arc<String>>) -> u64 {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        if let Ok(mut m) = self.clients.lock() {
-            m.insert(id, tx);
-        }
-        id
+    fn register(&self) -> u64 {
+        self.clients.fetch_add(1, Ordering::Relaxed);
+        self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    fn unregister(&self, id: u64) {
-        if let Ok(mut m) = self.clients.lock() {
-            m.remove(&id);
-        }
+    fn unregister(&self) {
+        self.clients.fetch_sub(1, Ordering::Relaxed);
     }
 
     /// Zahl der gerade verbundenen Clients.
     pub fn count(&self) -> usize {
-        self.clients.lock().map(|m| m.len()).unwrap_or(0)
+        self.clients.load(Ordering::Relaxed)
     }
 
-    /// Zahl der bislang an alle Clients verteilten Frames (Diagnose).
+    /// Zahl der bislang veröffentlichten Frames (Diagnose).
     pub fn frames(&self) -> u64 {
         self.frames.load(Ordering::Relaxed)
     }
 
-    fn broadcast(&self, msg: Arc<String>) {
-        let mut m = match self.clients.lock() {
-            Ok(m) => m,
-            Err(_) => return,
-        };
-        // retain räumt tote Clients mit auf, ohne dass jemand anders sperren muss
-        m.retain(|_, tx| match tx.try_send(msg.clone()) {
-            Ok(()) => true,
-            Err(TrySendError::Full(_)) => true,
-            Err(TrySendError::Disconnected(_)) => false,
-        });
-        if !m.is_empty() {
+    /// Einen fertigen Text veröffentlichen: ein `Arc<str>` für alle Clients.
+    fn publish(&self, json: Arc<str>) {
+        {
+            let mut s = match self.shared.lock() {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            s.seq = s.seq.wrapping_add(1);
+            s.json = json;
+        }
+        if self.count() > 0 {
             self.frames.fetch_add(1, Ordering::Relaxed);
+        }
+        self.cv.notify_all();
+    }
+
+    fn latest(&self) -> (u64, Arc<str>) {
+        match self.shared.lock() {
+            Ok(s) => (s.seq, s.json.clone()),
+            Err(_) => (0, Arc::from("{}")),
+        }
+    }
+
+    /// Warten, bis ein Frame neuer als `nach` vorliegt (oder Timeout).
+    fn warten(&self, nach: u64, timeout: Duration) -> Option<(u64, Arc<str>)> {
+        let mut s = self.shared.lock().ok()?;
+        let ende = Instant::now() + timeout;
+        loop {
+            if s.seq != nach {
+                return Some((s.seq, s.json.clone()));
+            }
+            let rest = ende.checked_duration_since(Instant::now())?;
+            if rest.is_zero() {
+                return None;
+            }
+            let (neu, ergebnis) = self.cv.wait_timeout(s, rest).ok()?;
+            s = neu;
+            if ergebnis.timed_out() && s.seq == nach {
+                return None;
+            }
         }
     }
 }
 
-/// Verteiler-Thread: 40 Frames pro Sekunde, nur solange jemand zuhört.
+/// Verteiler-Thread: 60-Hz-Takt, aber getaktet am Frame-Zähler des
+/// Audio-Callbacks – gesendet wird nur, wenn neue Pegel da sind.
 pub fn spawn_levels_broadcast(params: Arc<Params>, hub: Arc<WsHub>) {
     thread::spawn(move || {
-        let period = Duration::from_millis(25);
+        let takt = Duration::from_nanos(1_000_000_000 / SENDER_HZ);
+        let mut puffer = String::with_capacity(256);
+        let mut letzter = params.frame_counter();
+        let mut naechster = Instant::now();
         while hub.running.load(Ordering::Relaxed) {
-            let start = Instant::now();
-            if hub.count() > 0 {
-                hub.broadcast(Arc::new(params.levels_json()));
+            // Bis zu einem Takt auf neue Daten warten. Der Zähler springt am
+            // Blockende (21,3 ms bei 1024 Frames), der Takt ist 16,7 ms — die
+            // kurze Schlafzeit hält die Reaktion unter einer Millisekunde.
+            let grenze = Instant::now() + takt;
+            let mut jetzt_frames = params.frame_counter();
+            while jetzt_frames == letzter && Instant::now() < grenze {
+                thread::sleep(Duration::from_micros(500));
+                jetzt_frames = params.frame_counter();
             }
-            let elapsed = start.elapsed();
-            if elapsed < period {
-                thread::sleep(period - elapsed);
+            if jetzt_frames != letzter {
+                letzter = jetzt_frames;
+                if hub.count() > 0 {
+                    // Genau ein Text je Takt, in den vorhandenen Puffer.
+                    params.levels_into(&mut puffer);
+                    hub.publish(Arc::from(puffer.as_str()));
+                }
+            }
+            // Takt halten, ohne zu driften.
+            naechster += takt;
+            let jetzt = Instant::now();
+            if naechster > jetzt {
+                thread::sleep(naechster - jetzt);
+            } else {
+                naechster = jetzt;
             }
         }
     });
 }
 
-fn ws_levels(
-    params: &Arc<Params>,
-    hub: &Arc<WsHub>,
-    stream: &mut TcpStream,
-    head: &str,
-) -> io::Result<()> {
+fn ws_levels(hub: &Arc<WsHub>, stream: &mut TcpStream, head: &str) -> io::Result<()> {
     let key = match header_value(head, "sec-websocket-key") {
         Some(k) => k,
         None => {
@@ -576,27 +658,22 @@ fn ws_levels(
     stream.write_all(antwort.as_bytes())?;
     stream.flush()?;
     stream.set_nodelay(true).ok();
+    // Kurzer Lese-Timeout: zwischen zwei Frames wird geprüft, ob der Client
+    // noch da ist (Close/Ping/EOF), ohne den Sendetakt zu blockieren.
+    stream.set_read_timeout(Some(Duration::from_millis(1))).ok();
 
-    // Kurzer Lese-Timeout: der Thread schreibt neue Frames und liest
-    // zwischendurch, ob der Client noch da ist (Ping/Close/EOF).
-    stream.set_read_timeout(Some(Duration::from_millis(4))).ok();
-
-    let (tx, rx) = sync_channel::<Arc<String>>(2);
-    let id = hub.register(tx);
-    // Erstes Bild sofort, damit die Anzeige nicht auf den Takt wartet.
-    let mut pending: Option<Arc<String>> = Some(Arc::new(params.levels_json()));
+    hub.register();
+    let (mut seq, mut frame) = hub.latest();
+    // Erster Durchlauf schickt den aktuellen Stand sofort.
+    let mut gesendet = u64::MAX;
     let mut rb: Vec<u8> = Vec::with_capacity(1024);
     let mut buf = [0u8; 4096];
 
     let ergebnis = (|| -> io::Result<()> {
         loop {
-            // Alle wartenden Frames einsammeln – nur der neueste zählt,
-            // Pegel sind Wegwerfdaten.
-            for msg in rx.try_iter() {
-                pending = Some(msg);
-            }
-            if let Some(m) = pending.take() {
-                ws_send(stream, 0x1, m.as_bytes())?;
+            if seq != gesendet {
+                ws_send(stream, 0x1, frame.as_bytes())?;
+                gesendet = seq;
             }
             match stream.read(&mut buf) {
                 Ok(0) => return Ok(()),
@@ -609,10 +686,15 @@ fn ws_levels(
                     || e.kind() == io::ErrorKind::TimedOut => {}
                 Err(_) => return Ok(()),
             }
+            // Auf den nächsten Frame warten statt zu pollen.
+            if let Some((s, f)) = hub.warten(seq, Duration::from_millis(50)) {
+                seq = s;
+                frame = f;
+            }
         }
     })();
 
-    hub.unregister(id);
+    hub.unregister();
     ergebnis
 }
 
@@ -807,6 +889,60 @@ mod tests {
         assert_eq!(base64(b"foob"), "Zm9vYg==");
         assert_eq!(base64(b"fooba"), "Zm9vYmE=");
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn hub_haelt_genau_einen_frame_fuer_alle() {
+        let hub = WsHub::new();
+        let (seq0, _) = hub.latest();
+        assert_eq!(hub.count(), 0);
+        hub.register();
+        assert_eq!(hub.count(), 1);
+
+        hub.publish(Arc::from("{\"a\":1}"));
+        let (seq1, t1) = hub.latest();
+        assert_eq!(seq1, seq0 + 1);
+        assert_eq!(&*t1, "{\"a\":1}");
+        assert_eq!(hub.frames(), 1);
+
+        // Der naechste Frame ersetzt den alten: es gibt keinen zweiten Puffer.
+        hub.publish(Arc::from("{\"a\":2}"));
+        let (seq2, t2) = hub.latest();
+        assert_eq!(seq2, seq1 + 1);
+        assert_eq!(&*t2, "{\"a\":2}");
+        assert_eq!(hub.frames(), 2);
+
+        hub.unregister();
+        assert_eq!(hub.count(), 0);
+    }
+
+    #[test]
+    fn hub_weckt_wartenden_client() {
+        let hub = Arc::new(WsHub::new());
+        let (seq, _) = hub.latest();
+        let h = hub.clone();
+        let schreiber = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(20));
+            h.register();
+            h.publish(Arc::from("{\"b\":7}"));
+        });
+        let start = Instant::now();
+        let got = hub.warten(seq, Duration::from_secs(2)).expect("Frame");
+        schreiber.join().unwrap();
+        let (neu, text) = got;
+        assert!(neu > seq);
+        assert_eq!(&*text, "{\"b\":7}");
+        // Condvar statt Pollen: die Wartezeit ist die Schlafzeit des Schreibers.
+        assert!(start.elapsed() < Duration::from_millis(500), "{:?}", start.elapsed());
+    }
+
+    #[test]
+    fn warten_laeuft_in_den_timeout() {
+        let hub = WsHub::new();
+        let (seq, _) = hub.latest();
+        let start = Instant::now();
+        assert!(hub.warten(seq, Duration::from_millis(40)).is_none());
+        assert!(start.elapsed() >= Duration::from_millis(30), "{:?}", start.elapsed());
     }
 
     #[test]

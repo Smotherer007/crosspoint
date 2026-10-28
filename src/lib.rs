@@ -22,6 +22,8 @@ pub mod tape_io;
 pub mod vban_io;
 pub mod http;
 pub mod inputs;
+/// PipeWire-Graph (`pw-dump`) als Grundlage der Geräteerkennung.
+pub mod pw;
 pub mod remote_api;
 pub mod jack;
 pub mod json;

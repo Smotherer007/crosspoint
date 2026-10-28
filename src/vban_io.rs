@@ -37,9 +37,10 @@
 //!    Wrap-around ist gewollt). Der VBAN-Frame-Zähler im Header ist der
 //!    niederwertige 32-Bit-Anteil davon, läuft also modulo 2^32 – genau wie es
 //!    die Spezifikation für den Header vorsieht.
-//! 6. **Abtastrate:** nur die acht VBAN-Raten sind übertragbar. Ein anderer
-//!    Wert (z. B. 44100) wird auf 48000 gemappt **und** als Fehler gemeldet,
-//!    statt still ein Paket mit falscher Rate zu senden.
+//! 6. **Abtastrate:** nur die Raten der VBAN-Tabelle sind übertragbar. Ein
+//!    anderer Wert (z. B. 50000 Hz) wird auf 48000 gemappt **und** als Fehler
+//!    gemeldet, statt still ein Paket mit falscher Rate zu senden. 44100 Hz ist
+//!    über den Rate-Index 16 direkt übertragbar.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
@@ -550,31 +551,35 @@ pub fn parse_empfang(bytes: &[u8]) -> Result<Empfangsframe, RecvFehler> {
     if magic != vban::MAGIC {
         return Err(RecvFehler::FalschesMagic(magic));
     }
-    // Byte 20: Sub-Protokoll, untere vier Bit sind reserviert.
-    if bytes[20] & 0xF0 != 0 {
-        return Err(RecvFehler::KeinAudio { sub: bytes[20] });
+    // Layout nach VBAN-Spezifikation (28 Byte Header):
+    //   Byte 4: Bits 0..4 = Sample-Rate-Index, Bits 5..7 = Sub-Protokoll
+    //   Byte 5: Samples pro Frame minus 1
+    //   Byte 6: Kanaele minus 1
+    //   Byte 7: Bits 0..2 = Datentyp (4 = FLOAT32), Bits 4..7 = Codec
+    //   Bytes 8..24: Stream-Name (16 Zeichen), Bytes 24..28: Frame-Zaehler
+    let sub = bytes[4] & 0xE0;
+    if sub != 0 {
+        return Err(RecvFehler::KeinAudio { sub });
     }
-    // Byte 23: Codec, 0x00 = PCM.
-    if bytes[23] != 0 {
-        return Err(RecvFehler::FalscherCodec { codec: bytes[23] });
+    let daten_typ = bytes[7] & 0x07;
+    if daten_typ != AudioFormat::F32.code() {
+        return Err(RecvFehler::FalschesFormat { code: daten_typ });
     }
-    // Byte 21: Bits 0..=2 Rate, Bits 3..=5 Format.
-    let format_code = (bytes[21] >> 3) & 0x07;
-    if format_code != AudioFormat::F32.code() {
-        return Err(RecvFehler::FalschesFormat { code: format_code });
+    if bytes[7] & 0xF0 != 0 {
+        return Err(RecvFehler::FalscherCodec { codec: bytes[7] & 0xF0 });
     }
-    let rate_code = bytes[21] & 0x07;
+    let rate_code = bytes[4] & 0x1F;
     let sample_rate = match SampleRate::from_code(rate_code) {
         Ok(r) => r,
         Err(_) => return Err(RecvFehler::UnbekannteRate { code: rate_code }),
     };
-    // Byte 22: Kanalzahl minus eins.
-    let kanaele = u16::from(bytes[22]) + 1;
+    // Byte 6: Kanalzahl minus eins.
+    let kanaele = u16::from(bytes[6]) + 1;
     if kanaele != 1 && kanaele != 2 {
         return Err(RecvFehler::FalscheKanaele { kanaele });
     }
-    let name_end = bytes[4..20].iter().position(|&b| b == 0).unwrap_or(16);
-    let stream = String::from_utf8_lossy(&bytes[4..4 + name_end]).to_string();
+    let name_end = bytes[8..24].iter().position(|&b| b == 0).unwrap_or(16);
+    let stream = String::from_utf8_lossy(&bytes[8..8 + name_end]).to_string();
 
     let rest = &bytes[vban::HEADER_LEN..];
     let block = 4 * kanaele as usize;
@@ -1181,10 +1186,17 @@ mod tests {
 
     #[test]
     fn unbekannte_rate_wird_auf_48k_gemappt_und_gemeldet() {
-        let (r, hinweis) = rate_fuer(44100);
+        // 44100 Hz hat in der VBAN-Tabelle einen eigenen Index (16) und ist
+        // damit ohne Hinweis übertragbar.
+        let (r44, h44) = rate_fuer(44100);
+        assert_eq!(r44, SampleRate::Hz44100);
+        assert!(h44.is_none(), "44100 Hz ist VBAN-fähig: {h44:?}");
+
+        // 50000 Hz steht nicht in der Tabelle.
+        let (r, hinweis) = rate_fuer(50000);
         assert_eq!(r, SampleRate::Hz48000);
-        let h = hinweis.expect("Hinweis bei 44100");
-        assert!(h.contains("44100"), "{h}");
+        let h = hinweis.expect("Hinweis bei 50000");
+        assert!(h.contains("50000"), "{h}");
 
         let (r2, h2) = rate_fuer(48000);
         assert_eq!(r2, SampleRate::Hz48000);

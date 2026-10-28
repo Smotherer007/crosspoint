@@ -18,12 +18,14 @@ fn oeffentliche_api_frame_roundtrip() {
 
     let bytes = frame.encode().unwrap();
     assert_eq!(&bytes[0..4], b"VBAN");
-    assert_eq!(&bytes[4..15], b"Integration");
-    assert_eq!(bytes[15], 0);
-    assert_eq!(bytes[20], 0x00);
-    assert_eq!(bytes[21], 0x0B);
-    assert_eq!(bytes[22], 0x01);
-    assert_eq!(bytes[23], 0x00);
+    // Byte 4: Sub-Protokoll Audio (0) in Bits 5..7, Rate 48000 = Index 3.
+    assert_eq!(bytes[4], 0x03);
+    // Byte 5: 2 Sample-Frames je Kanal -> 1.
+    assert_eq!(bytes[5], 0x01);
+    assert_eq!(bytes[6], 0x01, "2 Kanaele minus eins");
+    assert_eq!(bytes[7], 0x01, "Datentyp I16, Codec PCM");
+    assert_eq!(&bytes[8..19], b"Integration");
+    assert_eq!(bytes[19], 0, "Namensfeld ist NUL-gefuellt");
     assert_eq!(u32::from_le_bytes(bytes[24..28].try_into().unwrap()), 1);
     assert_eq!(bytes.len(), HEADER_LEN + 8);
 

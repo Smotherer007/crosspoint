@@ -6,7 +6,9 @@
 //! Header passt, damit kein Frame mit widerspruechlichen Angaben entsteht.
 
 use crate::error::VbanError;
-use crate::header::{AudioFormat, Codec, Header, SampleRate, SubProtocol, HEADER_LEN};
+use crate::header::{
+    AudioFormat, Codec, Header, SampleRate, SubProtocol, HEADER_LEN, OFFSET_SAMPLES,
+};
 
 /// Ein VBAN-Audio-Frame (Header + PCM-Nutzdaten).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,11 +190,23 @@ impl AudioFrame {
     }
 
     /// Serialisiert Header + Nutzdaten zu einem UDP-tauglichen Puffer.
+    ///
+    /// Byte 5 ("Samples pro Frame minus 1") setzt der Header auf 0, weil nur
+    /// der Frame die Nutzdatenlaenge kennt – hier wird der echte Wert
+    /// eingetragen. Das Feld ist 8 Bit breit; Frames mit mehr als 256 Samples
+    /// pro Kanal werden auf 255 gesaettigt (die tatsaechliche Laenge ergibt
+    /// sich fuer den Empfaenger aus den Nutzdaten).
     pub fn encode(&self) -> Result<Vec<u8>, VbanError> {
         let mut out = Vec::with_capacity(HEADER_LEN + self.data.len());
         out.extend_from_slice(&self.header.pack()?);
+        out[OFFSET_SAMPLES] = self.samples_byte();
         out.extend_from_slice(&self.data);
         Ok(out)
+    }
+
+    /// Byte 5 des Headers: Samples pro Kanal minus 1, auf 8 Bit begrenzt.
+    fn samples_byte(&self) -> u8 {
+        self.sample_frames().saturating_sub(1).min(255) as u8
     }
 
     /// Parst ein empfangenes Paket. Nur Sub-Protokoll Audio und Codec PCM.
@@ -384,15 +398,40 @@ mod tests {
     #[test]
     fn nur_audio_sub_protokoll_wird_geparst() {
         let mut f = pcm_frame();
-        f.header_mut().sub_protocol = SubProtocol::RtPacket;
+        f.header_mut().sub_protocol = SubProtocol::Text;
         let bytes = f.encode().unwrap();
         assert!(matches!(
             AudioFrame::parse(&bytes),
             Err(VbanError::WrongSubProtocol {
                 expected: SubProtocol::Audio,
-                got: SubProtocol::RtPacket
+                got: SubProtocol::Text
             })
         ));
+    }
+
+    #[test]
+    fn byte_5_traegt_samples_pro_kanal_minus_eins() {
+        // Zwei Stereo-Frames -> 2 Samples pro Kanal -> Byte 5 = 1.
+        let f = pcm_frame();
+        let bytes = f.encode().expect("encode");
+        assert_eq!(bytes[5], 1);
+
+        // Ein Sample pro Kanal -> 0.
+        let mut mono = AudioFrame::float32("Mono", SampleRate::Hz48000, 1).unwrap();
+        mono.push_f32(&[0.5]).unwrap();
+        assert_eq!(mono.encode().unwrap()[5], 0);
+
+        // 256 Samples pro Kanal passen exakt (Feld ist 8 Bit).
+        let mut viel = AudioFrame::float32("Voll", SampleRate::Hz48000, 1).unwrap();
+        viel.push_f32(&vec![0.0; 256]).unwrap();
+        assert_eq!(viel.encode().unwrap()[5], 255);
+
+        // Mehr als 256 werden gesaettigt; die Laenge steht in den Nutzdaten.
+        let mut mehr = AudioFrame::float32("Mehr", SampleRate::Hz48000, 1).unwrap();
+        mehr.push_f32(&vec![0.0; 300]).unwrap();
+        let bytes = mehr.encode().unwrap();
+        assert_eq!(bytes[5], 255);
+        assert_eq!(AudioFrame::parse(&bytes).unwrap().sample_frames(), 300);
     }
 
     #[test]

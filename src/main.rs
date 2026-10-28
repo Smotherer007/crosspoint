@@ -321,8 +321,21 @@ fn main() {
 
     wire("up");
 
+    // Beenden, wenn die Oberflaeche verschwindet (Fenster zu) - dann raeumt die
+    // Engine ihre virtuellen Geraete ab. VM8_KEEP_RUNNING=1 schaltet das ab,
+    // z. B. fuer Dauerbetrieb ohne Fenster.
+    let leerlauf_grenze: u64 = std::env::var("VM8_IDLE_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30_000);
+    let dauerbetrieb = std::env::var("VM8_KEEP_RUNNING").is_ok();
+
     while !SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
         thread::sleep(std::time::Duration::from_millis(250));
+        if !dauerbetrieb && vm8::http::leerlauf_ms() > leerlauf_grenze {
+            eprintln!("keine Oberflaeche seit {} ms - beende", leerlauf_grenze);
+            break;
+        }
     }
 
     eprintln!("beende: virtuelle Geraete werden entfernt");

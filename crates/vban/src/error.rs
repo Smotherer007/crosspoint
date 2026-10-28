@@ -19,22 +19,21 @@ pub enum VbanError {
     BadMagic([u8; 4]),
     /// Sub-Protokoll-Byte entspricht keinem bekannten Wert.
     UnknownSubProtocol(u8),
-    /// Sample-Rate-Code (Bits 0..=2 von Format_SR) ist unbekannt.
+    /// Sample-Rate-Code (Bits 0..=4 von Byte 4) ist unbekannt.
     UnknownSampleRateCode(u8),
     /// Die gewuenschte Abtastrate hat keinen Code in der Spezifikation.
     UnknownSampleRateHertz(u32),
-    /// Format-Code (Bits 3..=5 von Format_SR) ist unbekannt.
+    /// Datentyp-Code (Bits 0..=2 von Byte 7) ist unbekannt.
     UnknownFormatCode(u8),
     /// Format ist definiert, aber (noch) nicht implementiert (gepackte 12/10 Bit).
     UnsupportedFormat(AudioFormat),
-    /// Codec-Byte ist nicht 0x00 (PCM); komprimierte Codecs sind nicht implementiert.
+    /// Codec-Nibble (Bits 4..=7 von Byte 7) ist nicht 0 (PCM); komprimierte
+    /// Codecs sind nicht implementiert.
     UnsupportedCodec(u8),
     /// Stream-Name ist leer, zu lang oder enthaelt Nicht-ASCII.
     InvalidStreamName(String),
     /// Kanalzahl ausserhalb 1..=256.
     InvalidChannels(u16),
-    /// Das Reserve-Byte ist ungleich 0 (wird nicht auf die Leitung geschrieben).
-    ReservedNotZero(u8),
     /// Nutzdaten passen nicht zum Format (kein Vielfaches von Kanal * Sample-Bytes).
     BadPayloadLength { len: usize, block: usize },
     /// Paket gehoert zu einem anderen Sub-Protokoll als erwartet.
@@ -64,28 +63,25 @@ impl fmt::Display for VbanError {
                 write!(f, "unbekanntes Sub-Protokoll 0x{b:02X}")
             }
             VbanError::UnknownSampleRateCode(c) => {
-                write!(f, "unbekannter Sample-Rate-Code {c} (Bits 0..=2 von Format_SR)")
+                write!(f, "unbekannter Sample-Rate-Code {c} (Bits 0..4 von Byte 4)")
             }
             VbanError::UnknownSampleRateHertz(hz) => {
                 write!(f, "Abtastrate {hz} Hz ist im VBAN-Code nicht vorgesehen")
             }
             VbanError::UnknownFormatCode(c) => {
-                write!(f, "unbekannter Format-Code {c} (Bits 3..=5 von Format_SR)")
+                write!(f, "unbekannter Datentyp-Code {c} (Bits 0..2 von Byte 7)")
             }
             VbanError::UnsupportedFormat(fmt) => {
                 write!(f, "Format {fmt:?} ist nicht implementiert")
             }
             VbanError::UnsupportedCodec(b) => {
-                write!(f, "Codec 0x{b:02X} wird nicht unterstuetzt (nur 0x00 = PCM)")
+                write!(f, "Codec 0x{b:02X} wird nicht unterstuetzt (nur 0x0 = PCM)")
             }
             VbanError::InvalidStreamName(name) => {
                 write!(f, "ungueltiger Stream-Name {name:?} (1..=15 druckbare ASCII-Zeichen)")
             }
             VbanError::InvalidChannels(n) => {
                 write!(f, "ungueltige Kanalzahl {n} (erlaubt 1..=256)")
-            }
-            VbanError::ReservedNotZero(v) => {
-                write!(f, "Reserve-Byte muss 0 sein, ist aber {v}")
             }
             VbanError::BadPayloadLength { len, block } => write!(
                 f,

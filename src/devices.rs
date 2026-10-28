@@ -1,7 +1,8 @@
 //! Geräteauswahl für die Hardware-Busse A1..A5.
 //!
 //! VoiceMeeter hängt jeden Hardware-Bus (A1..A5) an ein Ausgabegerät. Auf Linux
-//! ist das ein PipeWire-Sink; die Verbindung stellt `pw-link` her:
+//! ist das ein PipeWire-Sink (`media.class: Audio/Sink`); die Verbindung stellt
+//! `pw-link` her, die Ports stehen im Graphen:
 //!
 //! ```text
 //! vm8:busA1_L  ->  <sink>:playback_FL
@@ -11,23 +12,28 @@
 //! Der Mixer heißt in der Graph-Sicht `vm8` (siehe `engine`/`jack`); die
 //! Sink-Ports heißen je Gerät `<sink>:playback_FL`/`_FR`.
 //!
-//! Die Auswahl wird in `~/.config/vm8-linux/devices.json` gemerkt, damit sie
-//! einen Neustart überlebt:
+//! Quelle der Wahrheit ist [`crate::pw`]: Knoten, Ports und bestehende Links
+//! kommen aus `pw-dump`. Dadurch werden Anzeigenamen nicht mehr aus
+//! `pactl`-Text geschnitten, Monitore sind an ihren Ports erkennbar, und beim
+//! Umstecken werden die Links getrennt, die wirklich existieren.
+//!
+//! Gespeichert wird nur der technische Name (`node.name`) eines Geräts:
 //!
 //! ```json
-//! {"A1":{"name":"alsa_output.usb-…","desc":"Kopfhörer (USB)"}}
+//! {"A1":"alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo"}
 //! ```
 //!
-//! **Testbarkeit:** jeder Systemaufruf läuft über [`CommandRunner`]. Im Betrieb
-//! ist das [`RealRunner`] (`std::process::Command`), in Tests der [`FakeRunner`],
-//! der nur mitschreibt und nichts am laufenden PipeWire-Graphen ändert.
+//! Beschreibungen entstehen zur Laufzeit aus dem Graphen. Ein älteres Format
+//! `{"A1":{"name":"…","desc":"…"}}` wird weiterhin gelesen; `desc` bleibt dabei
+//! unbeachtet.
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::process::Command;
 
 use crate::json::Value;
+use crate::pw::{self, CommandRunner, Graph, Richtung};
+
+pub use crate::pw::{Call, FakeRunner, RealRunner};
 
 /// Hardware-Busse des Originals. B1..B3 sind virtuell und haben kein Gerät.
 pub const HARDWARE_BUSES: [&str; 5] = ["A1", "A2", "A3", "A4", "A5"];
@@ -43,232 +49,62 @@ const CONFIG_DIR: &str = "vm8-linux";
 const CONFIG_FILE: &str = "devices.json";
 
 // ---------------------------------------------------------------------------
-// Kommando-Ausführung
+// Geräteliste aus dem Graphen
 // ---------------------------------------------------------------------------
 
-/// Führt ein Programm aus und liefert dessen Standardausgabe.
-///
-/// Nur so lässt sich die Geräteauswahl ohne Eingriff in den laufenden
-/// PipeWire-Graphen testen.
-pub trait CommandRunner {
-    fn run(&self, program: &str, args: &[&str]) -> Result<String, String>;
-}
-
-/// Echter Aufruf über `std::process::Command`.
-pub struct RealRunner;
-
-impl CommandRunner for RealRunner {
-    fn run(&self, program: &str, args: &[&str]) -> Result<String, String> {
-        let out = Command::new(program)
-            .args(args)
-            .output()
-            .map_err(|e| format!("{program} nicht ausführbar: {e}"))?;
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            return Err(format!(
-                "{program} {} -> Status {:?}: {}",
-                args.join(" "),
-                out.status.code(),
-                stderr.trim()
-            ));
-        }
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    }
-}
-
-/// Ein aufgezeichneter Aufruf, in Tests als eine Zeile lesbar.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Call {
-    pub program: String,
-    pub args: Vec<String>,
-}
-
-impl Call {
-    pub fn line(&self) -> String {
-        if self.args.is_empty() {
-            self.program.clone()
-        } else {
-            format!("{} {}", self.program, self.args.join(" "))
-        }
-    }
-}
-
-/// Test-Doppel: schreibt Aufrufe mit und gibt vorbereitete Ausgaben zurück.
-///
-/// `outputs` liefert die Standardausgabe je Programm, `failures` enthält
-/// Teilstrings; passt einer auf `"<programm> <args…>"`, schlägt der Aufruf fehl
-/// (so lässt sich prüfen, dass `pw-link -d`-Fehler ignoriert werden).
-#[derive(Default)]
-pub struct FakeRunner {
-    outputs: RefCell<Vec<(String, String)>>,
-    failures: RefCell<Vec<String>>,
-    calls: RefCell<Vec<Call>>,
-}
-
-impl FakeRunner {
-    pub fn new() -> FakeRunner {
-        FakeRunner::default()
-    }
-
-    /// Standardausgabe für ein Programm festlegen (Kette: erste Übereinstimmung).
-    pub fn with_output(self, program: &str, stdout: &str) -> FakeRunner {
-        self.outputs
-            .borrow_mut()
-            .push((program.to_string(), stdout.to_string()));
-        self
-    }
-
-    /// Aufrufe, deren Zeile diesen Teilstring enthält, schlagen fehl.
-    pub fn with_failure(self, pattern: &str) -> FakeRunner {
-        self.failures.borrow_mut().push(pattern.to_string());
-        self
-    }
-
-    /// Alle aufgezeichneten Aufrufe in Reihenfolge.
-    pub fn calls(&self) -> Vec<Call> {
-        self.calls.borrow().clone()
-    }
-
-    /// Aufgezeichnete Aufrufe als Zeilen, z. B. `pw-link -d vm8:busA1_L …`.
-    pub fn lines(&self) -> Vec<String> {
-        self.calls.borrow().iter().map(Call::line).collect()
-    }
-
-    /// Nur die Aufrufe eines Programms.
-    pub fn calls_of(&self, program: &str) -> Vec<Call> {
-        self.calls
-            .borrow()
-            .iter()
-            .filter(|c| c.program == program)
-            .cloned()
-            .collect()
-    }
-}
-
-impl CommandRunner for FakeRunner {
-    fn run(&self, program: &str, args: &[&str]) -> Result<String, String> {
-        let call = Call {
-            program: program.to_string(),
-            args: args.iter().map(|a| a.to_string()).collect(),
-        };
-        let line = call.line();
-        self.calls.borrow_mut().push(call);
-        if self.failures.borrow().iter().any(|p| line.contains(p.as_str())) {
-            return Err(format!("{line} -> simulierter Fehler"));
-        }
-        let outputs = self.outputs.borrow();
-        Ok(outputs
-            .iter()
-            .find(|(prog, _)| prog == program)
-            .map(|(_, out)| out.clone())
-            .unwrap_or_default())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Sink-Liste aus `pactl`
-// ---------------------------------------------------------------------------
-
-/// Ein Ausgabegerät, wie es `pactl list sinks` beschreibt.
+/// Ein Ausgabegerät, wie es der PipeWire-Graph beschreibt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sink {
-    /// Technischer Name, z. B. `alsa_output.pci-0000_03_00.1.hdmi-stereo`.
-    /// Wird für die `pw-link`-Ports gebraucht.
+    /// Knoten-ID im Graphen (nur zur Anzeige, nicht speichern).
+    pub id: u32,
+    /// Technischer Name (`node.name`) – wird für die `pw-link`-Ports gebraucht
+    /// und ist das Einzige, was die Zuordnung speichert.
     pub name: String,
-    /// Anzeigename aus der Oberfläche, lokalisiert.
+    /// Anzeigename (`node.description`), vollständig mit Leerzeichen.
     pub desc: String,
 }
 
 impl Sink {
+    /// Gerät ohne Graphbezug (Tests, Vorgaben).
     pub fn new(name: impl Into<String>, desc: impl Into<String>) -> Sink {
-        Sink { name: name.into(), desc: desc.into() }
+        Sink { id: 0, name: name.into(), desc: desc.into() }
     }
 
-    /// Port am Sink für einen Kanal (`L` -> `playback_FL`).
+    /// Gerät aus einem Graphen-Knoten.
+    pub fn from_node(node: &pw::Node) -> Sink {
+        Sink { id: node.id, name: node.name.clone(), desc: node.anzeige().to_string() }
+    }
+
+    /// Port am Sink für einen Kanal (`playback_FL` -> `<sink>:playback_FL`).
     pub fn port(&self, sink_suffix: &str) -> String {
         format!("{}:{sink_suffix}", self.name)
     }
 }
 
-/// Ist die Zeile der Kopf eines Sink-Blocks? `pactl` schreibt ihn lokalisiert
-/// (`Sink #50` / `Ziel #50` / `Destination #50`).
-fn ist_blockkopf(zeile: &str) -> bool {
-    zeile.contains('#')
-        && (zeile.starts_with("Sink")
-            || zeile.starts_with("Ziel")
-            || zeile.starts_with("Destination"))
+/// Ausgabegeräte aus dem Graphen, alphabetisch nach Anzeigename.
+/// `mit_monitoren` schaltet Knoten dazu, die selbst ein Monitor sind – im
+/// Normalfall sind das keine Geräte und bleiben unsichtbar.
+pub fn sinks(graph: &Graph, mit_monitoren: bool) -> Vec<Sink> {
+    graph
+        .geraete()
+        .into_iter()
+        .filter(|n| n.ist_ausgabegeraet() && (mit_monitoren || !n.ist_monitor))
+        .map(Sink::from_node)
+        .collect()
 }
 
-/// Zerlegt eine `Schlüssel: Wert`-Zeile. Der Wert darf Doppelpunkte enthalten,
-/// deshalb wird nur am ersten getrennt.
-fn schluessel_wert(zeile: &str) -> Option<(&str, &str)> {
-    let (k, v) = zeile.split_once(':')?;
-    Some((k.trim(), v.trim()))
-}
-
-/// Parst die Ausgabe von `pactl list sinks`.
-///
-/// Erkennt deutsche und englische Beschriftungen (`Beschreibung:` /
-/// `Description:`), `Name:` heißt in beiden Sprachen gleich. Doppelte Namen
-/// (kommt bei mehrfach geladenen Modulen vor) werden zusammengefasst; der erste
-/// Eintrag gewinnt, damit die Oberfläche keine Dubletten zeigt.
-pub fn parse_sinks(text: &str) -> Vec<Sink> {
-    let mut sinks: Vec<Sink> = Vec::new();
-    let mut name: Option<String> = None;
-    let mut desc: Option<String> = None;
-
-    for roh in text.lines() {
-        let zeile = roh.trim_end_matches('\r').trim();
-
-        if zeile.is_empty() || ist_blockkopf(zeile) {
-            // Blockende: vollständigen Eintrag übernehmen.
-            if let Some(n) = name.take() {
-                let beschreibung = desc.take().unwrap_or_default();
-                if !sinks.iter().any(|s| s.name == n) {
-                    sinks.push(Sink { name: n, desc: beschreibung });
-                }
-            }
-            desc = None;
-            continue;
-        }
-
-        // Eigenschaften stehen als `key = value` und werden nicht angefasst.
-        if !zeile.contains(':') || zeile.contains(" = ") {
-            continue;
-        }
-        let Some((key, wert)) = schluessel_wert(zeile) else {
-            continue;
-        };
-        match key {
-            "Name" if name.is_none() => name = Some(wert.to_string()),
-            "Beschreibung" | "Description" if name.is_some() => {
-                desc = Some(wert.to_string());
-            }
-            _ => {}
-        }
-    }
-
-    if let Some(n) = name.take() {
-        if !sinks.iter().any(|s| s.name == n) {
-            sinks.push(Sink { name: n, desc: desc.unwrap_or_default() });
-        }
-    }
-    sinks
-}
-
-/// Liest die verfügbaren Sinks über `pactl list sinks`.
-///
-/// Der Aufruf läuft bewusst ohne `LC_ALL`-Eingriff: `parse_sinks` versteht die
-/// deutsche wie die englische Ausgabe.
+/// Ausgabegeräte über `pw-dump`; Monitore bleiben ausgeblendet.
 pub fn list_sinks(runner: &dyn CommandRunner) -> Result<Vec<Sink>, String> {
-    let out = runner
-        .run("pactl", &["list", "sinks"])
-        .map_err(|e| format!("pactl list sinks fehlgeschlagen: {e}"))?;
-    Ok(parse_sinks(&out))
+    list_sinks_mit(runner, false)
+}
+
+/// Wie [`list_sinks`], aber mit zuschaltbaren Monitoren.
+pub fn list_sinks_mit(runner: &dyn CommandRunner, mit_monitoren: bool) -> Result<Vec<Sink>, String> {
+    Ok(sinks(&pw::dump(runner)?, mit_monitoren))
 }
 
 // ---------------------------------------------------------------------------
-// Zuordnung Bus -> Sink
+// Zuordnung Bus -> Gerät
 // ---------------------------------------------------------------------------
 
 /// Prüft einen Busnamen und liefert die kanonische Schreibweise.
@@ -303,10 +139,10 @@ pub fn default_path() -> PathBuf {
     basis.join(CONFIG_DIR).join(CONFIG_FILE)
 }
 
-/// Zuordnung Hardware-Bus -> Ausgabegerät, gespiegelt nach JSON.
+/// Zuordnung Hardware-Bus -> technischer Gerätename, gespiegelt nach JSON.
 pub struct DeviceMap {
     pfad: PathBuf,
-    busse: BTreeMap<String, Sink>,
+    busse: BTreeMap<String, String>,
 }
 
 impl DeviceMap {
@@ -335,19 +171,28 @@ impl DeviceMap {
         &self.pfad
     }
 
-    /// Zugeordnetes Gerät eines Hardware-Busses.
-    pub fn get(&self, bus: &str) -> Option<&Sink> {
+    /// Technischer Name des zugeordneten Geräts eines Hardware-Busses.
+    pub fn get(&self, bus: &str) -> Option<&str> {
         let bus = normalisiere_bus(bus).ok()?;
-        self.busse.get(&bus)
+        self.busse.get(&bus).map(String::as_str)
+    }
+
+    /// Gerät eines Busses, mit Beschreibung aus dem Graphen aufgelöst.
+    /// `None`, wenn der Bus belegt ist, das Gerät aber nicht (mehr) existiert.
+    pub fn get_in(&self, bus: &str, graph: &Graph) -> Option<Sink> {
+        let name = self.get(bus)?;
+        graph.knoten(name).map(Sink::from_node)
     }
 
     /// Alle gesetzten Zuordnungen in Bus-Reihenfolge A1..A5.
-    pub fn entries(&self) -> Vec<(&str, &Sink)> {
-        self.busse.iter().map(|(b, s)| (b.as_str(), s)).collect()
+    pub fn entries(&self) -> Vec<(&str, &str)> {
+        self.busse.iter().map(|(b, n)| (b.as_str(), n.as_str())).collect()
     }
 
     /// Übernimmt eine JSON-Datei. Unbekannte Busse und Einträge ohne Namen
     /// werden übersprungen, damit eine handgeschriebene Datei nichts kaputt macht.
+    /// Gelesen wird sowohl `"A1": "name"` als auch das ältere
+    /// `"A1": {"name": "…", "desc": "…"}`.
     fn uebernehme(&mut self, text: &str) {
         let Ok(Value::Obj(pairs)) = crate::json::parse(text) else {
             return;
@@ -356,24 +201,21 @@ impl DeviceMap {
             let Ok(bus) = normalisiere_bus(&bus) else {
                 continue;
             };
-            let name = wert
-                .get("name")
-                .and_then(|v| match v {
-                    Value::Str(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            if name.is_empty() {
+            let name = match &wert {
+                Value::Str(s) => s.clone(),
+                Value::Obj(_) => wert
+                    .get("name")
+                    .and_then(|v| match v {
+                        Value::Str(s) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default(),
+                _ => String::new(),
+            };
+            if name.trim().is_empty() {
                 continue;
             }
-            let desc = wert
-                .get("desc")
-                .and_then(|v| match v {
-                    Value::Str(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            self.busse.insert(bus, Sink { name, desc });
+            self.busse.insert(bus, name.trim().to_string());
         }
     }
 
@@ -388,117 +230,155 @@ impl DeviceMap {
             .map_err(|e| format!("{} nicht schreibbar: {e}", self.pfad.display()))
     }
 
-    /// Die Zuordnung als JSON-Objekt `{"A1": {name, desc}, …}`.
+    /// Die Zuordnung als JSON-Objekt `{"A1":"<node.name>", …}` – nur Namen.
     pub fn to_json(&self) -> String {
         Value::Obj(
             self.busse
                 .iter()
-                .map(|(bus, sink)| (bus.clone(), sink_value(sink)))
+                .map(|(bus, name)| (bus.clone(), Value::str(name.clone())))
                 .collect(),
         )
         .to_json()
     }
 
-    /// Verdrahtet `bus` auf `sink`: erst beide alten Verbindungen lösen
-    /// (`pw-link -d`, Fehler bewusst ignoriert — es kann sein, dass nichts
-    /// verbunden ist), dann L und R neu verbinden.
+    /// Verdrahtet `bus` auf den Sink `sink` (technischer Name).
     ///
-    /// Ein Fehler beim Verbinden bricht ab, ohne die Zuordnung zu ändern: der
-    /// gemerkte Zustand bleibt dann deckungsgleich mit dem Graph.
-    pub fn assign(
-        &mut self,
-        runner: &dyn CommandRunner,
-        bus: &str,
-        sink: &Sink,
-    ) -> Result<(), String> {
+    /// Zuerst werden alle Links getrennt, die laut Graph wirklich an den
+    /// Busports hängen – egal von wem sie stammen. Danach werden die echten
+    /// Eingangsports des Sinks verbunden. Ein Fehler beim Verbinden hinterlässt
+    /// keine Zuordnung, damit Datei und Graph deckungsgleich bleiben.
+    pub fn assign(&mut self, runner: &dyn CommandRunner, bus: &str, sink: &str) -> Result<(), String> {
         let bus = normalisiere_bus(bus)?;
-        if sink.name.trim().is_empty() {
+        let sink = sink.trim();
+        if sink.is_empty() {
             return Err("Sink ohne Namen".into());
         }
-
-        // Alte Verbindung: bekannte Zuordnung, sonst das neue Ziel (dann läuft
-        // der Disconnect ins Leere und wird verworfen).
-        let alt = self
-            .busse
-            .get(&bus)
-            .map(|s| s.name.clone())
-            .unwrap_or_else(|| sink.name.clone());
-        for (kanal, ziel) in CHANNELS {
-            let _ = runner.run("pw-link", &["-d", &bus_port(&bus, kanal), &sink_port(&alt, ziel)]);
+        let graph = pw::dump(runner)?;
+        let node = graph
+            .knoten(sink)
+            .ok_or_else(|| format!("Sink '{sink}' steht nicht im PipeWire-Graph"))?;
+        if !node.ist_ausgabegeraet() {
+            return Err(format!(
+                "'{sink}' ist kein Ausgabegerät (media.class '{}')",
+                node.media_class
+            ));
         }
 
-        for (kanal, ziel) in CHANNELS {
+        let bus_ports = [bus_port(&bus, "L"), bus_port(&bus, "R")];
+        for verbindung in graph.offene_links(&bus_ports) {
+            let _ = runner.run("pw-link", &["-d", &verbindung.von, &verbindung.nach]);
+        }
+
+        let eingaenge = graph.pfade(node.id, Richtung::In);
+        let ziele = pw::kanalpaar(&eingaenge);
+        if ziele.is_empty() {
+            return Err(format!("Sink '{sink}' hat keinen Eingangsport"));
+        }
+
+        for (i, kanal) in ["L", "R"].iter().enumerate() {
+            let ziel = &ziele[if ziele.len() == 1 { 0 } else { i }];
             runner
-                .run("pw-link", &[&bus_port(&bus, kanal), &sink_port(&sink.name, ziel)])
-                .map_err(|e| format!("{bus} auf '{}' verbinden fehlgeschlagen: {e}", sink.desc))?;
+                .run("pw-link", &[&bus_port(&bus, kanal), ziel])
+                .map_err(|e| format!("{bus} auf '{sink}' verbinden fehlgeschlagen: {e}"))?;
         }
 
-        self.busse.insert(bus, sink.clone());
+        self.busse.insert(bus, sink.to_string());
         self.save()
     }
 
     /// Löst die Verbindungen eines Busses und entfernt die Zuordnung.
-    /// Ist nichts zugeordnet, passiert nichts (idempotent).
+    /// Ist nichts verbunden und nichts zugeordnet, passiert nichts (idempotent).
     pub fn clear(&mut self, runner: &dyn CommandRunner, bus: &str) -> Result<(), String> {
         let bus = normalisiere_bus(bus)?;
-        let Some(sink) = self.busse.remove(&bus) else {
+        let graph = pw::dump(runner)?;
+        let bus_ports = [bus_port(&bus, "L"), bus_port(&bus, "R")];
+        let mut etwas_getan = false;
+        for verbindung in graph.offene_links(&bus_ports) {
+            etwas_getan = true;
+            let _ = runner.run("pw-link", &["-d", &verbindung.von, &verbindung.nach]);
+        }
+
+        // Kein Link (mehr) im Graphen, aber eine Zuordnung: die alten
+        // Kanalports trotzdem trennen, damit nichts hängen bleibt.
+        if let Some(alt) = self.busse.get(&bus).cloned() {
+            if !etwas_getan {
+                for (kanal, ziel) in CHANNELS {
+                    let _ = runner.run("pw-link", &["-d", &bus_port(&bus, kanal), &format!("{alt}:{ziel}")]);
+                }
+            }
+        }
+
+        let entfernt = self.busse.remove(&bus).is_some();
+        if !entfernt && !etwas_getan {
             return Ok(());
-        };
-        for (kanal, ziel) in CHANNELS {
-            let quell = bus_port(&bus, kanal);
-            let ziel = sink_port(&sink.name, ziel);
-            let _ = runner.run("pw-link", &["-d", &quell, &ziel]);
         }
         self.save()
     }
 
     /// Zustand für die Oberfläche/API: verfügbare Sinks plus Zuordnung der
-    /// Busse A1..A5. `sink: null` heißt „kein Gerät gewählt“; `error` trägt die
-    /// Meldung, falls `pactl` nicht erreichbar war.
-    pub fn status_json(&self, runner: &dyn CommandRunner) -> String {
-        let (sinks, fehler) = match list_sinks(runner) {
-            Ok(s) => (s, Value::Null),
-            Err(e) => (Vec::new(), Value::str(e)),
+    /// Busse A1..A5.
+    ///
+    /// `sink: null` heißt „kein Gerät gewählt“. `desc` wird zur Laufzeit aus dem
+    /// Graphen geholt; `vorhanden: false` zeigt an, dass ein gemerktes Gerät
+    /// gerade nicht da ist. `verbunden` meldet, ob laut Graph wirklich ein Link
+    /// vom Busport zum Gerät besteht. `error` trägt die Meldung, falls `pw-dump`
+    /// nicht erreichbar war.
+    pub fn status_json(&self, runner: &dyn CommandRunner, mit_monitoren: bool) -> String {
+        let graph = pw::dump(runner);
+        let (liste, fehler) = match &graph {
+            Ok(g) => (sinks(g, mit_monitoren), Value::Null),
+            Err(e) => (Vec::new(), Value::str(e.clone())),
         };
 
         let busse = HARDWARE_BUSES
             .iter()
             .map(|bus| {
-                let mut paare: Vec<(String, Value)> =
-                    vec![("bus".into(), Value::str(*bus))];
-                match self.busse.get(*bus) {
-                    Some(sink) => {
-                        paare.push(("sink".into(), Value::str(sink.name.clone())));
-                        paare.push(("desc".into(), Value::str(sink.desc.clone())));
-                    }
-                    None => {
-                        paare.push(("sink".into(), Value::Null));
-                        paare.push(("desc".into(), Value::Null));
-                    }
-                }
+                let mut paare: Vec<(String, Value)> = vec![("bus".into(), Value::str(*bus))];
+                let name = self.busse.get(*bus);
+                let geraet = graph.as_ref().ok().and_then(|g| self.get_in(bus, g));
+                paare.push((
+                    "sink".into(),
+                    name.map(|n| Value::str(n.clone())).unwrap_or(Value::Null),
+                ));
+                paare.push((
+                    "desc".into(),
+                    geraet.as_ref().map(|s| Value::str(s.desc.clone())).unwrap_or(Value::Null),
+                ));
+                paare.push(("vorhanden".into(), Value::Bool(name.is_some() && geraet.is_some())));
+                let verbunden = graph
+                    .as_ref()
+                    .map(|g| {
+                        [bus_port(bus, "L"), bus_port(bus, "R")]
+                            .iter()
+                            .any(|p| !g.offene_links(&[p.clone()]).is_empty())
+                    })
+                    .unwrap_or(false);
+                paare.push(("verbunden".into(), Value::Bool(verbunden)));
                 Value::Obj(paare)
             })
             .collect();
 
         Value::obj(vec![
-            ("sinks", Value::Arr(sinks.iter().map(sink_value).collect())),
+            (
+                "sinks",
+                Value::Arr(
+                    liste
+                        .iter()
+                        .map(|s| {
+                            Value::obj(vec![
+                                ("id", Value::num(s.id as f64)),
+                                ("name", Value::str(s.name.clone())),
+                                ("desc", Value::str(s.desc.clone())),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
             ("buses", Value::Arr(busse)),
             ("error", fehler),
         ])
         .to_json()
     }
-}
-
-/// Port am Sink, z. B. `alsa_output.…:playback_FL`.
-fn sink_port(sink_name: &str, sink_suffix: &str) -> String {
-    format!("{sink_name}:{sink_suffix}")
-}
-
-fn sink_value(sink: &Sink) -> Value {
-    Value::obj(vec![
-        ("name", Value::str(sink.name.clone())),
-        ("desc", Value::str(sink.desc.clone())),
-    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -508,118 +388,141 @@ fn sink_value(sink: &Sink) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Deutsche `pactl list sinks`-Ausgabe (so auf diesem Rechner), zwei Geräte,
-    /// Umlaute in den Beschreibungen.
-    const PACTL_DE: &str = "\
-Ziel #50
-\tStatus: IDLE
-\tName: alsa_output.pci-0000_0f_00.6.iec958-stereo
-\tBeschreibung: Ryzen HD Audio Controller Digitales Stereo (IEC958)
-\tTreiber: PipeWire
-\tAbtastwert-Angabe: s32le 2ch 48000Hz
-\tStumm: nein
-\tEigenschaften:
-\t\tdevice.description = \"Internes Audio\"
-\t\talsa.card = \"1\"
-
-Ziel #1642
-\tStatus: RUNNING
-\tName: alsa_output.usb-046d_Headset
-\tBeschreibung: Büro-Kopfhörer (USB) – Grün
-\tTreiber: PipeWire
-\tAbtastwert-Angabe: float32le 2ch 48000Hz
-";
-
-    const PACTL_EN: &str = "\
-Sink #0
-\tState: SUSPENDED
-\tName: alsa_output.pci-0000_03_00.1.hdmi-stereo
-\tDescription: HDMI / DisplayPort 2 Output
-\tDriver: PipeWire
-\tMute: no
-
-Sink #9
-\tState: RUNNING
-\tName: alsa_output.usb-0d8c_Speaker
-\tDescription: Lautsprecher auf dem Schreibtisch
-\tDriver: PipeWire
-";
+    use crate::pw::tests::DUMP;
 
     fn tmp_path(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!("vm8-devices-{}-{tag}.json", std::process::id()))
     }
 
-    fn fehler_sink() -> Sink {
-        Sink::new("alsa_output.usb-046d_Headset", "Büro-Kopfhörer (USB) – Grün")
+    fn fake() -> FakeRunner {
+        FakeRunner::new().with_output("pw-dump", DUMP)
+    }
+
+    const CORSAIR: &str =
+        "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo";
+    const HDMI: &str = "alsa_output.pci-0000_03_00.1.hdmi-stereo-extra2";
+
+    #[test]
+    fn sinks_kommen_aus_dem_graphen_mit_voller_beschreibung() {
+        let liste = list_sinks(&fake()).unwrap();
+        assert_eq!(liste.len(), 3, "{liste:?}");
+        // Alphabetisch nach Anzeigename: Corsair, Navi, VM8-Output-B1.
+        assert_eq!(liste[0].name, CORSAIR);
+        assert_eq!(liste[0].desc, "Corsair HS80 RGB USB Gaming Headset Analoges Stereo");
+        assert_eq!(liste[0].id, 443);
+        assert!(liste[0].desc.contains(' '), "Leerzeichen bleiben: {}", liste[0].desc);
+        assert_eq!(liste[1].name, HDMI);
+        assert_eq!(liste[1].desc, "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 3) [AG326UD]");
+        // Eigene virtuelle Sinks sind echte Ausgabegeräte des Graphen.
+        assert_eq!(liste[2].name, "vm8_out_B1");
     }
 
     #[test]
-    fn pactl_deutsch_mit_umlauten() {
-        let sinks = parse_sinks(PACTL_DE);
-        assert_eq!(sinks.len(), 2, "zwei Sinks erwartet: {sinks:?}");
-        assert_eq!(sinks[0].name, "alsa_output.pci-0000_0f_00.6.iec958-stereo");
-        assert_eq!(sinks[0].desc, "Ryzen HD Audio Controller Digitales Stereo (IEC958)");
-        assert_eq!(sinks[1].name, "alsa_output.usb-046d_Headset");
-        assert_eq!(sinks[1].desc, "Büro-Kopfhörer (USB) – Grün");
-        // Eigenschaften dürfen die Beschreibung nicht überschreiben.
-        assert!(!sinks[0].desc.contains("Internes Audio"));
+    fn monitore_sind_ausgeblendet_aber_zuschaltbar() {
+        let mit_monitor = r#"[
+          {"id": 1, "type": "PipeWire:Interface:Node",
+           "info": {"props": {"media.class": "Audio/Sink",
+                              "node.name": "alsa_output.hdmi.monitor",
+                              "node.description": "HDMI (Monitor)"}}},
+          {"id": 2, "type": "PipeWire:Interface:Node",
+           "info": {"props": {"media.class": "Audio/Sink",
+                              "node.name": "alsa_output.usb", "node.description": "Kopfhörer"}}}
+        ]"#;
+        let graph = Graph::parse(mit_monitor).unwrap();
+        assert_eq!(sinks(&graph, false).len(), 1, "Standardliste ohne Monitore");
+        let mit = sinks(&graph, true);
+        assert_eq!(mit.len(), 2, "zugeschaltet sichtbar");
+        assert!(mit.iter().any(|s| s.name == "alsa_output.hdmi.monitor"));
+        assert!(mit.iter().any(|s| s.name == "alsa_output.usb"));
+
+        let fake = FakeRunner::new().with_output("pw-dump", mit_monitor);
+        assert_eq!(list_sinks(&fake).unwrap().len(), 1);
+        assert_eq!(list_sinks_mit(&fake, true).unwrap().len(), 2);
     }
 
     #[test]
-    fn pactl_englisch_und_list_sinks_ueber_runner() {
-        let sinks = parse_sinks(PACTL_EN);
-        assert_eq!(sinks.len(), 2);
-        assert_eq!(sinks[0].desc, "HDMI / DisplayPort 2 Output");
-        assert_eq!(sinks[1].name, "alsa_output.usb-0d8c_Speaker");
-
-        let fake = FakeRunner::new().with_output("pactl", PACTL_DE);
-        let via_runner = list_sinks(&fake).unwrap();
-        assert_eq!(via_runner, parse_sinks(PACTL_DE));
-        assert_eq!(fake.lines(), vec!["pactl list sinks".to_string()]);
-    }
-
-    #[test]
-    fn doppelte_namen_werden_zusammengefasst() {
-        let doppelt = format!("{PACTL_DE}\n{PACTL_DE}");
-        assert_eq!(parse_sinks(&doppelt).len(), 2);
-    }
-
-    #[test]
-    fn assign_loest_zwei_und_verbindet_zwei() {
+    fn assign_trennt_vorhandene_links_und_verbindet_echte_ports() {
         let pfad = tmp_path("assign");
         let _ = std::fs::remove_file(&pfad);
         let mut map = DeviceMap::new(&pfad);
-        let fake = FakeRunner::new().with_output("pactl", PACTL_DE);
-        let alt = Sink::new("alsa_output.alt_geraet", "Altes Gerät");
-        let neu = fehler_sink();
+        let fake = fake();
 
-        map.assign(&fake, "A1", &alt).unwrap();
-        let nach_erstem = fake.lines();
-        assert_eq!(nach_erstem.len(), 4, "4 Aufrufe: {nach_erstem:?}");
-
-        map.assign(&fake, "A1", &neu).unwrap();
-        let alle = fake.lines();
-        assert_eq!(alle.len(), 8);
+        // Im Graphen hängt bereits vm8:busA1_L -> playback_FL (Link 500).
+        map.assign(&fake, "A1", CORSAIR).unwrap();
+        let zeilen = fake.lines();
         assert_eq!(
-            &alle[4..8],
+            &zeilen[1..4],
             &[
-                "pw-link -d vm8:busA1_L alsa_output.alt_geraet:playback_FL".to_string(),
-                "pw-link -d vm8:busA1_R alsa_output.alt_geraet:playback_FR".to_string(),
-                "pw-link vm8:busA1_L alsa_output.usb-046d_Headset:playback_FL".to_string(),
-                "pw-link vm8:busA1_R alsa_output.usb-046d_Headset:playback_FR".to_string(),
+                format!("pw-link -d vm8:busA1_L {CORSAIR}:playback_FL"),
+                format!("pw-link vm8:busA1_L {CORSAIR}:playback_FL"),
+                format!("pw-link vm8:busA1_R {CORSAIR}:playback_FR"),
+            ],
+            "erst den echten Link lösen, dann verbinden: {zeilen:?}"
+        );
+        assert_eq!(zeilen[0], "pw-dump");
+        assert_eq!(fake.calls_of("pw-link").iter().filter(|c| c.args[0] == "-d").count(), 1);
+        assert_eq!(map.get("A1"), Some(CORSAIR));
+        let _ = std::fs::remove_file(&pfad);
+    }
+
+    #[test]
+    fn assign_lehnt_unbekanntes_geraet_ab() {
+        let pfad = tmp_path("unbekannt");
+        let _ = std::fs::remove_file(&pfad);
+        let mut map = DeviceMap::new(&pfad);
+        let fake = fake();
+        assert!(map.assign(&fake, "A1", "alsa_output.gibtsnicht").is_err());
+        assert!(map.get("A1").is_none());
+        // Eingabegerät ist kein Sink.
+        let mic = "alsa_input.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.mono-fallback";
+        let fehler = map.assign(&fake, "A1", mic).unwrap_err();
+        assert!(fehler.contains("kein Ausgabegerät"), "{fehler}");
+        assert!(map.get("A1").is_none());
+        let _ = std::fs::remove_file(&pfad);
+    }
+
+    #[test]
+    fn clear_loest_alle_buslinks_und_leert_eintrag() {
+        let pfad = tmp_path("clear");
+        let _ = std::fs::remove_file(&pfad);
+        let mut map = DeviceMap::new(&pfad);
+        let fake = fake();
+        map.assign(&fake, "A1", CORSAIR).unwrap();
+        let vorher = fake.calls().len();
+        map.clear(&fake, "A1").unwrap();
+        let danach = fake.calls();
+        let neu: Vec<&Call> = danach[vorher..].iter().collect();
+        // Ein pw-dump, ein pw-link -d auf den einzigen vorhandenen Link.
+        assert_eq!(neu.len(), 2, "{neu:?}");
+        assert_eq!(neu[0].program, "pw-dump");
+        assert_eq!(neu[1].line(), format!("pw-link -d vm8:busA1_L {CORSAIR}:playback_FL"));
+        assert!(map.get("A1").is_none());
+
+        // Zweites clear: kein Eintrag mehr, im Graphen nichts mehr -> nur der Dump.
+        let leer = FakeRunner::new().with_output("pw-dump", "[]");
+        map.clear(&leer, "A1").unwrap();
+        assert_eq!(leer.lines(), vec!["pw-dump".to_string()]);
+        let _ = std::fs::remove_file(&pfad);
+    }
+
+    #[test]
+    fn clear_trennt_auch_ohne_graphenlink_ueber_den_gemerkten_namen() {
+        let pfad = tmp_path("clear-fallback");
+        let _ = std::fs::remove_file(&pfad);
+        let mut map = DeviceMap::new(&pfad);
+        map.assign(&fake(), "A2", CORSAIR).unwrap();
+        // Graph ohne Links (z. B. Verbindung von außen gelöst).
+        let leer = FakeRunner::new().with_output("pw-dump", "[]");
+        map.clear(&leer, "A2").unwrap();
+        let zeilen = leer.lines();
+        assert_eq!(
+            zeilen,
+            vec![
+                "pw-dump".to_string(),
+                format!("pw-link -d vm8:busA2_L {CORSAIR}:playback_FL"),
+                format!("pw-link -d vm8:busA2_R {CORSAIR}:playback_FR"),
             ]
         );
-
-        // Genau zwei Disconnects und zwei Connects, keine Fremdprogramme.
-        let zweite_runde = &fake.calls()[4..8];
-        let disconnects = zweite_runde.iter().filter(|c| c.args[0] == "-d").count();
-        let connects = zweite_runde.iter().filter(|c| c.args.len() == 2).count();
-        assert_eq!(disconnects, 2);
-        assert_eq!(connects, 2);
-        assert!(zweite_runde.iter().all(|c| c.program == "pw-link"));
-
-        assert_eq!(map.get("A1").map(|s| s.name.as_str()), Some(neu.name.as_str()));
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -628,13 +531,14 @@ Sink #9
         let pfad = tmp_path("ignorieren");
         let _ = std::fs::remove_file(&pfad);
         let mut map = DeviceMap::new(&pfad);
-        // Jeder Disconnect scheitert – assign muss trotzdem verbinden.
-        let fake = FakeRunner::new().with_failure("pw-link -d");
-        map.assign(&fake, "A3", &fehler_sink()).unwrap();
+        let fake = FakeRunner::new()
+            .with_output("pw-dump", DUMP)
+            .with_failure("pw-link -d");
+        map.assign(&fake, "A3", CORSAIR).unwrap();
         let zeilen = fake.lines();
-        assert_eq!(zeilen.len(), 4);
-        assert_eq!(zeilen[2], "pw-link vm8:busA3_L alsa_output.usb-046d_Headset:playback_FL");
-        assert_eq!(zeilen[3], "pw-link vm8:busA3_R alsa_output.usb-046d_Headset:playback_FR");
+        assert_eq!(zeilen.len(), 3, "{zeilen:?}");
+        assert_eq!(zeilen[1], format!("pw-link vm8:busA3_L {CORSAIR}:playback_FL"));
+        assert_eq!(zeilen[2], format!("pw-link vm8:busA3_R {CORSAIR}:playback_FR"));
         assert!(map.get("A3").is_some());
         let _ = std::fs::remove_file(&pfad);
     }
@@ -644,8 +548,10 @@ Sink #9
         let pfad = tmp_path("connectfehler");
         let _ = std::fs::remove_file(&pfad);
         let mut map = DeviceMap::new(&pfad);
-        let fake = FakeRunner::new().with_failure("playback_FR");
-        assert!(map.assign(&fake, "A2", &fehler_sink()).is_err());
+        let fake = FakeRunner::new()
+            .with_output("pw-dump", DUMP)
+            .with_failure("playback_FR");
+        assert!(map.assign(&fake, "A2", CORSAIR).is_err());
         assert!(map.get("A2").is_none());
         let _ = std::fs::remove_file(&pfad);
     }
@@ -653,15 +559,13 @@ Sink #9
     #[test]
     fn unbekannter_bus_wird_abgelehnt() {
         let pfad = tmp_path("bus");
-        let fake = FakeRunner::new();
+        let fake = fake();
         let mut map = DeviceMap::new(&pfad);
         for bus in ["B2", "A6", "A0", "", "AI", "A1 x"] {
-            let abgelehnt = |r: Result<(), String>| r.is_err();
-            assert!(abgelehnt(map.assign(&fake, bus, &fehler_sink())), "'{bus}' abgelehnt");
-            assert!(abgelehnt(map.clear(&fake, bus)), "'{bus}' abgelehnt");
+            assert!(map.assign(&fake, bus, CORSAIR).is_err(), "'{bus}' abgelehnt");
+            assert!(map.clear(&fake, bus).is_err(), "'{bus}' abgelehnt");
         }
         assert!(fake.calls().is_empty(), "kein Systemaufruf bei ungültigem Bus");
-        // Kleinschreibung wird auf die kanonische Form gebracht.
         assert_eq!(normalisiere_bus("a4").unwrap(), "A4");
         assert_eq!(normalisiere_bus(" A5 ").unwrap(), "A5");
         assert!(DeviceMap::new(&pfad).get("B1").is_none());
@@ -669,48 +573,41 @@ Sink #9
     }
 
     #[test]
-    fn clear_loest_verbindung_und_leert_eintrag() {
-        let pfad = tmp_path("clear");
-        let _ = std::fs::remove_file(&pfad);
-        let mut map = DeviceMap::new(&pfad);
-        let fake = FakeRunner::new();
-        map.assign(&fake, "A1", &fehler_sink()).unwrap();
-        map.clear(&fake, "A1").unwrap();
-        let zeilen = fake.lines();
-        assert_eq!(zeilen.len(), 6);
-        assert_eq!(zeilen[4], "pw-link -d vm8:busA1_L alsa_output.usb-046d_Headset:playback_FL");
-        assert_eq!(zeilen[5], "pw-link -d vm8:busA1_R alsa_output.usb-046d_Headset:playback_FR");
-        assert!(map.get("A1").is_none());
-        // Zweites clear ist folgenlos.
-        map.clear(&fake, "A1").unwrap();
-        assert_eq!(fake.lines().len(), 6);
-        let _ = std::fs::remove_file(&pfad);
-    }
-
-    #[test]
-    fn json_rundlauf_ueber_datei() {
+    fn datei_speichert_nur_den_namen_beschreibung_kommt_zur_laufzeit() {
         let pfad = tmp_path("rundlauf");
         let _ = std::fs::remove_file(&pfad);
         let mut map = DeviceMap::new(&pfad);
-        let fake = FakeRunner::new();
-        map.assign(&fake, "A1", &fehler_sink()).unwrap();
-        map.assign(&fake, "A5", &Sink::new("alsa_output.hdmi", "HDMI / DisplayPort 2 Output"))
-            .unwrap();
+        let fake = fake();
+        map.assign(&fake, "A1", CORSAIR).unwrap();
+        map.assign(&fake, "A5", HDMI).unwrap();
 
         let text = std::fs::read_to_string(&pfad).unwrap();
-        assert!(text.contains("\"A1\""), "{text}");
-        assert!(text.contains("Büro-Kopfhörer (USB) – Grün"), "Umlaute bleiben erhalten: {text}");
+        assert_eq!(
+            text,
+            format!("{{\"A1\":{},\"A5\":{}}}", crate::json::quote(CORSAIR), crate::json::quote(HDMI)),
+            "nur node.name, keine Beschreibung"
+        );
+        assert!(!text.contains("Corsair HS80 RGB"), "keine Beschreibung in der Datei: {text}");
 
         let wieder = DeviceMap::load(&pfad);
-        assert_eq!(wieder.get("A1"), Some(&fehler_sink()));
-        assert_eq!(
-            wieder.get("a1").map(|s| s.name.as_str()),
-            Some("alsa_output.usb-046d_Headset")
-        );
-        assert_eq!(wieder.get("A5").map(|s| s.desc.as_str()), Some("HDMI / DisplayPort 2 Output"));
+        assert_eq!(wieder.get("A1"), Some(CORSAIR));
+        assert_eq!(wieder.get("a1"), Some(CORSAIR));
         assert!(wieder.get("A2").is_none());
         assert_eq!(wieder.entries().len(), 2);
-        assert_eq!(wieder.to_json(), map.to_json());
+        // Beschreibung entsteht aus dem Graphen – ohne sie zu speichern.
+        let graph = pw::dump(&fake).unwrap();
+        assert_eq!(wieder.get_in("A1", &graph).unwrap().desc, "Corsair HS80 RGB USB Gaming Headset Analoges Stereo");
+        assert_eq!(wieder.get_in("A5", &graph).unwrap().desc, "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 3) [AG326UD]");
+        // Gerät verschwunden -> Name bleibt, Beschreibung fehlt.
+        let leer = Graph::parse("[]").unwrap();
+        assert!(wieder.get_in("A1", &leer).is_none());
+        assert_eq!(wieder.get("A1"), Some(CORSAIR));
+
+        // Altes Format mit desc wird weiter gelesen (desc ignoriert).
+        std::fs::write(&pfad, r#"{"A2":{"name":"alsa_output.usb-0d8c_Speaker","desc":"Lautsprecher"}}"#).unwrap();
+        let alt = DeviceMap::load(&pfad);
+        assert_eq!(alt.get("A2"), Some("alsa_output.usb-0d8c_Speaker"));
+        assert_eq!(alt.entries().len(), 1);
 
         // Kaputte Datei -> leere Zuordnung, kein Absturz.
         std::fs::write(&pfad, "kein json").unwrap();
@@ -719,32 +616,36 @@ Sink #9
     }
 
     #[test]
-    fn status_json_enthaelt_sinks_und_zuordnung() {
+    fn status_json_enthaelt_sinks_zuordnung_und_echte_links() {
         let pfad = tmp_path("status");
         let _ = std::fs::remove_file(&pfad);
         let mut map = DeviceMap::new(&pfad);
-        let fake = FakeRunner::new().with_output("pactl", PACTL_DE);
-        map.assign(&fake, "A1", &fehler_sink()).unwrap();
+        let fake = fake();
+        map.assign(&fake, "A1", CORSAIR).unwrap();
 
-        let json = map.status_json(&fake);
+        let json = map.status_json(&fake, false);
         let wert = crate::json::parse(&json).unwrap();
         let sinks = wert.get("sinks").unwrap().as_arr().unwrap();
-        assert_eq!(sinks.len(), 2);
-        assert_eq!(sinks[1].get("desc").unwrap(), &Value::str("Büro-Kopfhörer (USB) – Grün"));
+        assert_eq!(sinks.len(), 3);
+        assert_eq!(sinks[0].get("id").unwrap().as_f64(), Some(443.0));
+        assert_eq!(sinks[0].get("desc").unwrap(), &Value::str("Corsair HS80 RGB USB Gaming Headset Analoges Stereo"));
 
         let busse = wert.get("buses").unwrap().as_arr().unwrap();
         assert_eq!(busse.len(), 5, "immer A1..A5");
         assert_eq!(busse[0].get("bus").unwrap(), &Value::str("A1"));
-        assert_eq!(busse[0].get("sink").unwrap(), &Value::str("alsa_output.usb-046d_Headset"));
+        assert_eq!(busse[0].get("sink").unwrap(), &Value::str(CORSAIR));
+        assert_eq!(busse[0].get("vorhanden").unwrap(), &Value::Bool(true));
+        assert_eq!(busse[0].get("verbunden").unwrap(), &Value::Bool(true), "Link 500 im Graph");
         assert_eq!(busse[1].get("sink").unwrap(), &Value::Null);
+        assert_eq!(busse[1].get("verbunden").unwrap(), &Value::Bool(false));
         assert_eq!(wert.get("error").unwrap(), &Value::Null);
 
-        // Ohne erreichbares pactl bleibt das JSON gültig.
-        let kaputt = FakeRunner::new().with_failure("pactl");
-        let json = map.status_json(&kaputt);
-        let wert = crate::json::parse(&json).unwrap();
+        // Ohne erreichbares pw-dump bleibt das JSON gültig.
+        let kaputt = FakeRunner::new().with_failure("pw-dump");
+        let wert = crate::json::parse(&map.status_json(&kaputt, false)).unwrap();
         assert_eq!(wert.get("sinks").unwrap().as_arr().unwrap().len(), 0);
         assert!(wert.get("error").unwrap() != &Value::Null);
+        assert_eq!(wert.get("buses").unwrap().as_arr().unwrap()[0].get("verbunden").unwrap(), &Value::Bool(false));
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -752,7 +653,7 @@ Sink #9
     fn ports_und_standardpfad() {
         assert_eq!(bus_port("A1", "L"), "vm8:busA1_L");
         assert_eq!(bus_port("A5", "R"), "vm8:busA5_R");
-        assert_eq!(fehler_sink().port("playback_FL"), "alsa_output.usb-046d_Headset:playback_FL");
+        assert_eq!(Sink::new(CORSAIR, "x").port("playback_FL"), format!("{CORSAIR}:playback_FL"));
         let pfad = default_path();
         assert!(pfad.ends_with("vm8-linux/devices.json"), "{}", pfad.display());
     }
