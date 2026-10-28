@@ -1,20 +1,32 @@
 #!/usr/bin/env bash
 # vm8-launch.sh – Engine starten und die Oberflaeche als eigenes Fenster oeffnen.
-# Die Engine verdrahtet die virtuellen Geraete selbst beim Start und raeumt sie
-# beim Beenden wieder ab; dieses Skript kuemmert sich nur um Prozess und Fenster.
+#
+# Fenstererkennung ohne KWin: Brave laeuft fuer den Mixer mit eigenem Profil und
+# eigenem Debug-Port (Vorgabe 9223). Damit ist eindeutig feststellbar, ob das
+# Fenster offen ist - und die Engine wird beendet, sobald es verschwindet.
+#
+#   VM8_DEBUG_PORT   Port der Fenstererkennung (Vorgabe 9223)
+#   VM8_START_GRACE  Sekunden, die das Fenster zum Erscheinen hat (Vorgabe 25)
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 URL="http://127.0.0.1:8770/"
-STARTED_ENGINE=0
+PORT="${VM8_DEBUG_PORT:-9223}"
+GRACE="${VM8_START_GRACE:-25}"
+PROFIL="${XDG_CONFIG_HOME:-$HOME/.config}/vm8-browser"
 
-alive() { curl -s -o /dev/null --max-time 1 "$URL/api/state"; }
-fenster() { curl -s --max-time 1 http://127.0.0.1:9222/json/list 2>/dev/null | grep -c 8770; }
+alive()   { curl -s -o /dev/null --max-time 1 "$URL/api/state"; }
+fenster() { curl -s --max-time 1 "http://127.0.0.1:$PORT/json/list" 2>/dev/null | grep -c 8770; }
+
+beende_engine() {
+  pkill -x vm8-engine 2>/dev/null || true
+  for _ in $(seq 1 30); do [ "$(ps -eo comm | grep -c '^vm8-engine')" = 0 ] && break; sleep 0.2; done
+  echo "Engine beendet, virtuelle Geraete entfernt" >&2
+}
 
 if ! alive; then
   cd "$DIR" || exit 1
   setsid ./target/release/vm8-engine >/tmp/vm8.log 2>&1 &
-  STARTED_ENGINE=1
-  for _ in $(seq 1 40); do alive && break; sleep 0.25; done
+  for _ in $(seq 1 60); do alive && break; sleep 0.25; done
 fi
 
 if ! alive; then
@@ -22,44 +34,24 @@ if ! alive; then
   exit 1
 fi
 
-# Vor dem Oeffnen ein vorhandenes Mixer-Fenster schliessen, damit sich keine
-# Instanzen stapeln (Wayland erlaubt kein Auflisten, aber KWin-Skripte duerfen
-# Fenster ueber den Titel schliessen).
-schliesse_fenster() {
-  command -v qdbus >/dev/null 2>&1 || return 0
-  local js="${XDG_RUNTIME_DIR:-/tmp}/vm8/close_win.js"
-  mkdir -p "$(dirname "$js")"
-  cat > "$js" <<'EOF'
-function alle() {
-    try { return workspace.windowList ? workspace.windowList() : workspace.clientList(); }
-    catch (e) { return workspace.clientList(); }
-}
-var f = alle();
-for (var i = 0; i < f.length; i++) {
-    var c = f[i];
-    var cap = String((c.caption || "") + " " + (c.resourceClass || ""));
-    if (cap.indexOf("Virtueller Mixer") >= 0) { try { c.close(); } catch (e) {} }
-}
-EOF
-  qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$js" >/dev/null 2>&1
-  qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null 2>&1
-  sleep 1
-}
-schliesse_fenster
-
-if command -v flatpak >/dev/null 2>&1; then
-  flatpak run com.Brave.Browser --app="$URL" --window-size=1760,980 >/dev/null 2>&1 &
+if [ "$(fenster)" -gt 0 ]; then
+  echo "Fenster ist bereits offen" >&2
 else
-  xdg_open_placeholder=1
-  xdg-open "$URL" >/dev/null 2>&1 &
+  flatpak run com.brave.Browser \
+    --user-data-dir="$PROFIL" \
+    --remote-debugging-port="$PORT" \
+    --no-first-run --no-default-browser-check \
+    --app="$URL" --window-size=1760,980 >/dev/null 2>&1 &
+  for _ in $(seq 1 $((GRACE * 4))); do [ "$(fenster)" -gt 0 ] && break; sleep 0.25; done
 fi
 
-# Warten, bis das Fenster da ist, dann auf sein Verschwinden achten.
-# `flatpak run` kehrt sofort zurueck, wenn Brave schon laeuft - deshalb wird
-# hier die Fensterliste beobachtet statt auf den Kindprozess zu warten.
-for _ in $(seq 1 40); do [ "$(fenster)" -gt 0 ] && break; sleep 0.5; done
-[ "$(fenster)" -gt 0 ] || { echo "kein Fenster gefunden" >&2; exit 1; }
+if [ "$(fenster)" -eq 0 ]; then
+  echo "Kein Fenster zustande gekommen – raeume auf" >&2
+  beende_engine
+  exit 1
+fi
 
+# Fenster zu heisst Programm zu: zwei vergebliche Proben gelten als geschlossen.
 weg=0
 while :; do
   sleep 2
@@ -71,9 +63,5 @@ while :; do
   fi
 done
 
-echo "Fenster geschlossen, beende ..." >&2
-# Fenster zu heisst: Programm zu. Die Engine wird immer beendet, damit die
-# virtuellen Geraete verschwinden - unabhaengig davon, wer sie gestartet hat.
-pkill -x vm8-engine 2>/dev/null || true
-for _ in $(seq 1 25); do [ "$(ps -eo comm | grep -c '^vm8-engine')" = 0 ] && break; sleep 0.2; done
-echo "Engine beendet, Geraete entfernt" >&2
+echo "Fenster geschlossen" >&2
+beende_engine

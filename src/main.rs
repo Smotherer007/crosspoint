@@ -330,8 +330,24 @@ fn main() {
         .unwrap_or(30_000);
     let dauerbetrieb = std::env::var("VM8_KEEP_RUNNING").is_ok();
 
+    // Aufpasser: verschwinden die virtuellen Geraete von aussen (z. B. weil
+    // jemand aufgeraeumt hat), legt die Engine sie wieder an.
+    let mut letzte_pruefung = std::time::Instant::now();
+
     while !SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
         thread::sleep(std::time::Duration::from_millis(250));
+        if letzte_pruefung.elapsed() >= std::time::Duration::from_secs(5) {
+            letzte_pruefung = std::time::Instant::now();
+            let vorhanden = std::process::Command::new("pactl")
+                .args(["list", "short", "sinks"])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains("vm8_in_1"))
+                .unwrap_or(true);
+            if !vorhanden {
+                eprintln!("virtuelle Geraete fehlen - lege sie neu an");
+                wire("up");
+            }
+        }
         if !dauerbetrieb && vm8::http::leerlauf_ms() > leerlauf_grenze {
             eprintln!("keine Oberflaeche seit {} ms - beende", leerlauf_grenze);
             break;
