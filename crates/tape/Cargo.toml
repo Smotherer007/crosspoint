@@ -1,0 +1,14 @@
+[package]
+name = "tape"
+version = "0.1.0"
+edition = "2021"
+description = "Tape-Recorder: schreibt interleaved f32-Bloecke als WAV (24-bit PCM oder IEEE float32), mit Rotation und Metadaten"
+publish = false
+
+[lib]
+name = "tape"
+path = "src/lib.rs"
+
+# Bewusst keine Abhaengigkeiten: das Crate bleibt eigenstaendig und
+# unabhaengig von vm8. Nur die Standardbibliothek.
+[dependencies]

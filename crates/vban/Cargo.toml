@@ -1,0 +1,13 @@
+[package]
+name = "vban"
+version = "0.1.0"
+edition = "2021"
+description = "VBAN over UDP: Header, Audio-Frames und UDP-Sender/-Empfaenger (nur std)"
+license = "MIT"
+
+[lib]
+name = "vban"
+path = "src/lib.rs"
+
+# Bewusst keine externen Abhaengigkeiten (auch keine dev-dependencies).
+[dependencies]

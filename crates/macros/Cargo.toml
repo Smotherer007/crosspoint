@@ -1,0 +1,11 @@
+[package]
+name = "macros"
+version = "0.1.0"
+edition = "2021"
+description = "Macro-Button-Engine mit 80 Tasten nach VoiceMeeter-Vorbild, ohne externe Crates"
+
+[lib]
+name = "macros"
+path = "src/lib.rs"
+
+[dependencies]

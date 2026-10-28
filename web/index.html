@@ -3,189 +3,1074 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>vm8 — Virtual Mixing Console</title>
+<title>vm8 — Virtueller Mixer</title>
 <style>
-  :root{--bg:#0d1522;--panel:#1b2a44;--edge:#2e4468;--edge2:#0a1220;--txt:#c6d3e6;
-        --dim:#7c92b0;--accent:#37b6ff;--on:#2ee6a8;--warn:#ffb454;--hot:#ff4d4d;
-        --mono:"DejaVu Sans Mono",ui-monospace,monospace}
+  :root{
+    --ink:#d3dee9; --dim:#93a5b8; --faint:#71849a;
+    --panel-a:#4c5764; --panel-b:#3a434f; --panel-c:#333b46;
+    --edge:#1b222a; --edge-hi:rgba(255,255,255,.15);
+    --green:#39dd93; --green-d:#1c7d54;
+    --amber:#f3c24b; --red:#ff5f57; --blue:#6cc4ff;
+    --mono:ui-monospace,"DejaVu Sans Mono",monospace;
+    --sans:"DejaVu Sans","Segoe UI",system-ui,sans-serif;
+  }
   *{box-sizing:border-box}
-  html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--mono);
-       font-size:11px;user-select:none;overflow:hidden}
-  .console{height:100vh;display:flex;flex-direction:column;padding:6px;gap:6px}
-  .topbar{display:flex;align-items:center;gap:8px;height:26px}
-  .brand{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#eaf2ff}
-  .brand b{color:var(--accent)}
-  .tbox{min-width:88px;text-align:center;background:#05080f;border:1px solid var(--edge);
-        border-radius:2px;font-size:10px;color:var(--on);padding:2px 6px}
-  .spacer{flex:1}
-  .btn{background:linear-gradient(#243a5e,#16233a);border:1px solid var(--edge);color:var(--txt);
-       border-radius:2px;font-family:var(--mono);font-size:9px;letter-spacing:.06em;
-       text-transform:uppercase;padding:3px 7px;cursor:pointer}
-  .btn:hover{border-color:var(--accent);color:#fff}
-  .rack{flex:1;display:flex;gap:5px;min-height:0}
-  .strip{flex:1;display:flex;flex-direction:column;background:linear-gradient(#1d2d49,#131f33);
-         border:1px solid var(--edge);border-radius:3px;box-shadow:inset 0 1px 0 #33507d;min-width:0}
-  .strip.bus{flex:.82;background:linear-gradient(#1a2740,#101a2b)}
-  .cap{height:20px;display:flex;align-items:center;justify-content:center;font-size:9.5px;
-       letter-spacing:.08em;text-transform:uppercase;color:#eaf2ff;border-bottom:1px solid var(--edge2);
-       white-space:nowrap;overflow:hidden}
-  .body{flex:1;display:flex;flex-direction:column;gap:4px;padding:4px;min-height:0}
-  .faderzone{flex:1;display:flex;gap:4px;justify-content:center;min-height:60px}
-  .meter{width:10px;background:#05080f;border:1px solid var(--edge2);border-radius:1px;
-         position:relative;overflow:hidden;display:flex;flex-direction:column-reverse}
-  .meter i{display:block;width:100%;height:0%;
-           background:linear-gradient(0deg,#2ee6a8,#9fef6a 65%,#ffd166 85%,#ff4d4d)}
-  .fader{writing-mode:vertical-lr;direction:rtl;width:22px;height:100%;accent-color:var(--accent)}
-  .db{text-align:center;font-size:9.5px;color:var(--accent);background:#05080f;
-      border:1px solid var(--edge2);padding:1px 0}
-  .routing{display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
-  .routing.hw{border-bottom:1px dashed var(--edge);padding-bottom:3px}
-  .rb{font-family:var(--mono);font-size:8.5px;padding:3px 0;border-radius:2px;cursor:pointer;
-      background:linear-gradient(#22314c,#141f31);border:1px solid var(--edge2);color:#93a8c4}
-  .rb.on{background:linear-gradient(#1f6f5a,#12503f);border-color:var(--on);color:#c9ffe9;
-         box-shadow:0 0 5px rgba(46,230,168,.45)}
-  .row{display:flex;gap:2px}
-  .row .btn{flex:1;padding:3px 0;font-size:8.5px}
-  .row .btn.on{background:linear-gradient(#2f6f9e,#1d4a6b);border-color:var(--accent);color:#eaf7ff}
-  .row .btn.solo.on{background:linear-gradient(#8a6520,#5d4416);border-color:var(--warn);color:#ffe9c2}
-  .row .btn.mute.on{background:linear-gradient(#8c2b2b,#5c1c1c);border-color:var(--hot);color:#ffd9d9}
-  .pan{display:flex;align-items:center;gap:3px;font-size:8px;color:var(--dim)}
-  .pan input{flex:1;height:10px;accent-color:var(--warn)}
-  .tape{display:flex;align-items:center;gap:6px;height:30px;padding:0 4px;
-        background:linear-gradient(#1a2740,#0f1827);border:1px solid var(--edge);border-radius:3px}
-  .lamp{width:8px;height:8px;border-radius:50%;background:#3a1414;border:1px solid #000}
-  .lamp.on{background:var(--hot);box-shadow:0 0 6px var(--hot)}
-  footer{font-size:9px;color:var(--dim);padding:0 4px 2px}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:var(--sans);font-size:10px;color:var(--ink);
+    background:#262d35;overflow:hidden;user-select:none;
+    background-image:radial-gradient(130% 100% at 50% -20%,#5a6673 0%,#3a434e 48%,#242b33 100%);
+  }
+  button,input{font-family:inherit}
+  button{color:inherit}
+  .app{height:100vh;display:flex;flex-direction:column;gap:6px;padding:6px 8px 8px}
+
+  /* ---------- Kopfzeile ---------- */
+  .titlebar{
+    flex:0 0 44px;display:flex;align-items:center;gap:10px;padding:0 9px;
+    border:1px solid var(--edge);border-radius:3px;
+    background:linear-gradient(180deg,#515d6a 0%,#3c4652 55%,#313943 100%);
+    box-shadow:inset 0 1px 0 var(--edge-hi),0 2px 7px rgba(0,0,0,.45);
+  }
+  .brand{display:flex;align-items:center;gap:9px;min-width:210px}
+  .logo{
+    font-size:25px;font-weight:800;font-style:italic;letter-spacing:-.03em;color:#f6fafd;
+    text-shadow:0 1px 0 #0b0f13,0 0 14px rgba(108,196,255,.35);
+    line-height:1;
+  }
+  .logo b{color:#ff9c3f;font-weight:800}
+  .bsub{display:flex;flex-direction:column;gap:2px;line-height:1.05;padding-left:9px;
+        border-left:1px solid rgba(255,255,255,.18)}
+  .bsub b{font-size:7.5px;letter-spacing:.24em;color:#e6eef6;font-weight:600}
+  .bsub i{font-style:normal;font-size:6.5px;letter-spacing:.16em;color:var(--faint)}
+  .chip{
+    display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;
+    border:1px solid var(--edge);border-radius:2px;background:linear-gradient(#202830,#141a21);
+    color:#a9e8c7;font:600 8px/1 var(--mono);letter-spacing:.05em;
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .chip .k{color:var(--faint);font-family:var(--sans);font-size:6.5px;letter-spacing:.12em}
+  #status{color:#7fe0b0}
+  #status i{width:7px;height:7px;border-radius:50%;background:#39dd93;box-shadow:0 0 7px #39dd93}
+  #status.off{color:#ffb3ae}
+  #status.off i{background:var(--red);box-shadow:0 0 7px var(--red)}
+  .grow{flex:1}
+  .tbtn{
+    height:23px;padding:0 11px;border:1px solid var(--edge);border-radius:2px;cursor:pointer;
+    background:linear-gradient(#3d4956,#29313b);font-size:7.5px;letter-spacing:.13em;
+    color:#cfdbe7;text-transform:uppercase;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(0,0,0,.45);
+  }
+  .tbtn:hover{border-color:#5c7891;color:#fff}
+  .tbtn:active{background:linear-gradient(#2a323c,#3b4653)}
+
+  /* ---------- Rack ---------- */
+  .deck{flex:1;display:flex;gap:6px;min-height:0}
+  .strips{flex:1 1 65%;display:flex;gap:4px;min-width:0}
+  .side{flex:0 0 35%;display:flex;flex-direction:column;gap:6px;min-width:0}
+  .buses{flex:1;display:flex;gap:4px;min-height:0}
+
+  .strip,.bstrip{
+    flex:1 1 0;min-width:0;display:flex;flex-direction:column;
+    border:1px solid var(--edge);border-radius:3px;overflow:hidden;
+    background:linear-gradient(180deg,var(--panel-a) 0%,var(--panel-b) 48%,var(--panel-c) 100%);
+    box-shadow:inset 0 1px 0 var(--edge-hi),0 1px 4px rgba(0,0,0,.5);
+  }
+  .strip.sel{outline:1px solid #6cc4ff;outline-offset:-1px;box-shadow:0 0 9px rgba(108,196,255,.35),inset 0 1px 0 var(--edge-hi)}
+
+  .head{
+    position:relative;padding:4px 5px 3px;border-bottom:1px solid #141a20;
+    background:linear-gradient(180deg,var(--h1,#3a6f9c),var(--h2,#234a6b));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22);
+  }
+  .sname{font-size:8.5px;font-weight:700;letter-spacing:.09em;color:#f4faff;
+         text-shadow:0 1px 1px rgba(0,0,0,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ssub{font-size:6px;letter-spacing:.07em;color:rgba(255,255,255,.66);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sidx{position:absolute;right:4px;top:4px;font:600 6.5px/1 var(--mono);color:rgba(255,255,255,.5)}
+  .sbody{flex:1;display:flex;flex-direction:column;gap:4px;padding:4px 4px 5px;min-height:0}
+
+  .lbl{font-size:6px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
+  .sep{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent);margin:0 -1px}
+
+  /* ---------- Drehregler ---------- */
+  .knobs{display:flex;justify-content:center;align-items:flex-end;gap:4px}
+  .knobs2{display:flex;justify-content:center;gap:6px}
+  .kw{display:flex;flex-direction:column;align-items:center;gap:1px}
+  .klabel{font-size:5.8px;letter-spacing:.13em;color:var(--dim);text-transform:uppercase}
+  .knob{
+    position:relative;width:34px;height:34px;border-radius:50%;cursor:ns-resize;outline:none;
+    background:radial-gradient(circle at 34% 28%,#8d9dac 0%,#4b5662 52%,#272f38 100%);
+    box-shadow:0 2px 4px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.35),inset 0 -3px 5px rgba(0,0,0,.45);
+  }
+  .knob:focus-visible{box-shadow:0 0 0 1px #6cc4ff,0 2px 5px rgba(0,0,0,.6)}
+  .knob .arc{
+    position:absolute;inset:-3px;border-radius:50%;pointer-events:none;
+    background:conic-gradient(from 225deg,
+      var(--kc,#39dd93) 0deg calc(var(--p,0) * 2.7deg),
+      rgba(0,0,0,.55) calc(var(--p,0) * 2.7deg) 270deg,
+      transparent 270deg 360deg);
+    -webkit-mask:radial-gradient(circle,transparent 0 76%,#000 77% 100%);
+    mask:radial-gradient(circle,transparent 0 76%,#000 77% 100%);
+  }
+  .knob .cap{
+    position:absolute;inset:5px;border-radius:50%;
+    background:radial-gradient(circle at 36% 26%,#e4edf5 0%,#93a4b3 45%,#3b4653 100%);
+    box-shadow:inset 0 -2px 3px rgba(0,0,0,.45),0 1px 2px rgba(0,0,0,.5);
+  }
+  .knob .ptr{
+    position:absolute;left:calc(50% - 1px);top:4px;height:calc(50% - 4px);width:2px;
+    border-radius:1px;background:#1a222a;transform-origin:50% 100%;
+    box-shadow:0 0 1px rgba(255,255,255,.5);
+  }
+  .knob.big{width:74px;height:74px}
+  .knob.big .cap{inset:7px}
+  .knob.big .ptr{width:3px;left:calc(50% - 1.5px);top:9px;height:calc(50% - 9px)}
+  .knob.drag{filter:brightness(1.12)}
+  .gain .knob{width:52px;height:52px}
+  .gain .knob .cap{inset:6px}
+  .gain .knob .ptr{top:6px;height:calc(50% - 6px)}
+  .knobs2 .knob{width:38px;height:38px}
+  .kval{
+    min-width:34px;text-align:center;padding:1px 3px;border-radius:2px;
+    background:#10161d;border:1px solid #080c10;color:#b9e8cf;
+    font:600 7px/1.25 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .gain .kval{font-size:7.5px;min-width:44px}
+
+  /* ---------- EQ ---------- */
+  .eqbox{
+    border:1px solid #1d252d;border-radius:2px;padding:3px;
+    background:linear-gradient(180deg,#3b4550,#2e3740);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  .eqbox.off{opacity:.55}
+  .eqhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;gap:2px}
+  .eqled{
+    height:11px;padding:0 4px;border-radius:2px;cursor:pointer;font:600 6px/1 var(--mono);
+    letter-spacing:.08em;color:#95a8ba;background:linear-gradient(#2b343d,#1c232a);
+    border:1px solid #12181e;
+  }
+  .eqled.on{color:#e6fff2;background:linear-gradient(#2f9f6f,#1b6647);border-color:#46dfa3;
+             box-shadow:0 0 6px rgba(70,223,163,.5)}
+  .eqcells{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+  .eqcell{
+    height:13px;padding:0;border-radius:2px;cursor:pointer;font:600 6px/1 var(--mono);
+    color:#8496a8;background:linear-gradient(#2a323b,#1b222a);border:1px solid #12181e;
+  }
+  .eqcell:hover{color:#dbe9f5;border-color:#4c6b85}
+  .eqcell.on{color:#e9fff4;background:linear-gradient(#2f9a6c,#1a6346);border-color:#46dfa3;
+             box-shadow:0 0 5px rgba(70,223,163,.45)}
+
+  /* ---------- Routing ---------- */
+  .routing{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .rcol{display:flex;flex-direction:column;gap:2px}
+  .rb{
+    height:13.5px;padding:0;border-radius:2px;cursor:pointer;
+    font:600 6.2px/1 var(--mono);letter-spacing:.02em;color:#93a9bd;
+    background:linear-gradient(#333d48,#232a33);border:1px solid #141a20;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .rb:hover{color:#e4f0fa;border-color:#5a7d99}
+  .rb.on{
+    color:#eafff4;background:linear-gradient(#31a373,#1a6045);border-color:#4be3a5;
+    box-shadow:0 0 6px rgba(75,227,165,.5),inset 0 1px 0 rgba(255,255,255,.28);
+    text-shadow:0 0 5px rgba(200,255,230,.6);
+  }
+  .rhint{display:flex;justify-content:space-between;font-size:5.5px;color:var(--faint);
+         letter-spacing:.1em;margin-bottom:1px}
+
+  /* ---------- Pan ---------- */
+  .panrow{display:flex;align-items:center;gap:3px;font-size:5.5px;color:var(--faint)}
+  .panrow input[type=range]{
+    flex:1;min-width:0;height:9px;margin:0;appearance:none;-webkit-appearance:none;background:transparent;
+    cursor:ew-resize;
+  }
+  .panrow input[type=range]::-webkit-slider-runnable-track{
+    height:3px;border-radius:2px;background:#11171d;box-shadow:inset 0 1px 2px #000;
+  }
+  .panrow input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:8px;height:11px;margin-top:-4px;border-radius:1px;
+    background:linear-gradient(#d6e2eb,#7c8c9b);border:1px solid #0b1015;
+  }
+  .panrow input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:#11171d}
+  .panrow input[type=range]::-moz-range-thumb{
+    width:8px;height:11px;border-radius:1px;background:linear-gradient(#d6e2eb,#7c8c9b);border:1px solid #0b1015;
+  }
+  .panv{font:600 6px/1 var(--mono);color:#a9bccd;min-width:15px;text-align:right}
+
+  /* ---------- Fader + Pegel ---------- */
+  .faderzone{flex:1 1 auto;min-height:64px;display:flex;justify-content:center;align-items:stretch;
+             gap:3px;padding:2px 0 0}
+  .scale{position:relative;width:11px;font:500 5px/1 var(--mono);color:#7f92a4;flex:0 0 11px}
+  .scale span{position:absolute;right:0;transform:translateY(-50%)}
+  .meter{
+    position:relative;flex:0 0 9px;border-radius:1px;overflow:hidden;
+    background:#0a0f14;border:1px solid #05080b;box-shadow:inset 0 0 4px #000;
+  }
+  .meter .fill{
+    position:absolute;left:0;right:0;bottom:0;height:0;
+    background:linear-gradient(to top,#1fbf78 0%,#63df5c 55%,#e8d24b 80%,#ff5b4d 100%);
+    transition:height .22s linear;
+  }
+  .meter .leds{
+    position:absolute;inset:0;pointer-events:none;opacity:.55;
+    background:repeating-linear-gradient(to top,#000 0 1px,transparent 1px 4px);
+  }
+  .meter .peak{
+    position:absolute;left:0;right:0;height:2px;bottom:0;background:#f2f9ff;
+    opacity:0;transition:bottom .1s linear,opacity .4s;
+  }
+  .fader{
+    appearance:none;-webkit-appearance:none;flex:0 0 26px;width:26px;height:100%;margin:0;
+    background:transparent;cursor:ns-resize;writing-mode:vertical-lr;direction:rtl;
+  }
+  .fader::-webkit-slider-runnable-track{
+    width:5px;border-radius:3px;border:1px solid #0a0f14;
+    background:linear-gradient(to top,#37d68f 0 var(--fill,50%),#0d1319 var(--fill,50%) 100%);
+  }
+  .fader::-webkit-slider-thumb{
+    -webkit-appearance:none;width:26px;height:15px;border-radius:2px;margin-left:-11px;
+    background:linear-gradient(#eaf2f8 0%,#a3b4c2 40%,#4a5764 100%);
+    border:1px solid #0a0f14;
+    box-shadow:0 2px 3px rgba(0,0,0,.65),inset 0 1px 0 #fff;
+  }
+  .fader::-moz-range-track{
+    width:5px;border-radius:3px;border:1px solid #0a0f14;
+    background:linear-gradient(to top,#37d68f 0 var(--fill,50%),#0d1319 var(--fill,50%) 100%);
+  }
+  .fader::-moz-range-thumb{
+    width:22px;height:14px;border-radius:2px;
+    background:linear-gradient(#eaf2f8,#a3b4c2 40%,#4a5764);
+    border:1px solid #0a0f14;box-shadow:0 2px 3px rgba(0,0,0,.65);
+  }
+
+  /* ---------- Schalter ---------- */
+  .switches{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .sw{
+    height:14px;padding:0;border-radius:2px;cursor:pointer;
+    font:600 6.2px/1 var(--sans);letter-spacing:.08em;color:#a5b6c7;
+    background:linear-gradient(#38424e,#262e37);border:1px solid #141a20;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  .sw:hover{color:#eaf3fb;border-color:#587c98}
+  .sw.on{color:#eaf6ff;background:linear-gradient(#3c7ea8,#24506c);border-color:#6cc4ff;
+         box-shadow:0 0 6px rgba(108,196,255,.45)}
+  .sw.mute.on{color:#ffe9e7;background:linear-gradient(#a33a34,#6a211d);border-color:#ff6b60;
+              box-shadow:0 0 6px rgba(255,107,96,.5)}
+  .sw.solo.on{color:#fff4d8;background:linear-gradient(#a5791f,#6d4c11);border-color:#f3c24b;
+              box-shadow:0 0 6px rgba(243,194,75,.5)}
+  .sw.sel.on{background:linear-gradient(#35749e,#1f4964);border-color:#6cc4ff}
+  .sw.den.on{color:#efe6ff;background:linear-gradient(#63509a,#3c2f63);border-color:#b79cff;
+             box-shadow:0 0 6px rgba(183,156,255,.45)}
+
+  /* ---------- Master ---------- */
+  .master{
+    flex:0 0 auto;border:1px solid var(--edge);border-radius:3px;
+    background:linear-gradient(180deg,#4f5b68,#3a434e 60%,#333b46);
+    box-shadow:inset 0 1px 0 var(--edge-hi),0 1px 4px rgba(0,0,0,.5);
+  }
+  .mhead{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;height:19px;padding:0 8px;
+    border-bottom:1px solid #161c22;background:linear-gradient(#596574,#414b57);
+    font-size:6.8px;letter-spacing:.26em;color:#e2ebf4;text-transform:uppercase;
+  }
+  .mhead .mchip{font:600 6.5px/1 var(--mono);letter-spacing:.08em;color:#bfe9d5}
+  .mbody{display:flex;align-items:center;gap:10px;padding:6px 8px 7px}
+  .mknob{display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto}
+  .mknob .kval{font-size:8.5px;min-width:56px;color:#c8f3dd}
+  .msw{display:flex;flex-direction:column;gap:2px;flex:0 0 auto}
+  .msw .row2{display:flex;gap:2px}
+  .msw .sw{width:44px}
+  .mfields{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+  .field{display:flex;align-items:center;gap:4px;font-size:6px;letter-spacing:.12em;color:var(--dim)}
+  .field label{flex:0 0 34px}
+  .field input{
+    width:100%;min-width:0;height:17px;padding:0 4px;border-radius:2px;
+    background:#11171d;border:1px solid #080c10;color:#b9e8cf;
+    font:600 8px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .field .u{flex:0 0 auto;color:var(--faint);font-family:var(--mono);font-size:6px}
+  .mmeter{position:relative;height:6px;border-radius:1px;background:#0a0f14;border:1px solid #05080b;
+          overflow:hidden;box-shadow:inset 0 1px 3px #000}
+  .mmeter i{position:absolute;left:0;top:0;bottom:0;width:0;transition:width .22s linear;
+            background:linear-gradient(90deg,#1fbf78,#63df5c 55%,#e8d24b 80%,#ff5b4d)}
+  .mfoot{display:flex;justify-content:space-between;font-size:5.8px;color:var(--faint);letter-spacing:.1em;
+         padding:0 8px 5px}
+
+  /* ---------- Busse ---------- */
+  .bstrip{background:linear-gradient(180deg,#4a5461,#39424d 55%,#323a44)}
+  .bhead{
+    position:relative;padding:3px 4px 3px;border-bottom:1px solid #141a20;cursor:pointer;
+    background:linear-gradient(180deg,#44637f,#2a4054);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
+  }
+  .bname{font-size:9px;font-weight:700;letter-spacing:.14em;color:#f2f9ff;line-height:1.05}
+  .bsub2{font-size:5.5px;letter-spacing:.14em;color:rgba(255,255,255,.6)}
+  .bstrip.sel{outline:1px solid #6cc4ff;outline-offset:-1px;box-shadow:0 0 9px rgba(108,196,255,.35)}
+  .bbody{flex:1;display:flex;flex-direction:column;gap:3px;padding:4px 3px 5px;min-height:0}
+  .bbtns{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+  .bbtns .sw{height:13px;font-size:5.6px;letter-spacing:.02em}
+  .bstrip .kw .klabel{display:none}
+  .bstrip .knob{width:40px;height:40px}
+  .bstrip .knob .cap{inset:6px}
+  .bstrip .knob .ptr{top:5px;height:calc(50% - 5px)}
+  .bstrip .kval{min-width:40px;font-size:7px}
+  .bstrip .faderzone{min-height:80px;gap:2px}
+  .bstrip .fader{flex:0 0 20px;width:20px}
+  .bstrip .meter{flex:0 0 8px}
+  .bstrip .fader::-webkit-slider-thumb{width:20px;height:13px;margin-left:-8px}
+  .brow{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .brow .sw{height:14px}
+
+  /* ---------- Tape ---------- */
+  .tape{
+    flex:0 0 48px;display:flex;align-items:center;gap:9px;padding:0 9px;
+    border:1px solid var(--edge);border-radius:3px;
+    background:linear-gradient(180deg,#4d5865,#38414c 60%,#323a44);
+    box-shadow:inset 0 1px 0 var(--edge-hi),0 1px 4px rgba(0,0,0,.45);
+  }
+  .ttitle{display:flex;flex-direction:column;line-height:1.1;padding-right:9px;border-right:1px solid rgba(255,255,255,.14)}
+  .ttitle b{font-size:9px;letter-spacing:.24em;color:#eaf2fa}
+  .ttitle i{font-style:normal;font-size:5.8px;letter-spacing:.16em;color:var(--faint)}
+  .lamps{display:flex;flex-direction:column;gap:3px}
+  .lamp{width:7px;height:7px;border-radius:50%;background:#2a1616;border:1px solid #05080b;
+        box-shadow:inset 0 1px 1px rgba(255,255,255,.2)}
+  .lamp.on{background:#ff5f57;box-shadow:0 0 7px #ff5f57}
+  .lamp.g{background:#0f2a20}
+  .lamp.g.on{background:#39dd93;box-shadow:0 0 7px #39dd93}
+  .tpbtn{
+    height:26px;min-width:46px;border-radius:2px;cursor:pointer;border:1px solid #141a20;
+    background:linear-gradient(#3b4652,#28303a);
+    font:700 7px/1 var(--mono);letter-spacing:.12em;color:#c6d4e2;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 2px rgba(0,0,0,.4);
+  }
+  .tpbtn:hover{border-color:#5b7d99;color:#fff}
+  .tpbtn.rec.on{background:linear-gradient(#b8453c,#76241f);border-color:#ff6b60;color:#ffe9e7;
+                box-shadow:0 0 8px rgba(255,107,96,.5)}
+  .tpbtn.play.on{background:linear-gradient(#2f8f68,#1b5c43);border-color:#4be3a5;color:#e6fff2;
+                 box-shadow:0 0 8px rgba(75,227,165,.5)}
+  .tpbtn.stop.on{background:linear-gradient(#6b7784,#3f4954);border-color:#a9bccd;color:#fff}
+  .tc{
+    font:600 13px/1 var(--mono);letter-spacing:.06em;color:#a9e8c7;background:#0c1218;
+    border:1px solid #070b0f;border-radius:2px;padding:5px 8px;box-shadow:inset 0 1px 4px #000;
+  }
+  .ttargets{display:flex;align-items:center;gap:4px}
+  .ttargets .lbl{padding-right:2px}
+  .tgt{
+    width:23px;height:19px;border-radius:2px;cursor:pointer;border:1px solid #141a20;
+    background:linear-gradient(#333d48,#232a33);color:#93a9bd;
+    font:600 6.2px/1 var(--mono);
+  }
+  .tgt:hover{color:#e4f0fa;border-color:#5a7d99}
+  .tgt.on{color:#eafff4;background:linear-gradient(#2f9a6c,#1a5f44);border-color:#4be3a5;
+          box-shadow:0 0 5px rgba(75,227,165,.4)}
+  .tnote{font-size:5.8px;letter-spacing:.1em;color:var(--faint);white-space:nowrap}
+
+  .toast{
+    position:fixed;right:14px;bottom:64px;padding:7px 11px;border-radius:2px;
+    background:#121a22;border:1px solid #3f6656;color:#b8f0d7;font-size:8px;letter-spacing:.08em;
+    opacity:0;transform:translateY(4px);transition:opacity .2s,transform .2s;pointer-events:none;
+    box-shadow:0 4px 14px rgba(0,0,0,.5);
+  }
+  .toast.show{opacity:1;transform:none}
+
+  @media (max-width:1300px){
+    .sbody{padding:3px}
+    .lbl{font-size:5.5px}
+    .knobs2 .knob{width:34px;height:34px}
+    .mfields{display:none}
+  }
 </style>
 </head>
 <body>
-<div class="console">
-  <div class="topbar">
-    <span class="brand">vm8<b>·</b>linux <span style="color:var(--dim);font-size:9px">VIRTUAL MIXING CONSOLE</span></span>
-    <span class="tbox" id="sr">48000</span>
-    <span class="tbox" id="buf">1024</span>
-    <span class="tbox" id="state">OFFLINE</span>
-    <span class="spacer"></span>
-    <button class="btn" id="save">Preset speichern</button>
-    <button class="btn" id="load">Preset laden</button>
-  </div>
-  <div class="rack" id="rack"></div>
-  <div class="tape">
-    <span style="font-size:9px;color:var(--dim);letter-spacing:.1em">TAPE</span>
-    <span class="lamp" id="reclamp"></span>
-    <button class="btn" id="tapeRec">REC</button>
-    <button class="btn">PLAY</button>
-    <button class="btn">STOP</button>
-    <span style="font-size:9px;color:var(--dim);margin-left:8px">Ziel:</span>
-    <span id="tapeTargets" style="display:flex;gap:2px"></span>
-    <span class="spacer"></span>
-    <span style="font-size:9px;color:var(--dim)">Fader = Gain · Routing A1…B3 je Streifen</span>
-  </div>
-  <footer>8 Streifen × 8 Busse · PipeWire/JACK · Presets in ~/.config/vm8-linux/</footer>
+<div class="app">
+  <header class="titlebar">
+    <div class="brand">
+      <div class="logo">vm<b>8</b></div>
+      <div class="bsub"><b>VIRTUELLER MIXER</b><i>PIPEWIRE · JACK</i></div>
+    </div>
+    <span class="chip"><span class="k">RATE</span><span id="sr">–</span></span>
+    <span class="chip"><span class="k">BLOCK</span><span id="blk">–</span></span>
+    <span class="chip" id="status"><i></i><span id="statusTxt">VERBINDE</span></span>
+    <span class="grow"></span>
+    <button class="tbtn" id="presetSave" title="Aktuelle Einstellungen als Preset speichern">Preset speichern</button>
+    <button class="tbtn" id="presetLoad" title="Gespeichertes Preset laden">Preset laden</button>
+  </header>
+
+  <main class="deck">
+    <section class="strips" id="strips" aria-label="Eingangskanäle"></section>
+    <section class="side">
+      <div class="master" id="master">
+        <div class="mhead"><span>Master Section</span><span class="mchip" id="mSelName">A1</span></div>
+        <div class="mbody">
+          <div class="mknob" id="masterKnob"></div>
+          <div class="msw">
+            <button class="sw sel on" id="mSel" title="Ausgewählter Bus">SEL</button>
+            <div class="row2">
+              <button class="sw" id="mMono" title="Mono">MONO</button>
+              <button class="sw mute" id="mMute" title="Stumm">MUTE</button>
+            </div>
+            <div class="row2">
+              <button class="sw" id="mEq" title="Bus-EQ">EQ</button>
+              <button class="sw" id="mLim" title="Limiter">LIM</button>
+            </div>
+          </div>
+          <div class="mfields">
+            <div class="field"><label for="mTrim">TRIM</label>
+              <input id="mTrim" type="number" step="0.5" min="-20" max="20" value="0"><span class="u">dB</span></div>
+            <div class="field"><label for="mDelay">DELAY</label>
+              <input id="mDelay" type="number" step="1" min="0" max="2000" value="0"><span class="u">ms</span></div>
+            <div class="field"><label for="mMasterOut">PEGEL</label>
+              <div class="mmeter" id="mMeter"><i></i></div></div>
+          </div>
+        </div>
+        <div class="mfoot"><span id="mFoot">Bus A1 · Klick auf Buskopf wählt</span><span>MASTER</span></div>
+      </div>
+      <div class="buses" id="buses" aria-label="Ausgangsbusse"></div>
+    </section>
+  </main>
+
+  <footer class="tape">
+    <div class="ttitle"><b>TAPE</b><i>BANDMASCHINE</i></div>
+    <div class="lamps"><span class="lamp" id="lampRec"></span><span class="lamp g" id="lampPlay"></span></div>
+    <button class="tpbtn rec" id="tRec">REC</button>
+    <button class="tpbtn play" id="tPlay">PLAY</button>
+    <button class="tpbtn stop" id="tStop">STOP</button>
+    <div class="tc" id="tc">00:00:00</div>
+    <div class="ttargets"><span class="lbl">Ziel</span><div id="targets" style="display:flex;gap:3px"></div></div>
+    <span class="grow"></span>
+    <span class="tnote">Aufnahme-Steuerung · nur Optik (ohne Funktion)</span>
+  </footer>
 </div>
+<div class="toast" id="toast"></div>
+
 <script>
-const BUSN=["A1","A2","A3","A4","A5","B1","B2","B3"];
-const COL=["#2b4a7a","#2f5a6b","#3b5f3f","#5a4a2b","#6b3548","#3a3f6b","#2b5f6b","#5f2b3a"];
-let S=[],B=[],built=false;
-const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e;};
-const api=(p,b)=>fetch(p,b?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}:{}).then(r=>r.json());
-const setP=(target,index,param,value)=>api("/api/set",{target,index,param,value});
+"use strict";
+(function () {
+  const BUS_NAMES = ["A1", "A2", "A3", "A4", "A5", "B1", "B2", "B3"];
+  const COLORS = [
+    ["#3f7fae", "#245473"],
+    ["#3d7f8d", "#23545f"],
+    ["#4a8256", "#2a5436"],
+    ["#8a6f3f", "#5d4a26"],
+    ["#83506b", "#573347"],
+    ["#3c6c9c", "#234566"],
+    ["#587f4a", "#38542c"],
+    ["#77507f", "#4c3254"]
+  ];
+  const ui = { strips: [], buses: [] };
+  let built = false, state = null, selectedBus = 0, selectedStrip = -1;
 
-function buildStrip(st,i,isBus){
-  const c=el("div","strip"+(isBus?" bus":""));
-  const cap=el("div","cap",isBus?("BUS "+st.name):st.name);
-  cap.style.background=isBus?"linear-gradient(#2b3f66,#1b2a44)":"linear-gradient("+COL[i]+",#16233a)";
-  c.appendChild(cap);
-  const body=el("div","body");
-  const fz=el("div","faderzone");
-  const m=el("div","meter"),bar=el("i");m.appendChild(bar);
-  const f=el("input","fader");f.type="range";f.min=-60;f.max=12;f.step=0.5;f.value=st.gain;
-  fz.append(m,f);body.appendChild(fz);
-  const db=el("div","db",(+st.gain).toFixed(1)+" dB");body.appendChild(db);
-  if(!isBus){
-    const pan=el("div","pan");pan.appendChild(el("span",null,"PAN"));
-    const pi=el("input");pi.type="range";pi.min=-1;pi.max=1;pi.step=0.05;pi.value=st.pan;
-    pan.appendChild(pi);body.appendChild(pan);
-    const sEls=[];
-    const hw=el("div","routing hw");
-    for(let k=0;k<5;k++){const b=el("button","rb",BUSN[k]);
-      b.onclick=()=>setP("strip",i,"send"+k,sEls[k].classList.contains("on")?0:1);
-      hw.appendChild(b);sEls.push(b);}
-    body.appendChild(hw);
-    const vw=el("div","routing");
-    for(let k=5;k<8;k++){const b=el("button","rb",BUSN[k]);
-      b.onclick=()=>setP("strip",i,"send"+k,sEls[k].classList.contains("on")?0:1);
-      vw.appendChild(b);sEls.push(b);}
-    body.appendChild(vw);
-    const r1=el("div","row");
-    const bm=el("button","btn mute","M"),bs=el("button","btn solo","S"),bo=el("button","btn","Ø");
-    bm.onclick=()=>setP("strip",i,"mute",bm.classList.contains("on")?0:1);
-    bs.onclick=()=>setP("strip",i,"solo",bs.classList.contains("on")?0:1);
-    bo.onclick=()=>setP("strip",i,"mono",bo.classList.contains("on")?0:1);
-    r1.append(bm,bs,bo);body.appendChild(r1);
-    const r2=el("div","row");
-    const be=el("button","btn","EQ"),bc=el("button","btn","C"),bg=el("button","btn","G");
-    be.onclick=()=>setP("strip",i,"eq",be.classList.contains("on")?0:1);
-    bc.onclick=()=>setP("strip",i,"comp",bc.classList.contains("on")?0:1);
-    bg.onclick=()=>setP("strip",i,"gate",bg.classList.contains("on")?0:1);
-    r2.append(be,bc,bg);body.appendChild(r2);
-    f.oninput=()=>{db.textContent=(+f.value).toFixed(1)+" dB";setP("strip",i,"gain",+f.value);};
-    pi.oninput=()=>setP("strip",i,"pan",+pi.value);
-    S.push({bar,f,db,bm,bs,bo,be,bc,bg,sends:sEls,pan:pi});
-  }else{
-    const r1=el("div","row");
-    const bm=el("button","btn mute","M"),bl=el("button","btn","LIM");
-    bm.onclick=()=>setP("bus",i,"mute",bm.classList.contains("on")?0:1);
-    bl.onclick=()=>setP("bus",i,"limiter",bl.classList.contains("on")?0:1);
-    r1.append(bm,bl);body.appendChild(r1);
-    f.oninput=()=>{db.textContent=(+f.value).toFixed(1)+" dB";setP("bus",i,"gain",+f.value);};
-    B.push({bar,f,db,bm,bl});
+  /* ---------- Hilfsfunktionen ---------- */
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, txt) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (txt !== undefined) e.textContent = txt;
+    return e;
+  };
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const fmtDb = (v) => (v > 0.049 ? "+" : "") + v.toFixed(1) + " dB";
+  const fmtPan = (v) => (Math.abs(v) < 0.02 ? "C" : (v < 0 ? "L" : "R") + Math.round(Math.abs(v) * 100));
+
+  function api(path, body) {
+    const opt = body
+      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {};
+    return fetch(path, opt).then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    });
   }
-  c.appendChild(body);
-  return c;
-}
 
-function build(state){
-  const rack=document.getElementById("rack");rack.innerHTML="";S=[];B=[];
-  state.strips.forEach((st,i)=>rack.appendChild(buildStrip(st,i,false)));
-  const gap=el("div");gap.style.cssText="width:6px";rack.appendChild(gap);
-  state.buses.forEach((bs,i)=>rack.appendChild(buildStrip(bs,i,true)));
-  const tt=document.getElementById("tapeTargets");tt.innerHTML="";
-  BUSN.forEach(bn=>{const b=el("button","btn",bn);b.style.opacity=".55";tt.appendChild(b);});
-  built=true;apply(state);
-}
+  /* gebündelte Parameteränderungen (max. ~16 Pakete/s) */
+  const pending = new Map();
+  let flushTimer = null;
+  function send(target, index, param, value) {
+    pending.set(target + index + ":" + param, { target, index, param, value });
+    if (!flushTimer) flushTimer = setTimeout(flush, 60);
+  }
+  function flush() {
+    flushTimer = null;
+    const items = Array.from(pending.values());
+    pending.clear();
+    items.forEach((it) => api("/api/set", it).catch(() => {}));
+  }
 
-function apply(state){
-  state.strips.forEach((st,i)=>{const e=S[i];if(!e)return;
-    if(document.activeElement!==e.f){e.f.value=st.gain;e.db.textContent=(+st.gain).toFixed(1)+" dB";}
-    if(document.activeElement!==e.pan)e.pan.value=st.pan;
-    e.bm.classList.toggle("on",!!st.mute);e.bs.classList.toggle("on",!!st.solo);
-    e.bo.classList.toggle("on",!!st.mono);e.be.classList.toggle("on",!!st.eq);
-    e.bc.classList.toggle("on",!!st.comp);e.bg.classList.toggle("on",!!st.gate);
-    st.sends.forEach((v,k)=>{if(e.sends[k])e.sends[k].classList.toggle("on",v>0);});});
-  state.buses.forEach((bs,i)=>{const e=B[i];if(!e)return;
-    if(document.activeElement!==e.f){e.f.value=bs.gain;e.db.textContent=(+bs.gain).toFixed(1)+" dB";}
-    e.bm.classList.toggle("on",!!bs.mute);e.bl.classList.toggle("on",!!bs.limiter);});
-  document.getElementById("sr").textContent=state.sample_rate;
-  document.getElementById("buf").textContent=state.block;
-}
+  function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove("show"), 1800);
+  }
 
-async function tick(){
-  try{
-    const st=await api("/api/state");
-    if(!built)build(st);else apply(st);
-    const lv=await api("/api/levels");
-    const px=db=>Math.max(0,Math.min(100,(db+60)/72*100))+"%";
-    lv.strips.forEach((db,i)=>{if(S[i])S[i].bar.style.height=px(db);});
-    lv.buses.forEach((db,i)=>{if(B[i])B[i].bar.style.height=px(db);});
-    const s=document.getElementById("state");s.textContent="ON AIR";s.style.color="var(--on)";
-  }catch(e){const s=document.getElementById("state");s.textContent="OFFLINE";s.style.color="var(--hot)";}
-}
-document.getElementById("save").onclick=()=>api("/api/preset",{action:"save"});
-document.getElementById("load").onclick=()=>api("/api/preset",{action:"load"});
-document.getElementById("tapeRec").onclick=()=>document.getElementById("reclamp").classList.toggle("on");
-setInterval(tick,500);tick();
+  function fillFader(f) {
+    const p = ((+f.value - +f.min) / (+f.max - +f.min)) * 100;
+    f.style.setProperty("--fill", p.toFixed(1) + "%");
+  }
+
+  function makeMeter(thin) {
+    const m = el("div", "meter" + (thin ? " thin" : ""));
+    const fill = el("div", "fill");
+    const peak = el("div", "peak");
+    const leds = el("div", "leds");
+    m.append(fill, peak, leds);
+    return { el: m, fill: fill, peak: peak, peakDb: -140 };
+  }
+  function meterSet(m, db) {
+    const pct = clamp((db + 60) / 60, 0, 1) * 100;
+    m.fill.style.height = pct.toFixed(1) + "%";
+    if (db >= m.peakDb) m.peakDb = db;
+    else m.peakDb = Math.max(db, m.peakDb - 1.5);
+    const pp = clamp((m.peakDb + 60) / 60, 0, 1) * 100;
+    m.peak.style.bottom = pp.toFixed(1) + "%";
+    m.peak.style.opacity = pct > 1 ? "1" : "0";
+  }
+
+  function makeScale() {
+    const s = el("div", "scale");
+    [0, -6, -12, -24, -48].forEach((db) => {
+      const sp = el("span", null, String(db));
+      sp.style.top = (100 - clamp((db + 60) / 60, 0, 1) * 100).toFixed(2) + "%";
+      s.appendChild(sp);
+    });
+    return s;
+  }
+
+  /* ---------- Drehregler ---------- */
+  function makeKnob(o) {
+    const wrap = el("div", "kw" + (o.cls ? " " + o.cls : ""));
+    if (o.label) wrap.appendChild(el("div", "klabel", o.label));
+    const k = el("div", "knob" + (o.big ? " big" : ""));
+    k.tabIndex = 0;
+    k.setAttribute("role", "slider");
+    k.setAttribute("aria-label", o.label || o.aria || "Regler");
+    k.setAttribute("aria-valuemin", String(o.min));
+    k.setAttribute("aria-valuemax", String(o.max));
+    if (o.color) k.style.setProperty("--kc", o.color);
+    const arc = el("div", "arc");
+    const cap = el("div", "cap");
+    const ptr = el("i", "ptr");
+    cap.appendChild(ptr);
+    k.append(arc, cap);
+    wrap.appendChild(k);
+    const val = el("div", "kval");
+    wrap.appendChild(val);
+
+    const step = o.step || 1;
+    const fmt = o.fmt || ((v) => v.toFixed(1));
+    let v = clamp(o.value !== undefined ? o.value : 0, o.min, o.max);
+    let drag = false, y0 = 0, v0 = 0;
+
+    function paint() {
+      const p = (v - o.min) / (o.max - o.min);
+      arc.style.setProperty("--p", (p * 100).toFixed(2));
+      ptr.style.transform = "rotate(" + (-135 + p * 270).toFixed(2) + "deg)";
+      val.textContent = fmt(v);
+      k.setAttribute("aria-valuenow", v.toFixed(1));
+      k.setAttribute("aria-valuetext", fmt(v));
+    }
+    function set(nv, silent) {
+      nv = clamp(Math.round(nv / step) * step, o.min, o.max);
+      if (Math.abs(nv - v) < 1e-9) { paint(); return; }
+      v = nv;
+      paint();
+      if (!silent && o.onChange) o.onChange(v);
+    }
+
+    k.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      drag = true; y0 = e.clientY; v0 = v;
+      k.classList.add("drag");
+      k.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    k.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const rng = o.max - o.min;
+      const dy = (y0 - e.clientY) / 150;
+      set(v0 + dy * rng * (e.shiftKey ? 0.25 : 1));
+    });
+    function stopDrag() {
+      if (!drag) return;
+      drag = false;
+      k.classList.remove("drag");
+      flush();
+    }
+    k.addEventListener("pointerup", stopDrag);
+    k.addEventListener("pointercancel", stopDrag);
+    k.addEventListener("lostpointercapture", stopDrag);
+    k.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      set(v + (e.deltaY < 0 ? step : -step));
+      flush();
+    }, { passive: false });
+    k.addEventListener("dblclick", () => { set(o.def !== undefined ? o.def : o.min); flush(); });
+    k.addEventListener("keydown", (e) => {
+      let d = 0;
+      if (e.key === "ArrowUp" || e.key === "ArrowRight") d = step;
+      else if (e.key === "ArrowDown" || e.key === "ArrowLeft") d = -step;
+      else if (e.key === "PageUp") d = step * 5;
+      else if (e.key === "PageDown") d = -step * 5;
+      else if (e.key === "Home") { e.preventDefault(); set(o.min); flush(); return; }
+      else if (e.key === "End") { e.preventDefault(); set(o.max); flush(); return; }
+      if (d) { e.preventDefault(); set(v + d); flush(); }
+    });
+
+    paint();
+    return { el: wrap, set: set, get: () => v, dragging: () => drag };
+  }
+
+  /* ---------- Kanalzug ---------- */
+  function buildStrip(s, i) {
+    const root = el("div", "strip");
+    root.style.setProperty("--h1", COLORS[i % COLORS.length][0]);
+    root.style.setProperty("--h2", COLORS[i % COLORS.length][1]);
+
+    const head = el("div", "head");
+    const nm = el("div", "sname", String(s.name || "Kanal " + (i + 1)).toUpperCase());
+    nm.title = s.name + " — Kanal " + (i + 1);
+    const sub = el("div", "ssub", /^HW/i.test(s.name) ? "Hardware-Eingang" : "Virtueller Eingang");
+    head.append(nm, sub, el("div", "sidx", String(i + 1).padStart(2, "0")));
+    root.appendChild(head);
+
+    const body = el("div", "sbody");
+
+    /* Gain-Regler */
+    const knobs = el("div", "knobs");
+    const gain = makeKnob({
+      label: "GAIN", min: -60, max: 12, step: 0.5, value: s.gain, def: 0,
+      color: "#f3c24b", fmt: fmtDb, cls: "gain",
+      onChange: (v) => { send("strip", i, "gain", v); fader.value = v; fillFader(fader); }
+    });
+    knobs.appendChild(gain.el);
+    body.appendChild(knobs);
+
+    /* Comp + Gate */
+    const knobs2 = el("div", "knobs2");
+    const compK = makeKnob({
+      label: "COMP", min: -60, max: 0, step: 1, value: -18, def: -18,
+      color: "#6cc4ff", fmt: (v) => v.toFixed(0) + " dB",
+      onChange: (v) => send("strip", i, "comp_threshold", v)
+    });
+    const gateK = makeKnob({
+      label: "GATE", min: -80, max: 0, step: 1, value: -60, def: -60,
+      color: "#b79cff", fmt: (v) => v.toFixed(0) + " dB",
+      onChange: (v) => send("strip", i, "gate_threshold", v)
+    });
+    knobs2.append(compK.el, gateK.el);
+    body.appendChild(knobs2);
+
+    /* EQ-Box mit 6 Zellen */
+    const eqbox = el("div", "eqbox");
+    const eqhead = el("div", "eqhead");
+    eqhead.appendChild(el("span", "lbl", "EQ · 6 Bänder"));
+    const eqBtn = el("button", "eqled", "EQ");
+    eqBtn.title = "Kanal-EQ ein/aus";
+    eqhead.appendChild(eqBtn);
+    const cells = el("div", "eqcells");
+    const bands = ["80", "250", "1k", "3k", "8k", "12k"];
+    const cellBtns = [];
+    bands.forEach((label, c) => {
+      const b = el("button", "eqcell", label);
+      b.title = "EQ-Band " + (c + 1) + " · " + label + " Hz";
+      b.addEventListener("click", () => {
+        const on = !b.classList.contains("on");
+        b.classList.toggle("on", on);
+        send("strip", i, "eq" + c + "_on", on ? 1 : 0);
+      });
+      cells.appendChild(b);
+      cellBtns.push(b);
+    });
+    eqbox.append(eqhead, cells);
+    body.appendChild(eqbox);
+    eqBtn.addEventListener("click", () => {
+      const on = !eqBtn.classList.contains("on");
+      eqBtn.classList.toggle("on", on);
+      eqbox.classList.toggle("off", !on);
+      send("strip", i, "eq", on ? 1 : 0);
+    });
+
+    /* Routing A1..A5 / B1..B3 */
+    const hint = el("div", "rhint");
+    hint.append(el("span", null, "A-BUS"), el("span", null, "B-BUS"));
+    const routing = el("div", "routing");
+    const colA = el("div", "rcol"), colB = el("div", "rcol");
+    const sends = [];
+    BUS_NAMES.forEach((bn, k) => {
+      const b = el("button", "rb", bn);
+      b.title = "Send nach " + bn;
+      b.addEventListener("click", () => {
+        const on = !b.classList.contains("on");
+        b.classList.toggle("on", on);
+        send("strip", i, "send" + k, on ? 1 : 0);
+      });
+      (k < 5 ? colA : colB).appendChild(b);
+      sends.push(b);
+    });
+    routing.append(colA, colB);
+    body.append(hint, routing);
+
+    /* Pan */
+    const panrow = el("div", "panrow");
+    const pan = el("input");
+    pan.type = "range"; pan.className = "pan";
+    pan.min = "-1"; pan.max = "1"; pan.step = "0.02"; pan.value = String(s.pan || 0);
+    pan.title = "Panorama";
+    const panVal = el("span", "panv", fmtPan(s.pan || 0));
+    panrow.append(el("span", null, "L"), pan, el("span", null, "R"), panVal);
+    pan.addEventListener("input", () => {
+      panVal.textContent = fmtPan(+pan.value);
+      send("strip", i, "pan", +pan.value);
+    });
+    body.appendChild(panrow);
+
+    /* Fader + Pegel */
+    const fz = el("div", "faderzone");
+    const meter = makeMeter();
+    const fader = el("input");
+    fader.type = "range"; fader.className = "fader";
+    fader.min = "-60"; fader.max = "12"; fader.step = "0.5";
+    fader.value = String(s.gain);
+    fader.title = "Fader (Gain)";
+    fillFader(fader);
+    fader.addEventListener("input", () => {
+      gain.set(+fader.value, true);
+      fillFader(fader);
+      send("strip", i, "gain", +fader.value);
+    });
+    fader.addEventListener("change", flush);
+    fz.append(makeScale(), meter.el, fader);
+    body.appendChild(fz);
+
+    /* Schalter unten */
+    const sw = el("div", "switches");
+    const bSel = el("button", "sw sel", "SEL");
+    const bMute = el("button", "sw mute", "MUTE");
+    const bSolo = el("button", "sw solo", "SOLO");
+    const bMono = el("button", "sw", "MONO");
+    const bM = el("button", "sw", "M");
+    const bDen = el("button", "sw den", "DEN");
+    bSel.title = "Kanal auswählen";
+    bMute.title = "Stummschalten";
+    bSolo.title = "Solo";
+    bMono.title = "Mono";
+    bM.title = "Mono (Kurzschalter)";
+    bDen.title = "Denoiser";
+    sw.append(bSel, bM, bMute, bSolo, bMono, bDen);
+    body.appendChild(sw);
+
+    const toggle = (btn, param) => {
+      const on = !btn.classList.contains("on");
+      btn.classList.toggle("on", on);
+      send("strip", i, param, on ? 1 : 0);
+    };
+    bMute.addEventListener("click", () => toggle(bMute, "mute"));
+    bSolo.addEventListener("click", () => toggle(bSolo, "solo"));
+    const setMono = (on) => {
+      bMono.classList.toggle("on", on);
+      bM.classList.toggle("on", on);
+      send("strip", i, "mono", on ? 1 : 0);
+    };
+    bMono.addEventListener("click", () => setMono(!bMono.classList.contains("on")));
+    bM.addEventListener("click", () => setMono(!bM.classList.contains("on")));
+    bDen.addEventListener("click", () => toggle(bDen, "denoiser"));
+    bSel.addEventListener("click", () => {
+      selectedStrip = selectedStrip === i ? -1 : i;
+      ui.strips.forEach((u, k) => u.root.classList.toggle("sel", k === selectedStrip));
+    });
+
+    root.appendChild(body);
+    ui.strips[i] = {
+      root, gain, compK, gateK, fader, meter, sends, pan, panVal,
+      eqBtn, eqbox, cells: cellBtns, mute: bMute, solo: bSolo,
+      mono: bMono, m: bM, den: bDen
+    };
+  }
+
+  /* ---------- Bus-Zug ---------- */
+  function buildBus(b, i) {
+    const root = el("div", "bstrip");
+    const head = el("div", "bhead");
+    head.append(el("div", "bname", BUS_NAMES[i]), el("div", "bsub2", "AUSGANG"));
+    head.title = "Bus " + BUS_NAMES[i] + " auswählen";
+    head.addEventListener("click", () => selectBus(i));
+    root.appendChild(head);
+
+    const body = el("div", "bbody");
+
+    const fader = el("input");
+    fader.type = "range"; fader.className = "fader";
+    fader.min = "-60"; fader.max = "12"; fader.step = "0.5";
+    fader.value = String(b.gain);
+    fader.title = "Bus-Fader";
+    fillFader(fader);
+
+    const kn = makeKnob({
+      min: -60, max: 12, step: 0.5, value: b.gain, def: 0,
+      color: "#6cc4ff", fmt: fmtDb,
+      onChange: (v) => { send("bus", i, "gain", v); fader.value = v; fillFader(fader); }
+    });
+    body.appendChild(kn.el);
+
+    const btns = el("div", "bbtns");
+    const bMono = el("button", "sw", "MONO");
+    const bEq = el("button", "sw", "EQ");
+    const bLim = el("button", "sw", "LIM");
+    bMono.title = "Bus mono";
+    bEq.title = "Bus-EQ";
+    bLim.title = "Limiter";
+    btns.append(bMono, bEq, bLim);
+    body.appendChild(btns);
+
+    const meter = makeMeter(true);
+    const fz = el("div", "faderzone");
+    fz.append(meter.el, fader);
+    body.appendChild(fz);
+
+    const brow = el("div", "brow");
+    const bMute = el("button", "sw mute", "MUTE");
+    const bSel = el("button", "sw sel", "SEL");
+    bMute.title = "Bus stumm";
+    bSel.title = "Bus für Master wählen";
+    brow.append(bMute, bSel);
+    body.appendChild(brow);
+
+    const toggle = (btn, param) => {
+      const on = !btn.classList.contains("on");
+      btn.classList.toggle("on", on);
+      send("bus", i, param, on ? 1 : 0);
+    };
+    bMute.addEventListener("click", () => toggle(bMute, "mute"));
+    bMono.addEventListener("click", () => toggle(bMono, "mono"));
+    bEq.addEventListener("click", () => toggle(bEq, "eq"));
+    bLim.addEventListener("click", () => toggle(bLim, "limiter"));
+    bSel.addEventListener("click", () => selectBus(i));
+    fader.addEventListener("input", () => {
+      kn.set(+fader.value, true);
+      fillFader(fader);
+      send("bus", i, "gain", +fader.value);
+    });
+    fader.addEventListener("change", flush);
+
+    root.appendChild(body);
+    ui.buses[i] = { root, head, kn, fader, meter, mute: bMute, mono: bMono, eq: bEq, lim: bLim, sel: bSel };
+  }
+
+  /* ---------- Master ---------- */
+  let masterKnob = null;
+  function buildMaster() {
+    masterKnob = makeKnob({
+      label: "MASTER", min: -60, max: 12, step: 0.5, value: 0, def: 0,
+      color: "#4be3a5", fmt: fmtDb, big: true,
+      onChange: (v) => {
+        send("bus", selectedBus, "gain", v);
+        const u = ui.buses[selectedBus];
+        if (u) { u.kn.set(v, true); u.fader.value = v; fillFader(u.fader); }
+      }
+    });
+    $("masterKnob").appendChild(masterKnob.el);
+
+    const toggle = (btn, param) => {
+      const on = !btn.classList.contains("on");
+      btn.classList.toggle("on", on);
+      send("bus", selectedBus, param, on ? 1 : 0);
+    };
+    $("mMute").addEventListener("click", () => toggle($("mMute"), "mute"));
+    $("mMono").addEventListener("click", () => toggle($("mMono"), "mono"));
+    $("mEq").addEventListener("click", () => toggle($("mEq"), "eq"));
+    $("mLim").addEventListener("click", () => toggle($("mLim"), "limiter"));
+    $("mSel").addEventListener("click", () => selectBus((selectedBus + 1) % BUS_NAMES.length));
+
+    const trim = $("mTrim"), delay = $("mDelay");
+    const pushTrim = () => send("bus", selectedBus, "trim", +trim.value || 0);
+    const pushDelay = () => send("bus", selectedBus, "delay", Math.max(0, +delay.value || 0));
+    trim.addEventListener("change", () => { pushTrim(); flush(); });
+    delay.addEventListener("change", () => { pushDelay(); flush(); });
+  }
+
+  function selectBus(i) {
+    selectedBus = i;
+    ui.buses.forEach((u, k) => {
+      u.root.classList.toggle("sel", k === i);
+      u.sel.classList.toggle("on", k === i);
+    });
+    $("mSelName").textContent = BUS_NAMES[i];
+    $("mFoot").textContent = "Bus " + BUS_NAMES[i] + " · Klick auf Buskopf wählt";
+    if (!state) return;
+    const b = state.buses[i];
+    if (!b) return;
+    masterKnob.set(b.gain, true);
+    $("mTrim").value = (+b.trim || 0).toFixed(1);
+    $("mDelay").value = Math.round(+b.delay_ms || 0);
+    $("mMono").classList.toggle("on", !!b.mono);
+    $("mMute").classList.toggle("on", !!b.mute);
+    $("mEq").classList.toggle("on", !!b.eq);
+    $("mLim").classList.toggle("on", !!b.limiter);
+  }
+
+  /* ---------- Tape ---------- */
+  function buildTape() {
+    const box = $("targets");
+    BUS_NAMES.forEach((bn) => {
+      const b = el("button", "tgt", bn);
+      b.title = "Tape-Ziel " + bn;
+      b.addEventListener("click", () => b.classList.toggle("on"));
+      box.appendChild(b);
+    });
+    const rec = $("tRec"), play = $("tPlay"), stop = $("tStop");
+    const lampRec = $("lampRec"), lampPlay = $("lampPlay");
+    let secs = 0, timer = null;
+    const paintTc = () => {
+      const h = String(Math.floor(secs / 3600)).padStart(2, "0");
+      const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
+      const s = String(secs % 60).padStart(2, "0");
+      $("tc").textContent = h + ":" + m + ":" + s;
+    };
+    const stopAll = () => {
+      play.classList.remove("on"); rec.classList.remove("on");
+      lampPlay.classList.remove("on"); lampRec.classList.remove("on");
+      stop.classList.add("on");
+      clearInterval(timer); timer = null;
+    };
+    rec.addEventListener("click", () => {
+      const on = !rec.classList.contains("on");
+      rec.classList.toggle("on", on);
+      lampRec.classList.toggle("on", on);
+      stop.classList.remove("on");
+    });
+    play.addEventListener("click", () => {
+      const on = !play.classList.contains("on");
+      play.classList.toggle("on", on);
+      lampPlay.classList.toggle("on", on);
+      stop.classList.remove("on");
+      clearInterval(timer); timer = null;
+      if (on) {
+        timer = setInterval(() => { secs++; paintTc(); }, 1000);
+      }
+    });
+    stop.addEventListener("click", () => { secs = 0; paintTc(); stopAll(); });
+  }
+
+  /* ---------- Aufbau ---------- */
+  function build(st) {
+    const strips = $("strips"), buses = $("buses");
+    strips.innerHTML = ""; buses.innerHTML = "";
+    ui.strips.length = 0; ui.buses.length = 0;
+    st.strips.forEach((s, i) => { buildStrip(s, i); strips.appendChild(ui.strips[i].root); });
+    st.buses.forEach((b, i) => { buildBus(b, i); buses.appendChild(ui.buses[i].root); });
+    buildMaster();
+    buildTape();
+    selectedBus = 0;
+    selectBus(0);
+    built = true;
+  }
+
+  /* ---------- Zustand anwenden ---------- */
+  function applyState(st) {
+    st.strips.forEach((s, i) => {
+      const u = ui.strips[i];
+      if (!u) return;
+      if (!u.gain.dragging() && document.activeElement !== u.fader) {
+        u.gain.set(s.gain, true);
+        u.fader.value = s.gain;
+        fillFader(u.fader);
+      }
+      if (document.activeElement !== u.pan) {
+        u.pan.value = s.pan;
+        u.panVal.textContent = fmtPan(s.pan);
+      }
+      u.mute.classList.toggle("on", !!s.mute);
+      u.solo.classList.toggle("on", !!s.solo);
+      u.mono.classList.toggle("on", !!s.mono);
+      u.m.classList.toggle("on", !!s.mono);
+      u.den.classList.toggle("on", !!s.denoiser);
+      u.eqBtn.classList.toggle("on", !!s.eq);
+      u.eqbox.classList.toggle("off", !s.eq);
+      (s.sends || []).forEach((v, k) => { if (u.sends[k]) u.sends[k].classList.toggle("on", v > 0); });
+    });
+
+    st.buses.forEach((b, i) => {
+      const u = ui.buses[i];
+      if (!u) return;
+      if (!u.kn.dragging() && document.activeElement !== u.fader) {
+        u.kn.set(b.gain, true);
+        u.fader.value = b.gain;
+        fillFader(u.fader);
+      }
+      u.mute.classList.toggle("on", !!b.mute);
+      u.mono.classList.toggle("on", !!b.mono);
+      u.eq.classList.toggle("on", !!b.eq);
+      u.lim.classList.toggle("on", !!b.limiter);
+    });
+
+    const mb = st.buses[selectedBus];
+    if (mb) {
+      if (!masterKnob.dragging()) masterKnob.set(mb.gain, true);
+      if (document.activeElement !== $("mTrim")) $("mTrim").value = (+mb.trim || 0).toFixed(1);
+      if (document.activeElement !== $("mDelay")) $("mDelay").value = Math.round(+mb.delay_ms || 0);
+      $("mMono").classList.toggle("on", !!mb.mono);
+      $("mMute").classList.toggle("on", !!mb.mute);
+      $("mEq").classList.toggle("on", !!mb.eq);
+      $("mLim").classList.toggle("on", !!mb.limiter);
+    }
+
+    $("sr").textContent = st.sample_rate ? (st.sample_rate / 1000).toFixed(1) + " kHz" : "–";
+    $("blk").textContent = st.block ? st.block + " smp" : "–";
+  }
+
+  function applyLevels(lv) {
+    (lv.strips || []).forEach((db, i) => { if (ui.strips[i]) meterSet(ui.strips[i].meter, db); });
+    (lv.buses || []).forEach((db, i) => { if (ui.buses[i]) meterSet(ui.buses[i].meter, db); });
+    const mm = $("mMeter").firstElementChild;
+    const bdb = (lv.buses || [])[selectedBus];
+    if (mm && bdb !== undefined) {
+      mm.style.width = clamp((bdb + 60) / 60, 0, 1) * 100 + "%";
+    }
+  }
+
+  function setStatus(ok) {
+    const s = $("status");
+    s.classList.toggle("off", !ok);
+    $("statusTxt").textContent = ok ? "ONLINE" : "OFFLINE";
+  }
+
+  /* ---------- Polling (2×/s) ---------- */
+  let busy = false;
+  async function tick() {
+    if (busy) return;
+    busy = true;
+    try {
+      const st = await api("/api/state");
+      state = st;
+      if (!built) build(st);
+      applyState(st);
+      const lv = await api("/api/levels");
+      applyLevels(lv);
+      setStatus(true);
+    } catch (e) {
+      setStatus(false);
+    } finally {
+      busy = false;
+    }
+  }
+
+  /* ---------- Presets ---------- */
+  $("presetSave").addEventListener("click", () => {
+    api("/api/preset", { action: "save" })
+      .then(() => toast("Preset gespeichert"))
+      .catch(() => toast("Speichern fehlgeschlagen"));
+  });
+  $("presetLoad").addEventListener("click", () => {
+    api("/api/preset", { action: "load" })
+      .then(() => { toast("Preset geladen"); return tick(); })
+      .catch(() => toast("Kein Preset gefunden"));
+  });
+
+  tick();
+  setInterval(tick, 500);
+})();
 </script>
 </body>
 </html>
