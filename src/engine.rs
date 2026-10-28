@@ -141,6 +141,9 @@ pub struct BusParam {
     pub eq_on: AtomicBool,
     pub eq: [[EqParam; EQ_CELLS]; 2],
     pub limiter_on: AtomicBool,
+    pub c5_on: AtomicBool,
+    pub c5_threshold: AtomicU32,
+    pub c5_ceiling: AtomicU32,
     pub level: AtomicU32,
 }
 
@@ -156,6 +159,9 @@ impl BusParam {
             eq_on: AtomicBool::new(false),
             eq: std::array::from_fn(|_| std::array::from_fn(|_| EqParam::new())),
             limiter_on: AtomicBool::new(false),
+            c5_on: AtomicBool::new(false),
+            c5_threshold: AtomicU32::new((-18.0f32).to_bits()),
+            c5_ceiling: AtomicU32::new((-0.3f32).to_bits()),
             level: AtomicU32::new(0f32.to_bits()),
         }
     }
@@ -344,6 +350,9 @@ fn set_bus(b: &BusParam, param: &str, v: f32) -> bool {
         "mono" => b.mono.store(v != 0.0, Relaxed),
         "eq" => b.eq_on.store(v != 0.0, Relaxed),
         "limiter" => b.limiter_on.store(v != 0.0, Relaxed),
+        "c5" => b.c5_on.store(v != 0.0, Relaxed),
+        "c5_threshold" => fset(&b.c5_threshold, v.clamp(-60.0, 0.0)),
+        "c5_ceiling" => fset(&b.c5_ceiling, v.clamp(-24.0, 0.0)),
         "trim" => {
             fset(&b.trim[0], v);
             fset(&b.trim[1], v);
@@ -371,6 +380,7 @@ pub struct EngineDsp {
     strip_dn: [[Denoiser; 2]; STRIPS],
     bus_eq: [[[Biquad; EQ_CELLS]; 2]; BUSES],
     bus_lim: [[Limiter; 2]; BUSES],
+    bus_c5: [C5Limiter; BUSES],
     bus_delay: [[DelayLine; 2]; BUSES],
     prev_strip_gain: [f32; STRIPS],
     prev_bus_gain: [f32; BUSES],
@@ -387,6 +397,7 @@ impl EngineDsp {
             strip_dn: [[Denoiser::default(); 2]; STRIPS],
             bus_eq: std::array::from_fn(|_| std::array::from_fn(|_| [Biquad::bypass(); EQ_CELLS])),
             bus_lim: [[Limiter::default(); 2]; BUSES],
+            bus_c5: std::array::from_fn(|_| C5Limiter::default()),
             bus_delay: std::array::from_fn(|_| {
                 [DelayLine::new(max_block * 4), DelayLine::new(max_block * 4)]
             }),
@@ -545,6 +556,15 @@ impl EngineDsp {
                         }
                     }
                     x = self.bus_lim[bi][ch].process(x, fget(&bp.limit));
+                    if bp.c5_on.load(Relaxed) {
+                        let mut cfg = C5Config::default();
+                        cfg.enabled = true;
+                        let th = fget(&bp.c5_threshold);
+                        let ce = fget(&bp.c5_ceiling);
+                        cfg.threshold_db = [th; 3];
+                        cfg.ceiling_db = [ce; 3];
+                        x = self.bus_c5[bi].process(x, &cfg, sr);
+                    }
                     x = self.bus_delay[bi][ch].process(x);
                     x *= db_to_lin(fget(&bp.trim[ch]));
                     x *= gain;
@@ -685,6 +705,25 @@ mod tests {
         dsp.process(&p, &io, 64);
         assert!((buf.bus(0) - 0.25).abs() < 1e-3, "A1 war {}", buf.bus(0));
         assert!((fget(&p.strips[0].level) - 0.25).abs() < 1e-3);
+    }
+
+    #[test]
+    fn c5_limiter_haelt_bus_decke() {
+        let p = params();
+        let mut dsp = EngineDsp::new(64);
+        p.set("bus", 0, "c5", 1.0);
+        p.set("bus", 0, "c5_ceiling", -6.0);
+        p.set("bus", 0, "c5_threshold", 0.0);
+        p.set("strip", 0, "gain", 12.0); // 0.5 * 4 = 2.0 in den Bus
+        let mut buf = Buf::new(0.5, 64);
+        let mut peak = 0f32;
+        for _ in 0..40 {
+            let io = buf.io();
+            dsp.process(&p, &io, 64);
+            peak = peak.max(buf.bus(0).abs());
+        }
+        let db = crate::dsp::lin_to_db(peak);
+        assert!(db <= -4.0, "Bus-Spitze war {db} dB, soll unter -6 dB liegen");
     }
 
     #[test]

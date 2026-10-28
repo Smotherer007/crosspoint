@@ -457,6 +457,8 @@ pub struct C5Limiter {
     hp_high: Biquad,
     comp: [Compressor; 3],
     lim: [Limiter; 3],
+    /// Summen-Limiter nach dem Band-Mix (sonst überschreitet die Summe die Decke).
+    out_lim: Limiter,
     sr: f32,
 }
 
@@ -469,6 +471,7 @@ impl Default for C5Limiter {
             hp_high: Biquad::bypass(),
             comp: [Compressor::default(); 3],
             lim: [Limiter::default(); 3],
+            out_lim: Limiter::default(),
             sr: 0.0,
         }
     }
@@ -484,6 +487,7 @@ impl C5Limiter {
             for b in 0..3 {
                 self.comp[b].set_times(10.0, 120.0, sr);
                 self.lim[b].set_release(60.0, sr);
+                self.out_lim.set_release(40.0, sr);
             }
             self.sr = sr;
         }
@@ -510,7 +514,9 @@ impl C5Limiter {
             v = self.lim[b].process(v, cfg.ceiling_db[b]);
             sum += v;
         }
-        sum
+        // Summen-Limiter: die Decke gilt für den Gesamtausgang, nicht je Band.
+        let decke = cfg.ceiling_db.iter().cloned().fold(f32::INFINITY, f32::min);
+        self.out_lim.process(sum, decke)
     }
 }
 
