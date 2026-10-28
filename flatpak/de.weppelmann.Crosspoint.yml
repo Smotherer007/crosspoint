@@ -1,16 +1,22 @@
 # Crosspoint als Flatpak.
 #
 # Baut direkt aus diesem Repo (nur path-Abhaengigkeiten, daher --offline) und
-# bringt Icon, Desktop-Eintrag und die beiden Skripte mit. Die Engine laeuft im
-# Sandbox als JACK-Client gegen das PipeWire des Hosts; die Oberflaeche ist eine
-# Web-App, deren Fenster der Host-Browser oeffnet (flatpak-spawn --host).
+# bringt Icon, Desktop-Eintrag und die Skripte mit. Die Engine laeuft im
+# Sandbox als JACK-Client gegen das PipeWire des Hosts. Die Oberflaeche zeigt
+# crosspoint-fenster: ein GTK3-Fenster mit WebKitGTK, das dieselbe Seite
+# (web/index.html, von der Engine auf 127.0.0.1:8770 ausgeliefert) anzeigt.
+# Ein Browser wird dafuer nicht mehr gebraucht - weder im Sandbox noch auf dem
+# Host; flatpak-spawn und der Flatpak-Socket des Hosts entfallen.
+#
+# WebKitGTK kommt mit org.gnome.Platform//51 (libwebkit2gtk-4.1), die
+# Entwicklungspakete mit org.gnome.Sdk//51. Den Rust-Toolchain bringt der
+# GNOME-SDK unter /usr/lib/sdk/rust-stable bereits mit; eine rust-stable-
+# Extension braucht es nicht mehr.
 app-id: de.weppelmann.Crosspoint
-runtime: org.freedesktop.Platform
-runtime-version: '25.08'
-sdk: org.freedesktop.Sdk
-sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust-stable
-command: crosspoint-launch
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: crosspoint-start
 
 finish-args:
   # Audio: PulseAudio-Socket des Hosts (PipeWire-Pulse) fuer pactl-Null-Sinks
@@ -18,13 +24,17 @@ finish-args:
   # Nativer PipeWire-Zugriff (pw-link, pw-dump, JACK-Client)
   - --filesystem=xdg-run/pipewire-0
   - --share=ipc
-  # Netzwerk-Namespace des Hosts: sonst ist die Steuer-API auf 127.0.0.1:8770
-  # nur im Sandbox erreichbar und die Oberflaeche (Host-Browser) kaeme nicht heran.
+  # Netzwerk-Namespace des Hosts: Engine und WebView laufen zwar im selben
+  # Sandbox, aber so bleibt 127.0.0.1:8770 auch von aussen erreichbar (z. B.
+  # fuer die Steuer-API und den VBAN-Empfang).
   - --share=network
+  # Fenster: Wayland bevorzugt, X11 als Rueckfall; dri fuer die Darstellung
+  # der WebView (sonst zeichnet WebKit nur in Software).
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
   # Konfiguration (~/.config/crosspoint) darf angelegt werden
   - --filesystem=~/.config/crosspoint:create
-  # Fensterstart: Browser des Hosts starten (kein Browser im Runtime)
-  - --talk-name=org.freedesktop.Flatpak
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
@@ -37,9 +47,17 @@ modules:
     build-commands:
       - cargo build --release --offline --locked
       - install -Dm755 target/release/crosspoint-engine /app/bin/crosspoint-engine
-      - install -Dm755 scripts/crosspoint-launch.sh /app/bin/crosspoint-launch
+      - install -Dm755 scripts/crosspoint-start.sh /app/bin/crosspoint-start
       - install -Dm755 scripts/crosspoint-wire.sh /app/bin/crosspoint-wire.sh
-      - install -Dm644 data/de.weppelmann.Crosspoint.desktop /app/share/applications/de.weppelmann.Crosspoint.desktop
+      # Der Desktop-Eintrag des Repos startet auf dem Host den Browser
+      # (Exec=crosspoint-launch). Im Flatpak zeigt er auf das eigene Fenster.
+      - |
+        # Zielverzeichnis muss existieren, sonst scheitert die Umleitung
+        # ("No such file or directory") bevor install ueberhaupt laeuft.
+        mkdir -p /app/share/applications
+        sed 's|^Exec=.*|Exec=crosspoint-start|' data/de.weppelmann.Crosspoint.desktop \
+          > /app/share/applications/de.weppelmann.Crosspoint.desktop
+        chmod 644 /app/share/applications/de.weppelmann.Crosspoint.desktop
       - |
         for n in 16 32 48 64 128 256 512; do
           install -Dm644 "data/icons/hicolor/${n}x${n}/apps/de.weppelmann.Crosspoint.png" \
@@ -55,3 +73,13 @@ modules:
           - crates/macros/target
           - crates/tape/target
           - crates/vban/target
+
+  # Das Fenster selbst: WebKitGTK zeichnet die Oberflaeche, kein Browser.
+  - name: fenster
+    buildsystem: simple
+    build-commands:
+      - cc fenster.c -o crosspoint-fenster $(pkg-config --cflags --libs webkit2gtk-4.1)
+      - install -Dm755 crosspoint-fenster /app/bin/crosspoint-fenster
+    sources:
+      - type: file
+        path: ../fenster/fenster.c

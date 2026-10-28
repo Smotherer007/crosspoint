@@ -597,6 +597,16 @@
     font-size:10px !important; height:auto !important; min-height:17px;
     padding:2px 4px !important;
   }
+  /* WebKit (Fenster der Flatpak-App) zeichnet <select> sonst als weisses
+     Systemelement - Chromium stylte es. Ohne appearance:none sieht die
+     Oberflaeche dort anders aus als im Browser. */
+  select{
+    -webkit-appearance:none; appearance:none;
+    background:#2b333d; color:#d3dee9;
+    border:1px solid #151b22; border-radius:2px;
+    font-family:var(--sans);
+  }
+  select option{background:#2b333d;color:#d3dee9}
   .rb, .mkey, .sw, .bbtns .sw, .sends .rb{
     font-size:9px !important; letter-spacing:.02em;
   }
