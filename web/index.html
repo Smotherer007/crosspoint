@@ -910,47 +910,78 @@
     $("mLim").classList.toggle("on", !!b.limiter);
   }
 
-  /* ---------- Tape ---------- */
+  /* ---------- Tape (echte Aufnahme über /api/tape) ---------- */
   function buildTape() {
     const box = $("targets");
-    BUS_NAMES.forEach((bn) => {
-      const b = el("button", "tgt", bn);
-      b.title = "Tape-Ziel " + bn;
-      b.addEventListener("click", () => b.classList.toggle("on"));
-      box.appendChild(b);
+    BUS_NAMES.forEach((bn, k) => {
+      const btn = el("button", "tgt", bn);
+      if (k === 0) {
+        btn.classList.add("on");
+        btn.title = "Aufnahmequelle: Bus A1";
+      } else {
+        btn.disabled = true;
+        btn.style.opacity = ".35";
+        btn.title = "Aufnahme nur von Bus A1 (weitere Ziele noch nicht implementiert)";
+      }
+      box.appendChild(btn);
     });
+
     const rec = $("tRec"), play = $("tPlay"), stop = $("tStop");
     const lampRec = $("lampRec"), lampPlay = $("lampPlay");
-    let secs = 0, timer = null;
+    let startedAt = 0;
+
     const paintTc = () => {
+      const secs = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
       const h = String(Math.floor(secs / 3600)).padStart(2, "0");
       const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
       const s = String(secs % 60).padStart(2, "0");
       $("tc").textContent = h + ":" + m + ":" + s;
     };
-    const stopAll = () => {
-      play.classList.remove("on"); rec.classList.remove("on");
-      lampPlay.classList.remove("on"); lampRec.classList.remove("on");
-      stop.classList.add("on");
-      clearInterval(timer); timer = null;
-    };
-    rec.addEventListener("click", () => {
-      const on = !rec.classList.contains("on");
+
+    const tape = (action) =>
+      fetch("/api/tape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      }).then((r) => r.json()).catch(() => ({}));
+
+    rec.addEventListener("click", async () => {
+      if (rec.classList.contains("on")) {
+        await tape("stop");
+      } else {
+        await tape("start");
+        startedAt = Date.now();
+      }
+      sync();
+    });
+
+    play.addEventListener("click", () => {
+      lampPlay.classList.add("on");
+      setTimeout(() => lampPlay.classList.remove("on"), 400);
+      toast("Wiedergabe ist nicht implementiert – nur Aufnahme");
+    });
+
+    stop.addEventListener("click", async () => {
+      await tape("stop");
+      startedAt = 0;
+      sync();
+    });
+
+    async function sync() {
+      let st = {};
+      try {
+        st = await (await fetch("/api/tape")).json();
+      } catch (e) { return; }
+      const on = !!st.recording;
       rec.classList.toggle("on", on);
       lampRec.classList.toggle("on", on);
-      stop.classList.remove("on");
-    });
-    play.addEventListener("click", () => {
-      const on = !play.classList.contains("on");
-      play.classList.toggle("on", on);
-      lampPlay.classList.toggle("on", on);
-      stop.classList.remove("on");
-      clearInterval(timer); timer = null;
-      if (on) {
-        timer = setInterval(() => { secs++; paintTc(); }, 1000);
-      }
-    });
-    stop.addEventListener("click", () => { secs = 0; paintTc(); stopAll(); });
+      if (!on) startedAt = 0;
+      paintTc();
+      const note = document.querySelector(".tnote");
+      if (note) note.textContent = on ? ("aufnahme läuft · " + (st.status || "")) : (st.status || "bereit");
+    }
+    sync();
+    setInterval(sync, 700);
   }
 
   /* ---------- Aufbau ---------- */
