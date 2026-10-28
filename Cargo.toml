@@ -2,7 +2,7 @@
 name = "crosspoint"
 version = "0.1.0"
 edition = "2021"
-description = "VoiceMeeter-Nachbau in Rust: Parametermodell und Mixer-Kern"
+description = "Crosspoint: 8x8-Mixer fuer PipeWire/JACK - Parametermodell und Mixer-Kern"
 
 [lib]
 name = "crosspoint"

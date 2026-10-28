@@ -1,4 +1,4 @@
-//! Macro-Button-Engine nach VoiceMeeter-Vorbild: 80 Tasten, Trigger, Aktionen.
+//! Macro-Button-Engine: 80 Tasten, Trigger, Aktionen.
 //!
 //! Das Crate ist eigenstaendig und ohne Fremd-Crates. Es beschreibt nur, *was*
 //! eine Taste ausloest - die Aktionen werden im Hauptprozess ausgefuehrt

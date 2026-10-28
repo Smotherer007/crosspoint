@@ -1,4 +1,4 @@
-# VoiceMeeter 8 – Ghidra-Tiefenanalyse der Anwendung
+# Referenzprogramm – Ghidra-Tiefenanalyse der Anwendung
 
 Stand: 2026-10-28 · Ghidra 12.1.4 (headless über REA 6.5.0) ·
 Ziel: `voicemeeter8x64.exe`, SHA-256 `7f783f03599f704124bedb1e13e8d8a6e91ab58fd74dc37d675f3a718acb81eb`

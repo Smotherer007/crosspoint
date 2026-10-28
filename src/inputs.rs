@@ -186,8 +186,7 @@ pub fn mapping_path() -> PathBuf {
     if let Some(p) = std::env::var_os("CROSSPOINT_INPUTS_FILE").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".config/crosspoint").join(CONFIG_FILE)
+    crate::pfade::datei(CONFIG_FILE)
 }
 
 /// Gelesene Zuordnung: Streife 1..5 -> technischer Name der Quelle.

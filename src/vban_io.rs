@@ -1053,9 +1053,10 @@ mod tests {
 
     #[test]
     fn stream_zu_lang_und_mit_leerzeichen_wird_abgelehnt() {
-        // 16 Zeichen: ein Zeichen über der Grenze des Headerfelds.
-        assert_eq!("crosspointbusA1Toolange".len(), MAX_STREAM + 1);
-        assert!(pruefe_stream("crosspointbusA1Toolange").is_err());
+        // Ein Zeichen über der Grenze des Headerfelds (Streamnamen sind 15 lang).
+        let zu_lang = "crosspointbusA11";
+        assert_eq!(zu_lang.len(), MAX_STREAM + 1);
+        assert!(pruefe_stream(zu_lang).is_err());
         assert!(pruefe_stream("").is_err(), "leerer Stream ist ungültig");
         assert!(pruefe_stream("crosspoint bus").is_err(), "Leerzeichen ist verboten");
         assert!(pruefe_stream("crosspointbusA1\t").is_err(), "Tab ist verboten");
@@ -1067,7 +1068,7 @@ mod tests {
 
         let c = ctl();
         let alt = c.konfig();
-        let err = c.set("127.0.0.1", 6980, "crosspointbusA1Toolange").unwrap_err();
+        let err = c.set("127.0.0.1", 6980, zu_lang).unwrap_err();
         assert!(err.contains("16"), "Meldung nennt die Länge: {err}");
         assert_eq!(c.konfig(), alt);
         assert!(c.set("127.0.0.1", 6980, "crosspoint bus").is_err());

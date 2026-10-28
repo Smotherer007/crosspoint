@@ -1,4 +1,4 @@
-# VoiceMeeter 8 – Signal- und Parametermodell (aus dem Binary)
+# Referenzprogramm – Signal- und Parametermodell (aus dem Binary)
 
 Stand: 2026-10-28. Quelle: Statik aus `voicemeeter8x64.exe` 3.1.3.0
 (PE32+ x64, `.text` 1 349 358 Byte, `.rsrc` 11,7 MB, SHA-256 der EXE

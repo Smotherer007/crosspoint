@@ -2,3 +2,5 @@
 **/*.rs.bk
 *.wav
 /Voicemeeter8Setup_v3130.zip
+/build-dir
+/flatpak-build/

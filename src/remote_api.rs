@@ -1,4 +1,9 @@
-//! Oberfläche der VoiceMeeter-Remote-API (`VBVMR_*`) als reine Rust-Funktionen.
+//! Oberfläche der `VBVMR_*`-Remote-API als reine Rust-Funktionen.
+//!
+//! Die API ist bewusst **VBVMR-kompatibel**: Name, Aufbau und Rückgabewerte
+//! folgen der verbreiteten Remote-Schnittstelle, damit vorhandene Steuerung
+//! ohne Anpassung funktioniert. Crosspoint selbst heisst nicht so; die
+//! `VBVMR_*`-Namen sind reine Kompatibilitätsbezeichner.
 //!
 //! Das Original stellt eine C-DLL mit Prozess-globalem Zustand bereit
 //! (`VBVMR_Login`, `VBVMR_SetParameterFloat`, …). Hier liegt derselbe
@@ -13,9 +18,9 @@
 //! | VBVMR_*                          | Methode                                  |
 //! |----------------------------------|------------------------------------------|
 //! | `VBVMR_Login` / `VBVMR_Logout`    | [`RemoteApi::login`] / [`RemoteApi::logout`] |
-//! | `VBVMR_RunVoicemeeter`            | [`RemoteApi::run_voicemeeter`]           |
-//! | `VBVMR_GetVoicemeeterType`        | [`RemoteApi::get_voicemeeter_type`]      |
-//! | `VBVMR_GetVoicemeeterVersion`     | [`RemoteApi::get_voicemeeter_version`]   |
+//! | `VBVMR_RunVoicemeeter`            | [`RemoteApi::run_console`]           |
+//! | `VBVMR_GetConsoleType`        | [`RemoteApi::get_console_type`]      |
+//! | `VBVMR_GetVoicemeeterVersion`     | [`RemoteApi::get_console_version`]   |
 //! | `VBVMR_SetParameterFloat`         | [`RemoteApi::set_parameter_float`]       |
 //! | `VBVMR_GetParameterFloat`         | [`RemoteApi::get_parameter_float`]       |
 //! | `VBVMR_SetParameterStringW`       | [`RemoteApi::set_parameter_string`]      |
@@ -47,7 +52,7 @@ use crate::{BUSES, EQ_CELLS, STRIPS};
 /// Anzahl der Macro-Button-Slots wie im Original (`VBVMR_MACROBUTTON_NUMBER`).
 pub const MACRO_BUTTONS: usize = 80;
 
-/// Version, die als VoiceMeeter-Version gemeldet wird (3.1.3.0).
+/// Kompatibilitätsversion, die die Remote-API meldet (3.1.3.0).
 pub const VERSION_MAJOR: u32 = 3;
 pub const VERSION_MINOR: u32 = 1;
 pub const VERSION_PATCH: u32 = 3;
@@ -56,13 +61,13 @@ pub const VERSION_BUILD: u32 = 0;
 /// Gerätetyp wie `VBVMR_DEVICE_*`: 1 = Standard (3 Streifen), 2 = Banana
 /// (5 Streifen), 3 = Potato (8 Streifen).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum VoicemeeterType {
+pub enum ConsoleType {
     Standard = 1,
     Banana = 2,
     Potato = 3,
 }
 
-impl VoicemeeterType {
+impl ConsoleType {
     pub fn as_i32(self) -> i32 {
         self as i32
     }
@@ -70,15 +75,15 @@ impl VoicemeeterType {
     /// Anzahl Streifen/Busse des Typs (Standard 3/2, Banana 5/5, Potato 8/8).
     pub fn channels(self) -> (usize, usize) {
         match self {
-            VoicemeeterType::Standard => (3, 2),
-            VoicemeeterType::Banana => (5, 5),
-            VoicemeeterType::Potato => (8, 8),
+            ConsoleType::Standard => (3, 2),
+            ConsoleType::Banana => (5, 5),
+            ConsoleType::Potato => (8, 8),
         }
     }
 }
 
 /// Der Typ, den dieses Pult abbildet: 8 Streifen und 8 Busse = Potato.
-pub const DEVICE_TYPE: VoicemeeterType = VoicemeeterType::Potato;
+pub const DEVICE_TYPE: ConsoleType = ConsoleType::Potato;
 
 /// Fehler der Remote-API. Entspricht den negativen Rückgabecodes des Originals,
 /// ist aber als Typ unterscheidbar.
@@ -226,7 +231,7 @@ impl RemoteApi {
 
     /// `VBVMR_RunVoicemeeter`: Modus 0 stoppt die Engine, alles andere startet sie.
     /// Gibt den Running-Zustand nach dem Aufruf zurück.
-    pub fn run_voicemeeter(&self, mode: i32) -> bool {
+    pub fn run_console(&self, mode: i32) -> bool {
         let run = mode != 0;
         self.running.store(run, Relaxed);
         run
@@ -238,13 +243,13 @@ impl RemoteApi {
 
     // ---------- Kennung ----------
 
-    /// `VBVMR_GetVoicemeeterType`: 1 = Standard, 2 = Banana, 3 = Potato.
-    pub fn get_voicemeeter_type(&self) -> VoicemeeterType {
+    /// `VBVMR_GetConsoleType`: 1 = Standard, 2 = Banana, 3 = Potato.
+    pub fn get_console_type(&self) -> ConsoleType {
         DEVICE_TYPE
     }
 
     /// `VBVMR_GetVoicemeeterVersion`: `Major << 24 | Minor << 16 | Patch << 8 | Build`.
-    pub fn get_voicemeeter_version(&self) -> u32 {
+    pub fn get_console_version(&self) -> u32 {
         make_version(VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, VERSION_BUILD)
     }
 
@@ -385,8 +390,8 @@ impl RemoteApi {
     /// wird dabei **nicht** gelöscht, nur gelesen.
     pub fn state_json(&self) -> Value {
         Value::obj(vec![
-            ("type", Value::num(self.get_voicemeeter_type().as_i32() as f64)),
-            ("version", Value::num(self.get_voicemeeter_version() as f64)),
+            ("type", Value::num(self.get_console_type().as_i32() as f64)),
+            ("version", Value::num(self.get_console_version() as f64)),
             ("logins", Value::num(self.login_count() as f64)),
             ("running", Value::Bool(self.is_running())),
             ("parameters_dirty", Value::Bool(self.dirty.load(Relaxed))),
@@ -689,9 +694,9 @@ mod tests {
     #[test]
     fn version_und_type_stimmen() {
         let (_p, api) = api();
-        assert_eq!(api.get_voicemeeter_type(), VoicemeeterType::Potato);
-        assert_eq!(api.get_voicemeeter_type().as_i32(), 3);
-        let v = api.get_voicemeeter_version();
+        assert_eq!(api.get_console_type(), ConsoleType::Potato);
+        assert_eq!(api.get_console_type().as_i32(), 3);
+        let v = api.get_console_version();
         assert_eq!(v, 0x0301_0300);
         assert_eq!(v >> 24, 3);
         assert_eq!((v >> 16) & 0xff, 1);
@@ -704,9 +709,9 @@ mod tests {
     fn running_midi_und_level() {
         let (p, api) = api();
         assert!(!api.is_running());
-        assert!(api.run_voicemeeter(1));
+        assert!(api.run_console(1));
         assert!(api.is_running());
-        assert!(!api.run_voicemeeter(0));
+        assert!(!api.run_console(0));
         assert!(!api.is_running());
         assert_eq!(api.get_midi_message(), 0, "MIDI ist nicht implementiert");
 

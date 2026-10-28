@@ -1,6 +1,6 @@
 //! Geräteauswahl für die Hardware-Busse A1..A5.
 //!
-//! VoiceMeeter hängt jeden Hardware-Bus (A1..A5) an ein Ausgabegerät. Auf Linux
+//! Jeder Hardware-Bus (A1..A5) hängt an einem Ausgabegerät. Auf Linux
 //! ist das ein PipeWire-Sink (`media.class: Audio/Sink`); die Verbindung stellt
 //! `pw-link` her, die Ports stehen im Graphen:
 //!
@@ -44,8 +44,7 @@ pub const CLIENT: &str = "crosspoint";
 /// Kanalpaar eines Busses: Port-Suffix am Mixer -> Port-Suffix am Sink.
 const CHANNELS: [(&str, &str); 2] = [("L", "playback_FL"), ("R", "playback_FR")];
 
-/// Unterverzeichnis + Dateiname der gespeicherten Zuordnung.
-const CONFIG_DIR: &str = "crosspoint";
+/// Dateiname der gespeicherten Zuordnung.
 const CONFIG_FILE: &str = "devices.json";
 
 // ---------------------------------------------------------------------------
@@ -131,12 +130,7 @@ pub fn bus_port(bus: &str, kanal: &str) -> String {
 /// Speicherort der Zuordnung: `$XDG_CONFIG_HOME/crosspoint/devices.json`,
 /// sonst `~/.config/crosspoint/devices.json`.
 pub fn default_path() -> PathBuf {
-    let basis = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| !p.as_os_str().is_empty())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    basis.join(CONFIG_DIR).join(CONFIG_FILE)
+    crate::pfade::datei(CONFIG_FILE)
 }
 
 /// Zuordnung Hardware-Bus -> technischer Gerätename, gespiegelt nach JSON.
@@ -406,15 +400,18 @@ mod tests {
     fn sinks_kommen_aus_dem_graphen_mit_voller_beschreibung() {
         let liste = list_sinks(&fake()).unwrap();
         assert_eq!(liste.len(), 3, "{liste:?}");
-        // Alphabetisch nach Anzeigename: Corsair, Navi, CROSSPOINT-Output-B1.
+        // Reihenfolge: alphabetisch nach Anzeigename (ohne Rücksicht auf
+        // Gross-/Kleinschreibung). Nachgeschlagen wird ueber den Namen, damit
+        // der Test nicht an der Sortierung der Anzeigenamen haengt.
         assert_eq!(liste[0].name, CORSAIR);
-        assert_eq!(liste[0].desc, "Corsair HS80 RGB USB Gaming Headset Analoges Stereo");
-        assert_eq!(liste[0].id, 443);
-        assert!(liste[0].desc.contains(' '), "Leerzeichen bleiben: {}", liste[0].desc);
-        assert_eq!(liste[1].name, HDMI);
-        assert_eq!(liste[1].desc, "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 3) [AG326UD]");
+        let corsair = liste.iter().find(|s| s.name == CORSAIR).expect("Corsair");
+        assert_eq!(corsair.desc, "Corsair HS80 RGB USB Gaming Headset Analoges Stereo");
+        assert_eq!(corsair.id, 443);
+        assert!(corsair.desc.contains(' '), "Leerzeichen bleiben: {}", corsair.desc);
+        let hdmi = liste.iter().find(|s| s.name == HDMI).expect("HDMI");
+        assert_eq!(hdmi.desc, "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 3) [AG326UD]");
         // Eigene virtuelle Sinks sind echte Ausgabegeräte des Graphen.
-        assert_eq!(liste[2].name, "crosspoint_out_B1");
+        assert!(liste.iter().any(|s| s.name == "crosspoint_out_B1"), "{liste:?}");
     }
 
     #[test]

@@ -1,4 +1,8 @@
-# VoiceMeeter 8 (v3.1.3.0) – Installer-Analyse
+# Referenzprogramm (v3.1.3.0) – Installer-Analyse
+
+> Dieses Dokument analysiert eine **Fremdsoftware** als Vorlage für Crosspoint.
+> Der Produktname des Originals wird hier nicht geführt (Marke); Dateinamen,
+> Registry-Pfade und Hashes sind unveränderliche Analysebelege.
 
 Stand: 2026-10-28 · Ghidra 12.1.4 (headless via REA 6.5.0) · Ziel: `Voicemeeter8Setup_v3130.zip` → `Voicemeeter8Setup.exe`
 
@@ -100,8 +104,8 @@ zulässig, soweit die nötigen Informationen nicht anderweitig verfügbar sind; 
 pauschal ausschließt, ist insoweit unwirksam. Belastbar bleibt:
 
 - **zulässig**: Verhalten analysieren, Schnittstellen/Formate verstehen, ein eigenständiges Programm schreiben.
-- **nicht zulässig**: Code übernehmen, Assets (Logo, PNG, Help-XML) mitliefern, Name/Marke „VoiceMeeter"
-  für das eigene Produkt verwenden, Setup-Paket weiterverbreiten.
+- **nicht zulässig**: Code übernehmen, Assets (Logo, PNG, Help-XML) mitliefern, Name/Marke des
+  Originals für das eigene Produkt verwenden, Setup-Paket weiterverbreiten.
 
 Der Nachbau in diesem Repo enthält **keinen** Code, keine Ressourcen und keine Strings aus dem Original.
 

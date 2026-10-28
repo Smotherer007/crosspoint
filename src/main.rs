@@ -159,10 +159,22 @@ fn wire(richtung: &str) {
     if std::env::var("CROSSPOINT_NO_WIRE").is_ok() {
         return;
     }
-    let script = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("../../scripts/crosspoint-wire.sh")))
-        .unwrap_or_else(|| std::path::PathBuf::from("scripts/crosspoint-wire.sh"));
+    // Reihenfolge: ausdruecklicher Pfad, neben dem Binary (Flatpak: /app/bin),
+    // dann der Repo-Pfad (target/release -> ../../scripts), zuletzt relativ.
+    let mut kandidaten: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(p) = std::env::var_os("CROSSPOINT_WIRE").filter(|p| !p.is_empty()) {
+        kandidaten.push(std::path::PathBuf::from(p));
+    }
+    if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        kandidaten.push(dir.join("crosspoint-wire.sh"));
+        kandidaten.push(dir.join("../../scripts/crosspoint-wire.sh"));
+    }
+    kandidaten.push(std::path::PathBuf::from("scripts/crosspoint-wire.sh"));
+
+    let script = match kandidaten.into_iter().find(|p| p.is_file()) {
+        Some(p) => p,
+        None => return,
+    };
     let _ = std::process::Command::new("bash")
         .arg(&script)
         .arg(richtung)
@@ -174,6 +186,11 @@ fn main() {
     unsafe {
         signal(2, on_signal as usize);
         signal(15, on_signal as usize);
+    }
+    // Einmalige Migration des Konfigurationsverzeichnisses, bevor irgendetwas
+    // daraus gelesen wird (~/.config/vm8-linux -> ~/.config/crosspoint).
+    if let Some(neu) = crosspoint::pfade::migriere() {
+        println!("Konfiguration uebernommen: {}", neu.display());
     }
     let mut client_name = String::from("crosspoint");
     let mut listen = String::from("127.0.0.1:8770");
@@ -389,6 +406,5 @@ fn apply_macro_command(params: &Params, cmd: &str) {
 }
 
 fn preset_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".config/crosspoint/preset.json")
+    crosspoint::pfade::datei("preset.json")
 }

@@ -51,21 +51,14 @@ use macros::json::Wert;
 use macros::{Action, Bank, Button, Engine, Input, MAX_BUTTONS};
 
 /// Ordnername unter `$XDG_CONFIG_HOME` bzw. `~/.config`.
-pub const KONFIG_ORDNER: &str = "crosspoint";
+pub use crate::pfade::KONFIG_ORDNER;
 
 /// Dateiname der Tastenbelegung.
 pub const MAKROS_DATEI: &str = "macros.json";
 
 /// Standardablage: `~/.config/crosspoint/macros.json` (bzw. `$XDG_CONFIG_HOME`).
 pub fn standard_pfad() -> PathBuf {
-    let basis = match std::env::var_os("XDG_CONFIG_HOME") {
-        Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => match std::env::var_os("HOME") {
-            Some(h) if !h.is_empty() => PathBuf::from(h).join(".config"),
-            _ => PathBuf::from(".config"),
-        },
-    };
-    basis.join(KONFIG_ORDNER).join(MAKROS_DATEI)
+    crate::pfade::datei(MAKROS_DATEI)
 }
 
 /// Vergiftete Mutexe (Panik im Vorbesitzer) legen die Makros nicht lahm: wir

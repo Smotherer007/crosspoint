@@ -1,6 +1,6 @@
 //! Datenmodell der Macro-Buttons: Tastenbelegung, Trigger-Arten und Aktionen.
 //!
-//! Aufbau wie im VoiceMeeter-Fenster "MacroButtons": 80 Tasten, jede mit Name,
+//! Aufbau wie im Vorbild-Fenster "MacroButtons": 80 Tasten, jede mit Name,
 //! Zustand (0 = off, 1 = on, 2 = trigger, 3 = color), einer Trigger-Art und
 //! einer Liste von Aktionen, die beim Ausloesen abgearbeitet werden.
 //!

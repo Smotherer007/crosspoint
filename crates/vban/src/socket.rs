@@ -16,7 +16,7 @@ use crate::header::HEADER_LEN;
 /// Standard-Port der VBAN-Spezifikation.
 pub const DEFAULT_PORT: u16 = 6980;
 
-/// Standard-Stream-Name von Voicemeeter (nur als Hinweis, nicht erzwungen).
+/// Üblicher Standard-Stream-Name einer VBAN-Gegenstelle (Hinweis, nicht erzwungen).
 pub const DEFAULT_STREAM_NAME: &str = "Command1";
 
 /// Empfangspuffergroesse; deckt die ueblichen MTU-Grenzen ab.

@@ -1,7 +1,7 @@
-//! crosspoint — Nachbau der VoiceMeeter-Signalkette in Rust.
+//! crosspoint — Signalkette eines 8×8-Mixers in Rust.
 //!
 //! Dieses Modul ist das **Parametermodell**: es bildet 1:1 die Attributnamen ab,
-//! die VoiceMeeter 8 (3.1.3.0) in seiner Konfigurationsdatei schreibt (siehe
+//! die das Referenzprogramm (3.1.3.0) in seiner Konfigurationsdatei schreibt (siehe
 //! `docs/02-signalmodell.md`, belegt aus `<>`-Formatstrings des Originals).
 //!
 //! Aufbau, wie im Original belegt:
@@ -27,6 +27,7 @@ pub mod pw;
 pub mod remote_api;
 pub mod jack;
 pub mod json;
+pub mod pfade;
 
 
 pub const STRIPS: usize = 8;
@@ -143,7 +144,7 @@ impl Default for Gate {
     }
 }
 
-/// Denoiser (Voicemeeter nennt es "Audibility"-Modul).
+/// Denoiser (im Original "Audibility"-Modul).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Denoiser {
     pub bypass: bool,
