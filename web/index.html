@@ -34,12 +34,17 @@
     box-shadow:inset 0 1px 0 var(--edge-hi),0 2px 7px rgba(0,0,0,.45);
   }
   .brand{display:flex;align-items:center;gap:9px;min-width:210px}
+  /* Wortmarke: Monospace, aufrecht, eine Farbe - das Orange war zu laut. */
   .logo{
-    font-size:21px;font-weight:800;font-style:italic;letter-spacing:-.02em;color:#f6fafd;text-transform:lowercase;
-    text-shadow:0 1px 0 #0b0f13,0 0 14px rgba(108,196,255,.35);
+    font-family:var(--mono);
+    font-size:19px;font-weight:700;font-style:normal;letter-spacing:.04em;
+    color:#d6e2f0;text-transform:lowercase;
+    text-shadow:0 1px 0 #0b0f13;
     line-height:1;
   }
-  .logo b{color:#ff9c3f;font-weight:800}
+  .logo b{color:#d6e2f0;font-weight:700}
+  .logo::after{content:"";display:inline-block;width:6px;height:6px;margin-left:5px;
+    background:#39dd93;border-radius:1px;vertical-align:2px;opacity:.9}
   .bsub{display:flex;flex-direction:column;gap:2px;line-height:1.05;padding-left:9px;
         border-left:1px solid rgba(255,255,255,.18)}
   .bsub b{font-size:7.5px;letter-spacing:.24em;color:#e6eef6;font-weight:600}
