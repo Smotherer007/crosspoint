@@ -1,0 +1,30 @@
+name: Release aufraeumen
+
+# Loescht ein Release samt Tag. Wird ueber einen Push auf den Zweig
+# chore/release-cleanup ausgeloest, weil der Agent lokal keinen GitHub-Token
+# hat - der Workflow laeuft mit dem Token des Repositories.
+
+on:
+  push:
+    branches: [chore/release-cleanup]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Zu loeschender Tag, z. B. v0.1.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || 'v0.1.0' }}
+    steps:
+      - name: Release und Tag loeschen
+        run: |
+          echo "Loesche Release $TAG"
+          gh release delete "$TAG" --yes --cleanup-tag -R "$GITHUB_REPOSITORY" || echo "Release war nicht vorhanden"
+          git ls-remote --tags "https://github.com/$GITHUB_REPOSITORY" "refs/tags/$TAG" || true
