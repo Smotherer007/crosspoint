@@ -210,8 +210,8 @@
   .meter .fill{
     position:absolute;left:0;right:0;bottom:0;height:0;
     background:linear-gradient(to top,#1fbf78 0%,#63df5c 55%,#e8d24b 80%,#ff5b4d 100%);
-    /* 40 Frames/s brauchen keine Glättung: 0,22 s Nachlauf wirkte träge */
-    transition:height .04s linear;
+    /* Keine CSS-Transition: die Glättung (Attack sofort, Release exponentiell)
+       rechnet die rAF-Schleife, sonst kommt zum Takt die Animationszeit dazu. */
   }
   .meter .leds{
     position:absolute;inset:0;pointer-events:none;opacity:.55;
@@ -219,7 +219,7 @@
   }
   .meter .peak{
     position:absolute;left:0;right:0;height:2px;bottom:0;background:#f2f9ff;
-    opacity:0;transition:bottom .04s linear,opacity .4s;
+    opacity:0;transition:opacity .4s;
   }
   .fader{
     appearance:none;-webkit-appearance:none;flex:0 0 26px;width:26px;height:100%;margin:0;
@@ -293,7 +293,7 @@
   .field .u{flex:0 0 auto;color:var(--faint);font-family:var(--mono);font-size:6px}
   .mmeter{position:relative;height:6px;border-radius:1px;background:#0a0f14;border:1px solid #05080b;
           overflow:hidden;box-shadow:inset 0 1px 3px #000}
-  .mmeter i{position:absolute;left:0;top:0;bottom:0;width:0;transition:width .22s linear;
+  .mmeter i{position:absolute;left:0;top:0;bottom:0;width:0;
             background:linear-gradient(90deg,#1fbf78,#63df5c 55%,#e8d24b 80%,#ff5b4d)}
   .mfoot{display:flex;justify-content:space-between;font-size:5.8px;color:var(--faint);letter-spacing:.1em;
          padding:0 8px 5px}
@@ -584,6 +584,23 @@
           border-top:1px solid #1d252d;padding-top:6px}
   .eqfoot .warn{color:#f0a8a2}
   .eqfoot .rng{flex:0 0 auto;text-align:right;white-space:nowrap}
+
+  /* --- Lesbarkeit: die urspruenglichen 5-6 px waren am Bildschirm nicht
+     lesbar. Groessere Schrift fuer alle Bedienelemente, etwas mehr Platz. --- */
+  .devsel, .insel{
+    font-size:10px !important; height:auto !important; min-height:17px;
+    padding:2px 4px !important;
+  }
+  .rb, .mkey, .sw, .bbtns .sw, .sends .rb{
+    font-size:9px !important; letter-spacing:.02em;
+  }
+  .rb{min-width:19px; min-height:15px}
+  .mkey{height:32px !important; font-size:9px !important}
+  .lbl, .ssub, .num, .ttargets .lbl, .hdr, .meter .lbl{
+    font-size:8.5px !important;
+  }
+  .strip .nm, .strip .ttl{font-size:9.5px !important}
+  select{font-family:var(--sans)}
 </style>
 </head>
 <body>
@@ -595,6 +612,7 @@
     </div>
     <span class="chip"><span class="k">RATE</span><span id="sr">–</span></span>
     <span class="chip"><span class="k">BLOCK</span><span id="blk">–</span></span>
+    <span class="chip" id="lvStat" title="Empfangene Pegel-Bilder pro Sekunde (WebSocket; HTTP-Abfrage nur als Rückfall)"><span class="k">PEGEL</span><span id="lvFps">–</span></span>
     <span class="chip" id="status"><i></i><span id="statusTxt">VERBINDE</span></span>
     <span class="grow"></span>
     <button class="tbtn vban" id="vbanBtn" title="VBAN-Netzwerk-Audio einrichten"><i class="dot"></i>VBAN</button>
@@ -1068,16 +1086,70 @@
     const peak = el("div", "peak");
     const leds = el("div", "leds");
     m.append(fill, peak, leds);
-    return { el: m, fill: fill, peak: peak, peakDb: -140 };
+    return { el: m, fill: fill, peak: peak, peakDb: -140, ziel: 0, anzeige: 0, gemalt: -1 };
   }
+
+  /* ---------- Pegel-Anzeige: requestAnimationFrame, Attack sofort ----------
+     Der Pegel kommt als Zielwert (0..1 über die 60-dB-Skala). Gezeichnet
+     wird ausschließlich in der rAF-Schleife, also höchstens einmal je
+     Bildschirmbild – kein DOM-Schreiben aus einem Timer heraus, das ohnehin
+     erst beim nächsten Bild sichtbar würde. Ein Sprung nach oben steht im
+     nächsten Bild; ein Abfall läuft exponentiell aus (Zeitkonstante unten),
+     damit es nicht zappelt.                                                   */
+  const PEGEL_TAU_AB = 0.09;        // s – Release
+  const PEGEL_MIN_SCHRITT = 0.0006; // 0,06 % der Skala: kleinere Schritte malt keiner
+  const PEGEL_PEAK_DB_S = 45;       // dB/s – wie schnell die Spitze zurückfällt
+
   function meterSet(m, db) {
-    const pct = clamp((db + 60) / 60, 0, 1) * 100;
-    m.fill.style.height = pct.toFixed(1) + "%";
+    if (!m) return;
+    m.ziel = clamp((db + 60) / 60, 0, 1);
+    if (m.ziel > m.anzeige) m.anzeige = m.ziel; // Attack: sofort
+  }
+
+  function meterMalen(m, dt) {
+    if (!m) return;
+    if (m.anzeige > m.ziel) {
+      m.anzeige += (m.ziel - m.anzeige) * (1 - Math.exp(-dt / PEGEL_TAU_AB));
+      if (m.anzeige - m.ziel < PEGEL_MIN_SCHRITT) m.anzeige = m.ziel;
+    } else if (m.anzeige < m.ziel) {
+      m.anzeige = m.ziel;
+    }
+    if (Math.abs(m.anzeige - m.gemalt) < PEGEL_MIN_SCHRITT) return;
+    m.gemalt = m.anzeige;
+    m.fill.style.height = (m.anzeige * 100).toFixed(2) + "%";
+    const db = m.anzeige * 60 - 60;
     if (db >= m.peakDb) m.peakDb = db;
-    else m.peakDb = Math.max(db, m.peakDb - 1.5);
-    const pp = clamp((m.peakDb + 60) / 60, 0, 1) * 100;
-    m.peak.style.bottom = pp.toFixed(1) + "%";
-    m.peak.style.opacity = pct > 1 ? "1" : "0";
+    else m.peakDb = Math.max(db, m.peakDb - PEGEL_PEAK_DB_S * dt);
+    m.peak.style.bottom = (clamp((m.peakDb + 60) / 60, 0, 1) * 100).toFixed(2) + "%";
+    m.peak.style.opacity = m.anzeige > 0.008 ? "1" : "0";
+  }
+
+  /* Master-Pegel (quer) – dieselbe Glättung, andere Achse. */
+  const mMeter = {
+    get el() { const e = $("mMeter"); return e ? e.firstElementChild : null; },
+    ziel: 0, anzeige: 0, gemalt: -1
+  };
+  function mMeterMalen(dt) {
+    if (mMeter.anzeige > mMeter.ziel) {
+      mMeter.anzeige += (mMeter.ziel - mMeter.anzeige) * (1 - Math.exp(-dt / PEGEL_TAU_AB));
+      if (mMeter.anzeige - mMeter.ziel < PEGEL_MIN_SCHRITT) mMeter.anzeige = mMeter.ziel;
+    } else if (mMeter.anzeige < mMeter.ziel) {
+      mMeter.anzeige = mMeter.ziel;
+    }
+    if (Math.abs(mMeter.anzeige - mMeter.gemalt) < PEGEL_MIN_SCHRITT) return;
+    mMeter.gemalt = mMeter.anzeige;
+    const e = mMeter.el;
+    if (e) e.style.width = (mMeter.anzeige * 100).toFixed(2) + "%";
+  }
+
+  let pegelLetzteZeit = 0;
+  function pegelBild(ts) {
+    const dt = pegelLetzteZeit ? Math.min(0.05, (ts - pegelLetzteZeit) / 1000) : 1 / 60;
+    pegelLetzteZeit = ts;
+    for (const u of ui.strips) if (u && u.meter) meterMalen(u.meter, dt);
+    for (const u of ui.buses) if (u && u.meter) meterMalen(u.meter, dt);
+    mMeterMalen(dt);
+    requestAnimationFrame(pegelBild);
   }
 
   function makeScale() {
@@ -1620,23 +1692,27 @@
     $("blk").textContent = st.block ? st.block + " smp" : "–";
   }
 
+  // Setzt nur die Zielwerte; gezeichnet wird im nächsten rAF-Bild.
   function applyLevels(lv) {
-    (lv.strips || []).forEach((db, i) => { if (ui.strips[i]) meterSet(ui.strips[i].meter, db); });
-    (lv.buses || []).forEach((db, i) => { if (ui.buses[i]) meterSet(ui.buses[i].meter, db); });
-    const mm = $("mMeter").firstElementChild;
+    (lv.strips || []).forEach((db, i) => {
+      if (ui.strips[i]) meterSet(ui.strips[i].meter, db);
+    });
+    (lv.buses || []).forEach((db, i) => {
+      if (ui.buses[i]) meterSet(ui.buses[i].meter, db);
+    });
     const bdb = (lv.buses || [])[selectedBus];
-    if (mm && bdb !== undefined) {
-      mm.style.width = clamp((bdb + 60) / 60, 0, 1) * 100 + "%";
-    }
+    if (bdb !== undefined) meterSet(mMeter, bdb);
   }
 
-  /* ---------- Pegel: WebSocket mit 40 Hz, Polling als Rückfall ----------
-     Die Pegel kommen nicht mehr abgefragt, sondern geschoben: der Server
-     schickt 40 Frames/s über /ws/levels. Klappt das nicht (alter Server,
-     Netzfehler), läuft die alte HTTP-Abfrage mit 120 ms weiter – die
-     Anzeige selbst bleibt in beiden Fällen dieselbe.                      */
+  /* ---------- Pegel: WebSocket im Sendetakt, Polling nur als Rückfall -----
+     Der Server schiebt die Pegel über /ws/levels: 60-Hz-Takt, gesendet wird
+     bei jedem neuen Audioblock (~47/s bei 1024 Frames @ 48 kHz). Die Anzeige
+     hängt an rAF und glättet selbst. Nur wenn der Kanal tot ist (alter
+     Server, Netzfehler), läuft die HTTP-Abfrage mit 120 ms weiter; die
+     Anzeige bleibt in beiden Fällen dieselbe.                              */
   const lvz = { ws: null, modus: "start", frames: 0, poll: null, aus: false, retry: null };
   window.__wsFrames = 0;
+  window.__wsFps = 0;
   window.__wsMode = "start";
 
   function lvPollStart() {
@@ -1692,6 +1768,7 @@
       try { lv = JSON.parse(ev.data); } catch (e) { return; }
       lvz.frames++;
       window.__wsFrames = lvz.frames;
+      if (typeof lv.f === "number") window.__wsFrameNr = lv.f;
       applyLevels(lv);
     };
     ws.onclose = () => {
@@ -1710,6 +1787,27 @@
       }, 8000);
     };
   }
+
+  /* Statuszeile: wie viele Pegel-Bilder pro Sekunde wirklich ankommen.
+     Ein Sekundenfenster, damit die Zahl ruhig steht; __wsFps ist dieselbe
+     Zahl für Messungen. */
+  (function pegelZaehler() {
+    let letzte = lvz.frames;
+    let t0 = performance.now();
+    setInterval(() => {
+      const t = performance.now();
+      const dt = (t - t0) / 1000;
+      const fps = dt > 0 ? (lvz.frames - letzte) / dt : 0;
+      letzte = lvz.frames;
+      t0 = t;
+      window.__wsFps = Math.round(fps * 10) / 10;
+      const feld = $("lvFps");
+      if (feld) {
+        const weg = lvz.modus === "ws" ? "WS" : lvz.modus === "polling" ? "HTTP" : "–";
+        feld.textContent = Math.round(fps) + "/s " + weg;
+      }
+    }, 1000);
+  })();
 
   // Messhilfen: erzwingen den einen oder anderen Weg (für tests/latency_test.py)
   window.__lvForcePoll = () => {
@@ -1762,6 +1860,7 @@
 
   tick();
   setInterval(tick, 120);
+  requestAnimationFrame(pegelBild);
   lvWsStart();
 })();
 </script>

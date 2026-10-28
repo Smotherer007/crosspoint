@@ -22,9 +22,35 @@ if ! alive; then
   exit 1
 fi
 
+# Vor dem Oeffnen ein vorhandenes Mixer-Fenster schliessen, damit sich keine
+# Instanzen stapeln (Wayland erlaubt kein Auflisten, aber KWin-Skripte duerfen
+# Fenster ueber den Titel schliessen).
+schliesse_fenster() {
+  command -v qdbus >/dev/null 2>&1 || return 0
+  local js="${XDG_RUNTIME_DIR:-/tmp}/vm8/close_win.js"
+  mkdir -p "$(dirname "$js")"
+  cat > "$js" <<'EOF'
+function alle() {
+    try { return workspace.windowList ? workspace.windowList() : workspace.clientList(); }
+    catch (e) { return workspace.clientList(); }
+}
+var f = alle();
+for (var i = 0; i < f.length; i++) {
+    var c = f[i];
+    var cap = String((c.caption || "") + " " + (c.resourceClass || ""));
+    if (cap.indexOf("Virtueller Mixer") >= 0) { try { c.close(); } catch (e) {} }
+}
+EOF
+  qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$js" >/dev/null 2>&1
+  qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null 2>&1
+  sleep 1
+}
+schliesse_fenster
+
 if command -v flatpak >/dev/null 2>&1; then
-  flatpak run com.brave.Browser --app="$URL" --window-size=1720,900 >/dev/null 2>&1 &
+  flatpak run com.Brave.Browser --app="$URL" --window-size=1760,980 >/dev/null 2>&1 &
 else
+  xdg_open_placeholder=1
   xdg-open "$URL" >/dev/null 2>&1 &
 fi
 
@@ -46,9 +72,8 @@ while :; do
 done
 
 echo "Fenster geschlossen, beende ..." >&2
-# Beendet die Engine und damit (ueber deren Aufraeumen) die virtuellen Geraete.
-if [ "$STARTED_ENGINE" = 1 ]; then
-  pkill -x vm8-engine 2>/dev/null || true
-else
-  echo "Engine lief schon vorher – bleibt aktiv (Beenden mit: pkill -x vm8-engine)" >&2
-fi
+# Fenster zu heisst: Programm zu. Die Engine wird immer beendet, damit die
+# virtuellen Geraete verschwinden - unabhaengig davon, wer sie gestartet hat.
+pkill -x vm8-engine 2>/dev/null || true
+for _ in $(seq 1 25); do [ "$(ps -eo comm | grep -c '^vm8-engine')" = 0 ] && break; sleep 0.2; done
+echo "Engine beendet, Geraete entfernt" >&2
