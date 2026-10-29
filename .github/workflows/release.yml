@@ -76,26 +76,35 @@ jobs:
     needs: prepare
     if: always() && needs.prepare.result == 'success'
     name: Flatpak-Bundle
-    runs-on: ubuntu-latest
-    container:
-      # Dieses Image nutzt auch das Ambilight-Projekt; es bringt flatpak-builder.
-      # Das Image muss nicht zur Runtime passen - die Action holt org.gnome.Platform//51
-      # selbst aus dem Flathub-Repo.
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
-      options: --privileged
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare.outputs.tag }}
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      # Genau der Weg, der lokal funktioniert: flatpak-builder als Flatpak, SDK
+      # systemweit (der Builder fragt 'flatpak info' gegen die System-Installation).
+      # Die flathub-Action scheiterte am xvfb-Wrapper im Container; dieser Weg
+      # braucht weder Container noch xvfb.
+      - name: Flatpak und Builder installieren
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq flatpak
+          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y --noninteractive flathub \
+            org.flatpak.Builder org.gnome.Platform//51 org.gnome.Sdk//51
+      - name: Bauen
+        run: |
+          sudo flatpak run --command=flatpak-builder org.flatpak.Builder \
+            --repo=repo --force-clean --disable-rofiles-fuse \
+            build-dir flatpak/de.weppelmann.Crosspoint.yml
+          sudo chown -R "$(id -u):$(id -g)" repo build-dir
+          flatpak build-bundle repo \
+            "crosspoint-${{ needs.prepare.outputs.version }}-x86_64.flatpak" \
+            de.weppelmann.Crosspoint
+      - uses: actions/upload-artifact@v4
         with:
-          manifest-path: flatpak/de.weppelmann.Crosspoint.yml
-          bundle: crosspoint-${{ needs.prepare.outputs.version }}-x86_64.flatpak
-          cache-key: flatpak-builder-${{ github.sha }}
-          upload-artifact: true
-          # Die Action umhuellt Tests mit xvfb-run; das scheitert hier
-          # ('/app/bin/xvfb-run' exit 1). Unsere Tests laufen im CI-Job.
-          run-tests: false
+          name: flatpak
+          path: crosspoint-*.flatpak
 
   tarball:
     needs: prepare
