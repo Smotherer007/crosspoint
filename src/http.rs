@@ -26,7 +26,8 @@ use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use tungstenite::handshake::derive_accept_key;
 use tungstenite::protocol::{Message, Role, WebSocket};
 
-use crate::devices::{DeviceMap, RealRunner};
+use crate::devices::DeviceMap;
+use crate::pw::PipeWire;
 use crate::engine::Params;
 use crate::json::{self, Value};
 use crate::macros_io::MacroControl;
@@ -397,7 +398,7 @@ fn route(zustand: &Zustand, method: &str, path: &str, body: &str) -> Antwort {
         }
         ("GET", p) if p.starts_with("/api/inputs") => {
             let mit = p.contains("monitors=1");
-            let body = crate::inputs::status_json(&crate::inputs::RealRunner, mit);
+            let body = crate::inputs::status_json(&PipeWire, mit);
             reply("200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/inputs") => {
@@ -407,10 +408,9 @@ fn route(zustand: &Zustand, method: &str, path: &str, body: &str) -> Antwort {
                 Value::Str(s) if !s.is_empty() => Some(s.clone()),
                 _ => None,
             });
-            let runner = crate::inputs::RealRunner;
             let mit = p.contains("monitors=1");
-            let out = match crate::inputs::assign(&runner, strip, quelle.as_deref()) {
-                Ok(()) => crate::inputs::status_json(&runner, mit),
+            let out = match crate::inputs::assign(&PipeWire, strip, quelle.as_deref()) {
+                Ok(()) => crate::inputs::status_json(&PipeWire, mit),
                 Err(e) => format!("{{\"error\":{}}}", json::quote(&e)),
             };
             reply("200 OK", "application/json", out.as_bytes())
@@ -418,7 +418,7 @@ fn route(zustand: &Zustand, method: &str, path: &str, body: &str) -> Antwort {
         ("GET", p) if p.starts_with("/api/devices") => {
             let mit = p.contains("monitors=1");
             let body = match devices.lock() {
-                Ok(d) => d.status_json(&RealRunner, mit),
+                Ok(d) => d.status_json(&PipeWire, mit),
                 Err(_) => "{\"error\":\"gesperrt\"}".to_string(),
             };
             reply("200 OK", "application/json", body.as_bytes())
@@ -439,21 +439,20 @@ fn route(zustand: &Zustand, method: &str, path: &str, body: &str) -> Antwort {
                     _ => None,
                 })
                 .unwrap_or_default();
-            let runner = RealRunner;
             let ergebnis = (|| -> Result<(), String> {
                 let mut map = devices.lock().map_err(|_| "gesperrt".to_string())?;
                 // Abwaehlen: leeren Namen zuerst behandeln, sonst scheitert die
                 // Sink-Suche und die Verbindung bleibt bestehen.
                 if sink_name.is_empty() {
-                    map.clear(&runner, &bus)
+                    map.clear(&PipeWire, &bus)
                 } else {
-                    map.assign(&runner, &bus, &sink_name)
+                    map.assign(&PipeWire, &bus, &sink_name)
                 }
             })();
             let mit = p.contains("monitors=1");
             let body = match ergebnis {
                 Ok(()) => match devices.lock() {
-                    Ok(d) => d.status_json(&runner, mit),
+                    Ok(d) => d.status_json(&PipeWire, mit),
                     Err(_) => "{\"error\":\"gesperrt\"}".to_string(),
                 },
                 Err(e) => format!("{{\"error\":{}}}", json::quote(&e)),

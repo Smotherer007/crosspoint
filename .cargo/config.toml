@@ -3,6 +3,13 @@
 # `jack-sys` (Crate `jack`) sucht beim Bauen per pkg-config nach `jack`. Auf
 # Bazzite und in der Flatpak-Runtime gibt es kein `jack.pc`, weil JACK selbst
 # nicht installiert ist - die ABI liefert PipeWire. Der Ersatz liegt im Repo,
-# damit `cargo build` ohne Shell-Vorbereitung funktioniert.
+# damit `cargo build` ohne Shell-Vorbereitung funktioniert. Dasselbe gilt fuer
+# `libpipewire-0.3`/`libspa-0.2` (Crate `pipewire`): Header und .pc-Dateien
+# liegen in packaging/, weil hier kein pipewire-devel installiert ist.
 [env]
 PKG_CONFIG_PATH = { value = "packaging/pkgconfig", relative = true }
+# bindgen (Crate `pipewire`) braucht die freistehenden Header des Compilers.
+# Der Include-Pfad gehoert NICHT in die .pc-Dateien: von dort bekaeme ihn auch
+# `cc`, und gcc stolpert ueber clang-eigene Header. Die Versionsnummer muss zur
+# installierten Clang-Version passen (Fedora 44: 22).
+BINDGEN_EXTRA_CLANG_ARGS = "-I/usr/lib/clang/22/include"

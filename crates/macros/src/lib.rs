@@ -1,9 +1,9 @@
 //! Macro-Button-Engine: 80 Tasten, Trigger, Aktionen.
 //!
-//! Das Crate ist eigenstaendig und ohne Fremd-Crates. Es beschreibt nur, *was*
-//! eine Taste ausloest - die Aktionen werden im Hauptprozess ausgefuehrt
-//! (Parameter setzen, MIDI senden, warten). Deshalb gibt es hier keine
-//! Seiteneffekte, keine Uhr und keine Threads.
+//! Das Crate haengt nur an `serde`/`serde_json` (Datei der Tastenbelegung) und
+//! beschreibt sonst nur, *was* eine Taste ausloest - die Aktionen werden im
+//! Hauptprozess ausgefuehrt (Parameter setzen, MIDI senden, warten). Deshalb
+//! gibt es hier keine Seiteneffekte, keine Uhr und keine Threads.
 //!
 //! ```text
 //! Eingang je Slot -> Flankenerkennung -> Betriebsart (off/on/trigger/color)
@@ -52,7 +52,6 @@
 #![forbid(unsafe_code)]
 
 pub mod engine;
-pub mod json;
 pub mod model;
 pub mod persist;
 

@@ -23,6 +23,13 @@ tungstenite = "0.30"
 # JACK-Client statt handdeklariertem ABI (src/jack.rs); laedt libjack.so.0
 # zur Laufzeit, braucht beim Bauen nur pkg-config (siehe .cargo/config.toml).
 jack = "0.13"
+# PipeWire-Zugriff ueber die offiziellen Bindings statt pw-dump/pw-link-Text
+# (src/pw.rs). Braucht libpipewire-0.3 beim Bauen; die Header liegen unter
+# packaging/pipewire-devel, siehe packaging/pkgconfig/libpipewire-0.3.pc.
+pipewire = "0.10"
+# Kleine Runtime im Registry-Thread (src/pw.rs): Ereignisse einsammeln,
+# ohne die HTTP-Schicht zu blockieren. Nur rt + time, kein Netzwerk.
+tokio = { version = "1", default-features = false, features = ["rt", "time"] }
 
 [[bin]]
 name = "crosspoint-engine"

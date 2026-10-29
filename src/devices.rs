@@ -1,8 +1,9 @@
 //! Geräteauswahl für die Hardware-Busse A1..A5.
 //!
 //! Jeder Hardware-Bus (A1..A5) hängt an einem Ausgabegerät. Auf Linux
-//! ist das ein PipeWire-Sink (`media.class: Audio/Sink`); die Verbindung stellt
-//! `pw-link` her, die Ports stehen im Graphen:
+//! ist das ein PipeWire-Sink (`media.class: Audio/Sink`); die Verbindung
+//! entsteht über die `pipewire`-Crate (Link-Objekt), die Ports stehen im
+//! Graphen:
 //!
 //! ```text
 //! crosspoint:busA1_L  ->  <sink>:playback_FL
@@ -13,8 +14,8 @@
 //! Sink-Ports heißen je Gerät `<sink>:playback_FL`/`_FR`.
 //!
 //! Quelle der Wahrheit ist [`crate::pw`]: Knoten, Ports und bestehende Links
-//! kommen aus `pw-dump`. Dadurch werden Anzeigenamen nicht mehr aus
-//! `pactl`-Text geschnitten, Monitore sind an ihren Ports erkennbar, und beim
+//! kommen aus der PipeWire-Registry. Dadurch werden Anzeigenamen nicht aus
+//! Textausgaben geschnitten, Monitore sind an ihren Ports erkennbar, und beim
 //! Umstecken werden die Links getrennt, die wirklich existieren.
 //!
 //! Gespeichert wird nur der technische Name (`node.name`) eines Geräts:
@@ -31,9 +32,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::json::Value;
-use crate::pw::{self, CommandRunner, Graph, Richtung};
+use crate::pw::{self, Graph, Richtung, Zugriff};
 
-pub use crate::pw::{Call, FakeRunner, RealRunner};
 
 /// Hardware-Busse des Originals. B1..B3 sind virtuell und haben kein Gerät.
 pub const HARDWARE_BUSES: [&str; 5] = ["A1", "A2", "A3", "A4", "A5"];
@@ -56,8 +56,8 @@ const CONFIG_FILE: &str = "devices.json";
 pub struct Sink {
     /// Knoten-ID im Graphen (nur zur Anzeige, nicht speichern).
     pub id: u32,
-    /// Technischer Name (`node.name`) – wird für die `pw-link`-Ports gebraucht
-    /// und ist das Einzige, was die Zuordnung speichert.
+    /// Technischer Name (`node.name`) – adressiert die Ports am Gerät und ist
+    /// das Einzige, was die Zuordnung speichert.
     pub name: String,
     /// Anzeigename (`node.description`), vollständig mit Leerzeichen.
     pub desc: String,
@@ -100,17 +100,17 @@ pub fn sinks(graph: &Graph, mit_monitoren: bool) -> Vec<Sink> {
         .collect()
 }
 
-/// Ausgabegeräte über `pw-dump`; Monitore bleiben ausgeblendet.
-pub fn list_sinks(runner: &dyn CommandRunner) -> Result<Vec<Sink>, String> {
-    list_sinks_mit(runner, false)
+/// Ausgabegeräte aus dem PipeWire-Graph; Monitore bleiben ausgeblendet.
+pub fn list_sinks(zugriff: &dyn Zugriff) -> Result<Vec<Sink>, String> {
+    list_sinks_mit(zugriff, false)
 }
 
 /// Wie [`list_sinks`], aber mit zuschaltbaren Monitoren.
 pub fn list_sinks_mit(
-    runner: &dyn CommandRunner,
+    zugriff: &dyn Zugriff,
     mit_monitoren: bool,
 ) -> Result<Vec<Sink>, String> {
-    Ok(sinks(&pw::dump(runner)?, mit_monitoren))
+    Ok(sinks(&zugriff.graph()?, mit_monitoren))
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +263,7 @@ impl DeviceMap {
     /// keine Zuordnung, damit Datei und Graph deckungsgleich bleiben.
     pub fn assign(
         &mut self,
-        runner: &dyn CommandRunner,
+        zugriff: &dyn Zugriff,
         bus: &str,
         sink: &str,
     ) -> Result<(), String> {
@@ -272,7 +272,7 @@ impl DeviceMap {
         if sink.is_empty() {
             return Err("Sink ohne Namen".into());
         }
-        let graph = pw::dump(runner)?;
+        let graph = zugriff.graph()?;
         let node = graph
             .knoten(sink)
             .ok_or_else(|| format!("Sink '{sink}' steht nicht im PipeWire-Graph"))?;
@@ -285,7 +285,7 @@ impl DeviceMap {
 
         let bus_ports = [bus_port(&bus, "L"), bus_port(&bus, "R")];
         for verbindung in graph.offene_links(&bus_ports) {
-            let _ = runner.run("pw-link", &["-d", &verbindung.von, &verbindung.nach]);
+            let _ = zugriff.trennen(&verbindung.von, &verbindung.nach);
         }
 
         let eingaenge = graph.pfade(node.id, Richtung::In);
@@ -296,8 +296,8 @@ impl DeviceMap {
 
         for (i, kanal) in ["L", "R"].iter().enumerate() {
             let ziel = &ziele[if ziele.len() == 1 { 0 } else { i }];
-            runner
-                .run("pw-link", &[&bus_port(&bus, kanal), ziel])
+            zugriff
+                .verbinden(&bus_port(&bus, kanal), ziel)
                 .map_err(|e| format!("{bus} auf '{sink}' verbinden fehlgeschlagen: {e}"))?;
         }
 
@@ -307,14 +307,14 @@ impl DeviceMap {
 
     /// Löst die Verbindungen eines Busses und entfernt die Zuordnung.
     /// Ist nichts verbunden und nichts zugeordnet, passiert nichts (idempotent).
-    pub fn clear(&mut self, runner: &dyn CommandRunner, bus: &str) -> Result<(), String> {
+    pub fn clear(&mut self, zugriff: &dyn Zugriff, bus: &str) -> Result<(), String> {
         let bus = normalisiere_bus(bus)?;
-        let graph = pw::dump(runner)?;
+        let graph = zugriff.graph()?;
         let bus_ports = [bus_port(&bus, "L"), bus_port(&bus, "R")];
         let mut etwas_getan = false;
         for verbindung in graph.offene_links(&bus_ports) {
             etwas_getan = true;
-            let _ = runner.run("pw-link", &["-d", &verbindung.von, &verbindung.nach]);
+            let _ = zugriff.trennen(&verbindung.von, &verbindung.nach);
         }
 
         // Kein Link (mehr) im Graphen, aber eine Zuordnung: die alten
@@ -322,10 +322,7 @@ impl DeviceMap {
         if let Some(alt) = self.busse.get(&bus).cloned() {
             if !etwas_getan {
                 for (kanal, ziel) in CHANNELS {
-                    let _ = runner.run(
-                        "pw-link",
-                        &["-d", &bus_port(&bus, kanal), &format!("{alt}:{ziel}")],
-                    );
+                    let _ = zugriff.trennen(&bus_port(&bus, kanal), &format!("{alt}:{ziel}"));
                 }
             }
         }
@@ -343,10 +340,10 @@ impl DeviceMap {
     /// `sink: null` heißt „kein Gerät gewählt“. `desc` wird zur Laufzeit aus dem
     /// Graphen geholt; `vorhanden: false` zeigt an, dass ein gemerktes Gerät
     /// gerade nicht da ist. `verbunden` meldet, ob laut Graph wirklich ein Link
-    /// vom Busport zum Gerät besteht. `error` trägt die Meldung, falls `pw-dump`
+    /// vom Busport zum Gerät besteht. `error` trägt die Meldung, falls PipeWire
     /// nicht erreichbar war.
-    pub fn status_json(&self, runner: &dyn CommandRunner, mit_monitoren: bool) -> String {
-        let graph = pw::dump(runner);
+    pub fn status_json(&self, zugriff: &dyn Zugriff, mit_monitoren: bool) -> String {
+        let graph = zugriff.graph();
         let (liste, fehler) = match &graph {
             Ok(g) => (sinks(g, mit_monitoren), Value::Null),
             Err(e) => (Vec::new(), Value::str(e.clone())),
@@ -416,7 +413,7 @@ impl DeviceMap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pw::tests::DUMP;
+    use crate::pw::tests::{Testzugriff, DUMP};
 
     fn tmp_path(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -425,8 +422,8 @@ mod tests {
         ))
     }
 
-    fn fake() -> FakeRunner {
-        FakeRunner::new().with_output("pw-dump", DUMP)
+    fn fake() -> Testzugriff {
+        Testzugriff::aus_dump(DUMP)
     }
 
     const CORSAIR: &str =
@@ -482,7 +479,7 @@ mod tests {
         assert!(mit.iter().any(|s| s.name == "alsa_output.hdmi.monitor"));
         assert!(mit.iter().any(|s| s.name == "alsa_output.usb"));
 
-        let fake = FakeRunner::new().with_output("pw-dump", mit_monitor);
+        let fake = Testzugriff::neu(Graph::parse(mit_monitor).unwrap());
         assert_eq!(list_sinks(&fake).unwrap().len(), 1);
         assert_eq!(list_sinks_mit(&fake, true).unwrap().len(), 2);
     }
@@ -496,23 +493,15 @@ mod tests {
 
         // Im Graphen hängt bereits crosspoint:busA1_L -> playback_FL (Link 500).
         map.assign(&fake, "A1", CORSAIR).unwrap();
-        let zeilen = fake.lines();
+        let aktionen = fake.aktionen();
         assert_eq!(
-            &zeilen[1..4],
-            &[
-                format!("pw-link -d crosspoint:busA1_L {CORSAIR}:playback_FL"),
-                format!("pw-link crosspoint:busA1_L {CORSAIR}:playback_FL"),
-                format!("pw-link crosspoint:busA1_R {CORSAIR}:playback_FR"),
+            aktionen,
+            vec![
+                format!("trennen crosspoint:busA1_L {CORSAIR}:playback_FL"),
+                format!("verbinden crosspoint:busA1_L {CORSAIR}:playback_FL"),
+                format!("verbinden crosspoint:busA1_R {CORSAIR}:playback_FR"),
             ],
-            "erst den echten Link lösen, dann verbinden: {zeilen:?}"
-        );
-        assert_eq!(zeilen[0], "pw-dump");
-        assert_eq!(
-            fake.calls_of("pw-link")
-                .iter()
-                .filter(|c| c.args[0] == "-d")
-                .count(),
-            1
+            "erst den echten Link lösen, dann verbinden"
         );
         assert_eq!(map.get("A1"), Some(CORSAIR));
         let _ = std::fs::remove_file(&pfad);
@@ -541,23 +530,22 @@ mod tests {
         let mut map = DeviceMap::new(&pfad);
         let fake = fake();
         map.assign(&fake, "A1", CORSAIR).unwrap();
-        let vorher = fake.calls().len();
+        let vorher = fake.aktionen().len();
         map.clear(&fake, "A1").unwrap();
-        let danach = fake.calls();
-        let neu: Vec<&Call> = danach[vorher..].iter().collect();
-        // Ein pw-dump, ein pw-link -d auf den einzigen vorhandenen Link.
-        assert_eq!(neu.len(), 2, "{neu:?}");
-        assert_eq!(neu[0].program, "pw-dump");
+        let danach = fake.aktionen();
+        let neu = &danach[vorher..];
+        // Ein Trennen auf den einzigen vorhandenen Link.
         assert_eq!(
-            neu[1].line(),
-            format!("pw-link -d crosspoint:busA1_L {CORSAIR}:playback_FL")
+            neu,
+            [format!("trennen crosspoint:busA1_L {CORSAIR}:playback_FL")],
+            "{neu:?}"
         );
         assert!(map.get("A1").is_none());
 
-        // Zweites clear: kein Eintrag mehr, im Graphen nichts mehr -> nur der Dump.
-        let leer = FakeRunner::new().with_output("pw-dump", "[]");
+        // Zweites clear: kein Eintrag mehr, im Graphen nichts mehr -> nichts zu tun.
+        let leer = Testzugriff::neu(Graph::default());
         map.clear(&leer, "A1").unwrap();
-        assert_eq!(leer.lines(), vec!["pw-dump".to_string()]);
+        assert!(leer.aktionen().is_empty());
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -568,15 +556,13 @@ mod tests {
         let mut map = DeviceMap::new(&pfad);
         map.assign(&fake(), "A2", CORSAIR).unwrap();
         // Graph ohne Links (z. B. Verbindung von außen gelöst).
-        let leer = FakeRunner::new().with_output("pw-dump", "[]");
+        let leer = Testzugriff::neu(Graph::default());
         map.clear(&leer, "A2").unwrap();
-        let zeilen = leer.lines();
         assert_eq!(
-            zeilen,
+            leer.aktionen(),
             vec![
-                "pw-dump".to_string(),
-                format!("pw-link -d crosspoint:busA2_L {CORSAIR}:playback_FL"),
-                format!("pw-link -d crosspoint:busA2_R {CORSAIR}:playback_FR"),
+                format!("trennen crosspoint:busA2_L {CORSAIR}:playback_FL"),
+                format!("trennen crosspoint:busA2_R {CORSAIR}:playback_FR"),
             ]
         );
         let _ = std::fs::remove_file(&pfad);
@@ -587,19 +573,19 @@ mod tests {
         let pfad = tmp_path("ignorieren");
         let _ = std::fs::remove_file(&pfad);
         let mut map = DeviceMap::new(&pfad);
-        let fake = FakeRunner::new()
-            .with_output("pw-dump", DUMP)
-            .with_failure("pw-link -d");
+        // A3 hat im Graphen keinen Link – ein Fehler beim Trennen darf trotzdem
+        // nicht durchschlagen.
+        let fake = Testzugriff::aus_dump(DUMP).mit_fehler("trennen");
         map.assign(&fake, "A3", CORSAIR).unwrap();
-        let zeilen = fake.lines();
-        assert_eq!(zeilen.len(), 3, "{zeilen:?}");
+        let aktionen = fake.aktionen();
+        assert_eq!(aktionen.len(), 2, "{aktionen:?}");
         assert_eq!(
-            zeilen[1],
-            format!("pw-link crosspoint:busA3_L {CORSAIR}:playback_FL")
+            aktionen[0],
+            format!("verbinden crosspoint:busA3_L {CORSAIR}:playback_FL")
         );
         assert_eq!(
-            zeilen[2],
-            format!("pw-link crosspoint:busA3_R {CORSAIR}:playback_FR")
+            aktionen[1],
+            format!("verbinden crosspoint:busA3_R {CORSAIR}:playback_FR")
         );
         assert!(map.get("A3").is_some());
         let _ = std::fs::remove_file(&pfad);
@@ -610,9 +596,7 @@ mod tests {
         let pfad = tmp_path("connectfehler");
         let _ = std::fs::remove_file(&pfad);
         let mut map = DeviceMap::new(&pfad);
-        let fake = FakeRunner::new()
-            .with_output("pw-dump", DUMP)
-            .with_failure("playback_FR");
+        let fake = Testzugriff::aus_dump(DUMP).mit_fehler("playback_FR");
         assert!(map.assign(&fake, "A2", CORSAIR).is_err());
         assert!(map.get("A2").is_none());
         let _ = std::fs::remove_file(&pfad);
@@ -631,8 +615,8 @@ mod tests {
             assert!(map.clear(&fake, bus).is_err(), "'{bus}' abgelehnt");
         }
         assert!(
-            fake.calls().is_empty(),
-            "kein Systemaufruf bei ungültigem Bus"
+            fake.aktionen().is_empty(),
+            "kein PipeWire-Aufruf bei ungültigem Bus"
         );
         assert_eq!(normalisiere_bus("a4").unwrap(), "A4");
         assert_eq!(normalisiere_bus(" A5 ").unwrap(), "A5");
@@ -670,7 +654,7 @@ mod tests {
         assert!(wieder.get("A2").is_none());
         assert_eq!(wieder.entries().len(), 2);
         // Beschreibung entsteht aus dem Graphen – ohne sie zu speichern.
-        let graph = pw::dump(&fake).unwrap();
+        let graph = fake.graph().unwrap();
         assert_eq!(
             wieder.get_in("A1", &graph).unwrap().desc,
             "Corsair HS80 RGB USB Gaming Headset Analoges Stereo"
@@ -732,8 +716,8 @@ mod tests {
         assert_eq!(busse[1].get("verbunden").unwrap(), &Value::Bool(false));
         assert_eq!(wert.get("error").unwrap(), &Value::Null);
 
-        // Ohne erreichbares pw-dump bleibt das JSON gültig.
-        let kaputt = FakeRunner::new().with_failure("pw-dump");
+        // Ohne erreichbares PipeWire bleibt das JSON gültig.
+        let kaputt = Testzugriff::ohne_graph();
         let wert = crate::json::parse(&map.status_json(&kaputt, false)).unwrap();
         assert_eq!(wert.get("sinks").unwrap().as_arr().unwrap().len(), 0);
         assert!(wert.get("error").unwrap() != &Value::Null);

@@ -47,7 +47,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
 
-use macros::json::Wert;
+use crate::json::Value;
 use macros::{Action, Bank, Button, Engine, Input, MAX_BUTTONS};
 
 /// Ordnername unter `$XDG_CONFIG_HOME` bzw. `~/.config`.
@@ -339,16 +339,16 @@ impl MacroControl {
             let mut tasten = Vec::with_capacity(bank.len());
             for i in 0..bank.len() {
                 if let Some(b) = bank.get(i) {
-                    tasten.push(Wert::objekt(vec![
-                        ("index", Wert::zahl(i as f64)),
-                        ("name", Wert::text(b.name.clone())),
-                        ("state", Wert::text(b.state.as_str())),
+                    tasten.push(Value::obj(vec![
+                        ("index", Value::num(i as f64)),
+                        ("name", Value::str(b.name.clone())),
+                        ("state", Value::str(b.state.as_str())),
                         (
                             "display",
-                            Wert::text(e.display_state(i).map(|s| s.as_str()).unwrap_or("off")),
+                            Value::str(e.display_state(i).map(|s| s.as_str()).unwrap_or("off")),
                         ),
-                        ("latched", Wert::Wahr(e.is_latched(i))),
-                        ("actions", Wert::zahl(b.actions.len() as f64)),
+                        ("latched", Value::Bool(e.is_latched(i))),
+                        ("actions", Value::num(b.actions.len() as f64)),
                     ]));
                 }
             }
@@ -356,19 +356,19 @@ impl MacroControl {
         };
         let offen = sperre(&self.pendenzen).len();
         let ladefehler = sperre(&self.ladefehler).clone();
-        Wert::objekt(vec![
-            ("pfad", Wert::text(self.pfad.display().to_string())),
-            ("slots", Wert::zahl(MAX_BUTTONS as f64)),
-            ("buttons", Wert::Liste(tasten)),
-            ("warteschlange", Wert::zahl(offen as f64)),
-            ("frames", Wert::zahl(frames as f64)),
-            ("fires", Wert::zahl(fires as f64)),
-            ("konflikte", Wert::zahl(konflikte)),
+        Value::obj(vec![
+            ("pfad", Value::str(self.pfad.display().to_string())),
+            ("slots", Value::num(MAX_BUTTONS as f64)),
+            ("buttons", Value::Arr(tasten)),
+            ("warteschlange", Value::num(offen as f64)),
+            ("frames", Value::num(frames as f64)),
+            ("fires", Value::num(fires as f64)),
+            ("konflikte", Value::num(konflikte)),
             (
                 "ladefehler",
                 match ladefehler {
-                    Some(m) => Wert::text(m),
-                    None => Wert::Null,
+                    Some(m) => Value::str(m),
+                    None => Value::Null,
                 },
             ),
         ])
@@ -584,14 +584,14 @@ mod tests {
 
         // Die UI-Liste hat genau 80 Einträge, 0..79.
         let s = c.status_json();
-        let v = macros::json::parse(&s).expect("status_json ist JSON");
-        assert_eq!(v.get("slots").and_then(|x| x.als_zahl()), Some(80.0));
+        let v = crate::json::parse(&s).expect("status_json ist JSON");
+        assert_eq!(v.get("slots").and_then(|x| x.as_f64()), Some(80.0));
         let tasten = v
             .get("buttons")
-            .and_then(|x| x.als_liste())
+            .and_then(|x| x.as_arr())
             .expect("buttons[]");
         assert_eq!(tasten.len(), MAX_BUTTONS);
-        assert_eq!(tasten[79].get("name"), Some(&Wert::text("Letzte")),);
+        assert_eq!(tasten[79].get("name"), Some(&Value::str("Letzte")),);
     }
 
     /// `status_json` ist für die UI lesbar: Name, display, latched, Zähler.
@@ -610,28 +610,28 @@ mod tests {
         c.drain();
         let s = c.status_json();
 
-        let v = macros::json::parse(&s).expect("status_json ist JSON");
-        assert_eq!(v.get("warteschlange").and_then(|x| x.als_zahl()), Some(0.0));
-        assert_eq!(v.get("fires").and_then(|x| x.als_zahl()), Some(1.0));
+        let v = crate::json::parse(&s).expect("status_json ist JSON");
+        assert_eq!(v.get("warteschlange").and_then(|x| x.as_f64()), Some(0.0));
+        assert_eq!(v.get("fires").and_then(|x| x.as_f64()), Some(1.0));
         // Vor dem drain stand ein Kommando in der Schlange.
-        let vorher = macros::json::parse(&vor_drain).unwrap();
+        let vorher = crate::json::parse(&vor_drain).unwrap();
         assert_eq!(
-            vorher.get("warteschlange").and_then(|x| x.als_zahl()),
+            vorher.get("warteschlange").and_then(|x| x.as_f64()),
             Some(1.0)
         );
 
-        let tasten = v.get("buttons").and_then(|x| x.als_liste()).unwrap();
-        assert_eq!(tasten[0].get("name"), Some(&Wert::text("Mute A1")));
-        assert_eq!(tasten[0].get("state"), Some(&Wert::text("on")));
-        assert_eq!(tasten[0].get("display"), Some(&Wert::text("on")));
+        let tasten = v.get("buttons").and_then(|x| x.as_arr()).unwrap();
+        assert_eq!(tasten[0].get("name"), Some(&Value::str("Mute A1")));
+        assert_eq!(tasten[0].get("state"), Some(&Value::str("on")));
+        assert_eq!(tasten[0].get("display"), Some(&Value::str("on")));
         assert_eq!(
-            tasten[0].get("latched").and_then(|x| x.als_zahl()),
+            tasten[0].get("latched").and_then(|x| x.as_f64()),
             Some(1.0)
         );
         // Slot 1 ist unbelegt: Standardname, off.
-        assert_eq!(tasten[1].get("name"), Some(&Wert::text("Makro 2")));
-        assert_eq!(tasten[1].get("display"), Some(&Wert::text("off")));
-        assert_eq!(v.get("ladefehler"), Some(&Wert::Null));
+        assert_eq!(tasten[1].get("name"), Some(&Value::str("Makro 2")));
+        assert_eq!(tasten[1].get("display"), Some(&Value::str("off")));
+        assert_eq!(v.get("ladefehler"), Some(&Value::Null));
     }
 
     /// Standardpfad zeigt auf die Konfiguration im Home, nicht ins Arbeits-
@@ -654,11 +654,11 @@ mod tests {
         std::fs::write(&pfad, "{ das ist kein json").unwrap();
         let c = MacroControl::mit_pfad(&pfad);
         assert_eq!(c.belegung().len(), MAX_BUTTONS, "leere Bank statt Panik");
-        let v = macros::json::parse(&c.status_json()).unwrap();
+        let v = crate::json::parse(&c.status_json()).unwrap();
         assert!(
             v.get("ladefehler")
                 .and_then(|x| match x {
-                    Wert::Text(s) => Some(s.clone()),
+                    Value::Str(s) => Some(s.clone()),
                     _ => None,
                 })
                 .is_some(),

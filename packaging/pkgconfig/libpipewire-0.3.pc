@@ -1,0 +1,28 @@
+# Ersatz fuer libpipewire-0.3.pc, damit `cargo build` ohne Wurzelrechte
+# funktioniert.
+#
+# Die Crate `pipewire` bindet die C-Schnittstelle per bindgen ein. Dafuer
+# braucht der Bau die PipeWire-Header (`pipewire-0.3`, `spa-0.2`) und die
+# freistehenden Header des Compilers (stdbool.h, stddef.h, …). Auf diesem
+# System ist kein `pipewire-devel` installiert - das Repo bringt die Header
+# deshalb mit (packaging/pipewire-devel/include, MIT-Lizenz, entpackt aus
+# pipewire-devel-1.6.10).
+#
+# Gelinkt wird gegen die Laufzeitbibliothek des Systems. Sie heisst
+# `libpipewire-0.3.so.0`; der unversionierte Symlink `.so` gehoert zum
+# Entwicklerpaket und fehlt hier, deshalb `-ldylib:+verbatim=...` (rustc
+# uebersetzt das in `-l:libpipewire-0.3.so.0`).
+#
+# `-I/usr/lib/clang/<n>/include` liefert die freistehenden Header des
+# Compilers; die Versionsnummer muss zur installierten Clang-Version passen
+# (Fedora 44: 22). Fehlt der Pfad, bricht bindgen mit „stdbool.h not found“ ab.
+prefix=${pcfiledir}/../pipewire-devel
+includedir=${prefix}/include
+libdir=/usr/lib64
+
+Name: libpipewire
+Description: PipeWire Interface (Header aus dem Repo)
+Version: 1.6.10
+Requires: libspa-0.2
+Libs: -ldylib:+verbatim=libpipewire-0.3.so.0
+Cflags: -I${includedir}/pipewire-0.3 -D_REENTRANT

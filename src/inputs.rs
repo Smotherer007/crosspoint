@@ -17,9 +17,8 @@
 use std::path::PathBuf;
 
 use crate::json::Value;
-use crate::pw::{self, CommandRunner, Graph, Richtung};
+use crate::pw::{self, Graph, Richtung, Zugriff};
 
-pub use crate::pw::{Call, FakeRunner, RealRunner};
 
 pub const MAX_HW_STRIPS: usize = 5;
 
@@ -99,17 +98,17 @@ pub fn quellen(graph: &Graph, mit_monitoren: bool) -> Vec<Source> {
     liste
 }
 
-/// Quellen über `pw-dump`; Monitore bleiben standardmäßig ausgeblendet.
-pub fn list_sources(runner: &dyn CommandRunner) -> Result<Vec<Source>, String> {
-    list_sources_mit(runner, false)
+/// Quellen aus dem PipeWire-Graph; Monitore bleiben standardmäßig ausgeblendet.
+pub fn list_sources(zugriff: &dyn Zugriff) -> Result<Vec<Source>, String> {
+    list_sources_mit(zugriff, false)
 }
 
 /// Wie [`list_sources`], aber mit zuschaltbaren Monitoren.
 pub fn list_sources_mit(
-    runner: &dyn CommandRunner,
+    zugriff: &dyn Zugriff,
     mit_monitoren: bool,
 ) -> Result<Vec<Source>, String> {
-    Ok(quellen(&pw::dump(runner)?, mit_monitoren))
+    Ok(quellen(&zugriff.graph()?, mit_monitoren))
 }
 
 // ---------------------------------------------------------------------------
@@ -145,34 +144,37 @@ pub fn strip_ports(strip: usize) -> Result<(String, String, String, String), Str
 /// Alle Ausgangsports einer Quelle, so wie PipeWire sie gerade anbietet –
 /// als Pfad `"<knoten>:<port>"`.
 ///
-/// Aus dem Graphen, mit `pw-link -o` als Rückfall. Damit klappt auch
-/// `capture_MONO` eines Mono-Mikrofons, statt blind `capture_FL`/`capture_FR`
-/// zu raten. Bei einem Monitor liefert der Sink-Knoten `monitor_FL`/`_FR`.
-pub fn source_ports(runner: &dyn CommandRunner, graph: &Graph, source: &str) -> Vec<String> {
-    pw::ports(runner, graph, &kanonisch(source), Richtung::Out)
+/// Aus dem Graphen. Damit klappt auch `capture_MONO` eines Mono-Mikrofons,
+/// statt blind `capture_FL`/`capture_FR` zu raten. Bei einem Monitor liefert
+/// der Sink-Knoten `monitor_FL`/`_FR`.
+pub fn source_ports(graph: &Graph, source: &str) -> Vec<String> {
+    match graph.knoten(&kanonisch(source)) {
+        Some(knoten) => graph.pfade(knoten.id, Richtung::Out),
+        None => Vec::new(),
+    }
 }
 
 /// Verbindet Quellports mit den beiden Streifen-Eingängen. Mono-Quellen
 /// werden auf beide Seiten gelegt, Stereo-Quellen paarweise.
 pub fn link_source(
-    runner: &dyn CommandRunner,
+    zugriff: &dyn Zugriff,
     graph: &Graph,
     source: &str,
     in_l: &str,
     in_r: &str,
 ) -> Result<(), String> {
-    let ports = source_ports(runner, graph, source);
+    let ports = source_ports(graph, source);
     let ziele = pw::kanalpaar(&ports);
     match ziele.len() {
         0 => Err(format!("Quelle {source} hat keinen Ausgangsport")),
         1 => {
-            runner.run("pw-link", &[&ziele[0], in_l])?;
-            runner.run("pw-link", &[&ziele[0], in_r])?;
+            zugriff.verbinden(&ziele[0], in_l)?;
+            zugriff.verbinden(&ziele[0], in_r)?;
             Ok(())
         }
         _ => {
-            runner.run("pw-link", &[&ziele[0], in_l])?;
-            runner.run("pw-link", &[&ziele[1], in_r])?;
+            zugriff.verbinden(&ziele[0], in_l)?;
+            zugriff.verbinden(&ziele[1], in_r)?;
             Ok(())
         }
     }
@@ -237,30 +239,30 @@ fn save_mapping_mit(pfad: &std::path::Path, strip: usize, source: Option<&str>) 
 /// Streifenports hineinführen – auch fremde (z. B. `crosspoint:vban_L`). Danach werden
 /// die echten Ports der Quelle verbunden.
 pub fn assign(
-    runner: &dyn CommandRunner,
+    zugriff: &dyn Zugriff,
     strip: usize,
     source: Option<&str>,
 ) -> Result<(), String> {
-    assign_mit(runner, &mapping_path(), strip, source)
+    assign_mit(zugriff, &mapping_path(), strip, source)
 }
 
 /// Wie [`assign`], aber mit eigener Merkliste (Tests, andere Konfiguration).
 pub fn assign_mit(
-    runner: &dyn CommandRunner,
+    zugriff: &dyn Zugriff,
     pfad: &std::path::Path,
     strip: usize,
     source: Option<&str>,
 ) -> Result<(), String> {
     let (in_l, in_r, _, _) = strip_ports(strip)?;
-    let graph = pw::dump(runner)?;
+    let graph = zugriff.graph()?;
 
     for verbindung in graph.offene_links(&[in_l.clone(), in_r.clone()]) {
-        let _ = runner.run("pw-link", &["-d", &verbindung.von, &verbindung.nach]);
+        let _ = zugriff.trennen(&verbindung.von, &verbindung.nach);
     }
 
     let quelle = source.map(kanonisch).filter(|s| !s.is_empty());
     if let Some(src) = quelle.as_deref() {
-        link_source(runner, &graph, src, &in_l, &in_r)?;
+        link_source(zugriff, &graph, src, &in_l, &in_r)?;
     }
     save_mapping_mit(pfad, strip, quelle.as_deref());
     Ok(())
@@ -272,17 +274,17 @@ pub fn assign_mit(
 
 /// Zustand als JSON: Quellen (mit echten Ports), Zuordnung der Streifen und die
 /// tatsächlich bestehenden Verbindungen an den Streifenports.
-pub fn status_json(runner: &dyn CommandRunner, mit_monitoren: bool) -> String {
-    status_json_mit(runner, &mapping_path(), mit_monitoren)
+pub fn status_json(zugriff: &dyn Zugriff, mit_monitoren: bool) -> String {
+    status_json_mit(zugriff, &mapping_path(), mit_monitoren)
 }
 
 /// Wie [`status_json`], aber mit eigener Merkliste.
 pub fn status_json_mit(
-    runner: &dyn CommandRunner,
+    zugriff: &dyn Zugriff,
     pfad: &std::path::Path,
     mit_monitoren: bool,
 ) -> String {
-    let graph = pw::dump(runner);
+    let graph = zugriff.graph();
     let (quellen, fehler) = match &graph {
         Ok(g) => (quellen(g, mit_monitoren), Value::Null),
         Err(e) => (Vec::new(), Value::str(e.clone())),
@@ -293,7 +295,7 @@ pub fn status_json_mit(
         .iter()
         .map(|q| {
             let ports = match &graph {
-                Ok(g) => source_ports(runner, g, &q.name),
+                Ok(g) => source_ports(g, &q.name),
                 Err(_) => Vec::new(),
             };
             Value::obj(vec![
@@ -370,7 +372,7 @@ pub fn status_json_mit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pw::tests::DUMP;
+    use crate::pw::tests::{Testzugriff, DUMP};
 
     fn tmp_path(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -379,8 +381,8 @@ mod tests {
         ))
     }
 
-    fn fake(text: &str) -> FakeRunner {
-        FakeRunner::new().with_output("pw-dump", text)
+    fn fake(text: &str) -> Testzugriff {
+        Testzugriff::aus_dump(text)
     }
 
     const MONO: &str =
@@ -459,14 +461,14 @@ mod tests {
 
         let graph = Graph::parse(DUMP).unwrap();
         assert_eq!(
-            source_ports(&FakeRunner::new(), &graph, MONO),
+            source_ports(&graph, MONO),
             [format!("{MONO}:capture_MONO")]
         );
         // Monitor: der Sink liefert seine monitor_*-Ports, ohne dass jemand
         // einen Portnamen raten muss.
         let hdmi = "alsa_output.pci-0000_03_00.1.hdmi-stereo-extra2";
         assert_eq!(
-            source_ports(&FakeRunner::new(), &graph, hdmi),
+            source_ports(&graph, hdmi),
             [format!("{hdmi}:monitor_FL"), format!("{hdmi}:monitor_FR")]
         );
     }
@@ -486,20 +488,16 @@ mod tests {
         let f = fake(DUMP);
 
         assign_mit(&f, &pfad, 1, Some(MONO)).unwrap();
-        let aufrufe = f.lines();
+        let aufrufe = f.aktionen();
         // Im Graphen hängt das Mikrofon schon an strip1_L (Link 501) – erst lösen.
-        assert_eq!(aufrufe[0], "pw-dump");
         assert_eq!(
-            aufrufe[1],
-            format!("pw-link -d {MONO}:capture_MONO crosspoint:strip1_L")
-        );
-        assert_eq!(
-            aufrufe[2],
-            format!("pw-link {MONO}:capture_MONO crosspoint:strip1_L")
-        );
-        assert_eq!(
-            aufrufe[3],
-            format!("pw-link {MONO}:capture_MONO crosspoint:strip1_R")
+            aufrufe,
+            vec![
+                format!("trennen {MONO}:capture_MONO crosspoint:strip1_L"),
+                format!("verbinden {MONO}:capture_MONO crosspoint:strip1_L"),
+                format!("verbinden {MONO}:capture_MONO crosspoint:strip1_R"),
+            ],
+            "{aufrufe:?}"
         );
         assert_eq!(
             std::fs::read_to_string(&pfad).unwrap(),
@@ -536,15 +534,15 @@ mod tests {
             ]"#,
         );
         assign_mit(&f, &pfad, 2, Some("alsa_input.usb-mic")).unwrap();
-        let zeilen = f.lines();
+        let zeilen = f.aktionen();
         assert_eq!(
-            zeilen[1], "pw-link -d crosspoint:vban_L crosspoint:strip2_L",
+            zeilen[0], "trennen crosspoint:vban_L crosspoint:strip2_L",
             "{zeilen:?}"
         );
         assert!(zeilen
-            .contains(&"pw-link alsa_input.usb-mic:capture_FL crosspoint:strip2_L".to_string()));
+            .contains(&"verbinden alsa_input.usb-mic:capture_FL crosspoint:strip2_L".to_string()));
         assert!(zeilen
-            .contains(&"pw-link alsa_input.usb-mic:capture_FR crosspoint:strip2_R".to_string()));
+            .contains(&"verbinden alsa_input.usb-mic:capture_FR crosspoint:strip2_R".to_string()));
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -557,9 +555,9 @@ mod tests {
 
         let f = fake(DUMP);
         assign_mit(&f, &pfad, 3, None).unwrap();
-        let aufrufe = f.lines();
+        let aufrufe = f.aktionen();
         assert!(
-            !aufrufe.iter().any(|z| z.contains("pw-link crosspoint")),
+            !aufrufe.iter().any(|z| z.starts_with("verbinden")),
             "{aufrufe:?}"
         );
         assert!(
@@ -620,8 +618,8 @@ mod tests {
             &Value::str("crosspoint:strip1_L")
         );
 
-        // Ohne pw-dump bleibt das JSON gültig und meldet den Fehler.
-        let kaputt = FakeRunner::new().with_failure("pw-dump");
+        // Ohne erreichbares PipeWire bleibt das JSON gültig und meldet den Fehler.
+        let kaputt = Testzugriff::ohne_graph();
         let wert = crate::json::parse(&status_json_mit(&kaputt, &pfad, false)).unwrap();
         assert!(wert.get("error").unwrap() != &Value::Null);
         assert_eq!(wert.get("sources").unwrap().as_arr().unwrap().len(), 0);

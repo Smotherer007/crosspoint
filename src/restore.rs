@@ -32,10 +32,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::devices::{DeviceMap, RealRunner};
+use crate::devices::DeviceMap;
 use crate::engine::Params;
 use crate::json::Value;
-use crate::pw::CommandRunner;
+use crate::pw::{PipeWire, Zugriff};
 
 /// Ruhezeit nach der letzten Änderung, bevor der Autosave schreibt.
 pub const AUTOSAVE_RUHE_MS: u64 = 2000;
@@ -184,7 +184,7 @@ impl Ergebnis {
 /// Alle gemerkten Busse erneut zuordnen (derselbe Weg wie `POST /api/devices`).
 pub fn devices_wiederherstellen(
     map: &mut DeviceMap,
-    runner: &dyn CommandRunner,
+    zugriff: &dyn Zugriff,
 ) -> (usize, Vec<String>) {
     let eintraege: Vec<(String, String)> = map
         .entries()
@@ -194,7 +194,7 @@ pub fn devices_wiederherstellen(
     let mut gesetzt = 0;
     let mut fehler = Vec::new();
     for (bus, sink) in eintraege {
-        match map.assign(runner, &bus, &sink) {
+        match map.assign(zugriff, &bus, &sink) {
             Ok(()) => gesetzt += 1,
             Err(e) => fehler.push(format!("{bus} auf '{sink}': {e}")),
         }
@@ -203,13 +203,13 @@ pub fn devices_wiederherstellen(
 }
 
 /// Alle gemerkten Streifen-Eingänge erneut verbinden.
-pub fn inputs_wiederherstellen(runner: &dyn CommandRunner, pfad: &Path) -> (usize, Vec<String>) {
+pub fn inputs_wiederherstellen(zugriff: &dyn Zugriff, pfad: &Path) -> (usize, Vec<String>) {
     let zuordnung = crate::inputs::mapping_mit(pfad);
     let mut gesetzt = 0;
     let mut fehler = Vec::new();
     for (i, quelle) in zuordnung.iter().enumerate() {
         let Some(quelle) = quelle else { continue };
-        match crate::inputs::assign_mit(runner, pfad, i + 1, Some(quelle)) {
+        match crate::inputs::assign_mit(zugriff, pfad, i + 1, Some(quelle)) {
             Ok(()) => gesetzt += 1,
             Err(e) => fehler.push(format!("Streifen {}: {e}", i + 1)),
         }
@@ -259,13 +259,13 @@ pub fn anwenden(
     mit_inputs: bool,
     mit_preset: bool,
 ) -> Ergebnis {
-    let runner = RealRunner;
+    let zugriff = PipeWire;
     let mut ergebnis = Ergebnis::default();
 
     if mit_devices {
         match devices.lock() {
             Ok(mut map) => {
-                let (n, f) = devices_wiederherstellen(&mut map, &runner);
+                let (n, f) = devices_wiederherstellen(&mut map, &zugriff);
                 ergebnis.devices = n;
                 ergebnis.fehler.extend(f);
             }
@@ -274,7 +274,7 @@ pub fn anwenden(
     }
 
     if mit_inputs {
-        let (n, f) = inputs_wiederherstellen(&runner, &crate::inputs::mapping_path());
+        let (n, f) = inputs_wiederherstellen(&zugriff, &crate::inputs::mapping_path());
         ergebnis.inputs = n;
         ergebnis.fehler.extend(f);
     }
@@ -333,8 +333,7 @@ pub fn spawn_autosave(params: Arc<Params>, pfad: PathBuf) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pw::tests::DUMP;
-    use crate::pw::FakeRunner;
+    use crate::pw::tests::{Testzugriff, DUMP};
 
     const CORSAIR: &str =
         "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo";
@@ -420,21 +419,20 @@ mod tests {
         let pfad = tmp("devices", "json");
         let _ = std::fs::remove_file(&pfad);
         let mut map = DeviceMap::new(&pfad);
-        let fake = FakeRunner::new().with_output("pw-dump", DUMP);
+        let fake = Testzugriff::aus_dump(DUMP);
         map.assign(&fake, "A1", CORSAIR).unwrap();
-        let vorher = fake.calls().len();
+        let vorher = fake.aktionen().len();
 
         let (n, fehler) = devices_wiederherstellen(&mut map, &fake);
         assert_eq!(n, 1, "{fehler:?}");
         assert!(fehler.is_empty(), "{fehler:?}");
-        let neu: Vec<String> = fake.lines()[vorher..].to_vec();
-        assert_eq!(neu[0], "pw-dump");
+        let neu: Vec<String> = fake.aktionen()[vorher..].to_vec();
         assert_eq!(
-            neu[1],
-            format!("pw-link -d crosspoint:busA1_L {CORSAIR}:playback_FL")
+            neu[0],
+            format!("trennen crosspoint:busA1_L {CORSAIR}:playback_FL")
         );
-        assert!(neu.contains(&format!("pw-link crosspoint:busA1_L {CORSAIR}:playback_FL")));
-        assert!(neu.contains(&format!("pw-link crosspoint:busA1_R {CORSAIR}:playback_FR")));
+        assert!(neu.contains(&format!("verbinden crosspoint:busA1_L {CORSAIR}:playback_FL")));
+        assert!(neu.contains(&format!("verbinden crosspoint:busA1_R {CORSAIR}:playback_FR")));
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -448,7 +446,7 @@ mod tests {
         )
         .unwrap();
         let mut map = DeviceMap::load(&pfad);
-        let fake = FakeRunner::new().with_output("pw-dump", DUMP);
+        let fake = Testzugriff::aus_dump(DUMP);
         let (n, fehler) = devices_wiederherstellen(&mut map, &fake);
         assert_eq!(n, 1, "nur A2 laesst sich verbinden: {fehler:?}");
         assert_eq!(fehler.len(), 1);
@@ -461,8 +459,7 @@ mod tests {
         let pfad = tmp("inputs", "conf");
         let _ = std::fs::remove_file(&pfad);
         std::fs::write(&pfad, "1=alsa_input.usb-mic\n3=\n").unwrap();
-        let fake = FakeRunner::new().with_output(
-            "pw-dump",
+        let fake = Testzugriff::aus_dump(
             r#"[
               {"id": 1, "type": "PipeWire:Interface:Node",
                "info": {"props": {"media.class": "Audio/Source", "node.name": "alsa_input.usb-mic",
@@ -482,11 +479,11 @@ mod tests {
         let (n, fehler) = inputs_wiederherstellen(&fake, &pfad);
         assert_eq!(n, 1, "{fehler:?}");
         assert!(fehler.is_empty(), "{fehler:?}");
-        let zeilen = fake.lines();
+        let zeilen = fake.aktionen();
         assert!(zeilen
-            .contains(&"pw-link alsa_input.usb-mic:capture_FL crosspoint:strip1_L".to_string()));
+            .contains(&"verbinden alsa_input.usb-mic:capture_FL crosspoint:strip1_L".to_string()));
         assert!(zeilen
-            .contains(&"pw-link alsa_input.usb-mic:capture_FR crosspoint:strip1_R".to_string()));
+            .contains(&"verbinden alsa_input.usb-mic:capture_FR crosspoint:strip1_R".to_string()));
         // Leere Streifen bleiben unangetastet.
         assert!(!zeilen.iter().any(|z| z.contains("strip3")));
         let _ = std::fs::remove_file(&pfad);

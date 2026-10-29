@@ -1,0 +1,12 @@
+# Ersatz fuer libspa-0.2.pc (Header aus dem Repo, siehe libpipewire-0.3.pc).
+#
+# SPA ist eine Header-Bibliothek: es gibt nichts zu linken, nur Include-Pfade.
+# libspa-sys uebersetzt daraus seine Bindings und kompiliert die `static
+# inline`-Funktionen selbst.
+prefix=${pcfiledir}/../pipewire-devel
+includedir=${prefix}/include
+
+Name: libspa
+Description: Simple Plugin API (Header aus dem Repo)
+Version: 0.2
+Cflags: -I${includedir}/spa-0.2 -D_REENTRANT
