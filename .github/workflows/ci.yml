@@ -45,7 +45,10 @@ jobs:
       - name: Clippy (nur echte Fehler blockieren)
         run: cargo clippy --all-targets --locked --workspace -- -D clippy::correctness
       - name: Tests
-        run: cargo test --locked --workspace
+        run: |
+          # Ein Thread: die Pegel- und Allokationstests messen global und
+          # duerfen sich nicht gegenseitig beeinflussen. --release wie lokal.
+          RUST_BACKTRACE=1 cargo test --release --locked --workspace -- --test-threads=1
       - name: Release-Build
         run: cargo build --release --locked
       # Der Flatpak-Job baut im Container ohne Rust; er bekommt das Binary hier.
