@@ -58,6 +58,8 @@ modules:
         sed 's|^Exec=.*|Exec=crosspoint-start|' data/de.weppelmann.Crosspoint.desktop \
           > /app/share/applications/de.weppelmann.Crosspoint.desktop
         chmod 644 /app/share/applications/de.weppelmann.Crosspoint.desktop
+      - install -Dm644 packaging/linux/de.weppelmann.Crosspoint.metainfo.xml \
+          /app/share/metainfo/de.weppelmann.Crosspoint.metainfo.xml
       - |
         for n in 16 32 48 64 128 256 512; do
           install -Dm644 "data/icons/hicolor/${n}x${n}/apps/de.weppelmann.Crosspoint.png" \
