@@ -27,15 +27,15 @@ use tungstenite::handshake::derive_accept_key;
 use tungstenite::protocol::{Message, Role, WebSocket};
 
 use crate::devices::DeviceMap;
-use crate::pw::PipeWire;
 use crate::engine::Params;
 use crate::json::{self, Value};
 use crate::macros_io::MacroControl;
+use crate::pw::PipeWire;
 use crate::restore::Ergebnis;
 use crate::tape_io::TapeControl;
 use crate::vban_io::{VbanControl, VbanRecvControl};
 
-const INDEX_HTML: &str = include_str!("../web/index.html");
+const INDEX_HTML: &str = include_str!("../../../web/index.html");
 
 /// Obergrenze für den Rumpf einer Anfrage. JSON-Kommandos sind winzig; alles
 /// darüber ist ein Fehler oder ein Angriff und wird abgeschnitten.

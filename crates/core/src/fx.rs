@@ -220,7 +220,10 @@ impl Ziel {
             ),
             Ziel::Bus(i) => {
                 let name = BUS_NAMES.get(*i).copied().unwrap_or("A1");
-                (format!("crosspoint:bus{name}_L"), format!("crosspoint:bus{name}_R"))
+                (
+                    format!("crosspoint:bus{name}_L"),
+                    format!("crosspoint:bus{name}_R"),
+                )
             }
         }
     }
@@ -545,9 +548,7 @@ impl Leitung for TcpLeitung {
                         return Err("Antwort zu lang".into());
                     }
                 }
-                Err(e)
-                    if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
-                {
+                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
                     return Err(format!(
                         "keine Antwort binnen {} ms",
                         self.grenze.as_millis()
@@ -859,7 +860,10 @@ pub fn zustand_laden(pfad: &Path) -> FxZustand {
     match json::parse(&text) {
         Ok(wert) => zustand_aus_json(&wert),
         Err(fehler) => {
-            eprintln!("fx: {} unlesbar ({fehler}) - Ketten bleiben leer", pfad.display());
+            eprintln!(
+                "fx: {} unlesbar ({fehler}) - Ketten bleiben leer",
+                pfad.display()
+            );
             FxZustand::neu()
         }
     }
@@ -937,11 +941,7 @@ pub fn zustand_sichern(zustand: &FxZustand, pfad: &Path) -> Result<(), String> {
 
 /// Ersetzt die Kette eines Kanals. Prüft URIs, Symbole und Werte **vor** der
 /// Änderung – ein abgelehnter Insert lässt die Kette unangetastet.
-pub fn kette_setzen(
-    zustand: &mut FxZustand,
-    ziel: Ziel,
-    kette: Vec<Insert>,
-) -> Result<(), String> {
+pub fn kette_setzen(zustand: &mut FxZustand, ziel: Ziel, kette: Vec<Insert>) -> Result<(), String> {
     pruefe_ziel(ziel)?;
     if kette.len() > MAX_INSERTS {
         return Err(format!(
@@ -975,10 +975,7 @@ pub fn kette_hinzufuegen(
     pruefe_ziel(ziel)?;
     let mut neue = zustand.kette(ziel).to_vec();
     if neue.len() >= MAX_INSERTS {
-        return Err(format!(
-            "{}: höchstens {MAX_INSERTS} Inserts",
-            ziel.titel()
-        ));
+        return Err(format!("{}: höchstens {MAX_INSERTS} Inserts", ziel.titel()));
     }
     pruefe_uri(&insert.uri)?;
     neue.push(insert);
@@ -988,7 +985,11 @@ pub fn kette_hinzufuegen(
 }
 
 /// Entfernt den Insert an `platz` und liefert ihn zurück.
-pub fn kette_entfernen(zustand: &mut FxZustand, ziel: Ziel, platz: usize) -> Result<Insert, String> {
+pub fn kette_entfernen(
+    zustand: &mut FxZustand,
+    ziel: Ziel,
+    platz: usize,
+) -> Result<Insert, String> {
     pruefe_ziel(ziel)?;
     let mut neue = zustand.kette(ziel).to_vec();
     if platz >= neue.len() {
@@ -1271,7 +1272,9 @@ static LAUF: Mutex<Option<Lauf>> = Mutex::new(None);
 /// Sperrt den laufenden Zustand und legt ihn beim ersten Zugriff an.
 /// Ein vergifteter Mutex ist hier harmlos: der Zustand bleibt lesbar.
 fn lauf_sperren() -> std::sync::MutexGuard<'static, Option<Lauf>> {
-    let mut guard = LAUF.lock().unwrap_or_else(|vergiftet| vergiftet.into_inner());
+    let mut guard = LAUF
+        .lock()
+        .unwrap_or_else(|vergiftet| vergiftet.into_inner());
     if guard.is_none() {
         *guard = Some(Lauf::neu());
     }
@@ -1530,15 +1533,16 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .push(befehl.to_string());
-            Ok(self.antworten.pop_front().unwrap_or_else(|| "resp 0".into()))
+            Ok(self
+                .antworten
+                .pop_front()
+                .unwrap_or_else(|| "resp 0".into()))
         }
     }
 
     fn temp(tag: &str) -> PathBuf {
-        let ordner = std::env::temp_dir().join(format!(
-            "crosspoint-fx-{}-{tag}",
-            std::process::id()
-        ));
+        let ordner =
+            std::env::temp_dir().join(format!("crosspoint-fx-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&ordner);
         std::fs::create_dir_all(&ordner).unwrap();
         ordner
@@ -1558,7 +1562,10 @@ mod tests {
             cmd_add("http://calf.sourceforge.net/plugins/Compressor", 100),
             "add http://calf.sourceforge.net/plugins/Compressor 100"
         );
-        assert_eq!(cmd_param_set(100, "threshold", -18.0), "param_set 100 threshold -18");
+        assert_eq!(
+            cmd_param_set(100, "threshold", -18.0),
+            "param_set 100 threshold -18"
+        );
         assert_eq!(cmd_param_set(101, "ratio", 2.5), "param_set 101 ratio 2.5");
         assert_eq!(cmd_param_get(101, "ratio"), "param_get 101 ratio");
         assert_eq!(cmd_remove(101), "remove 101");
@@ -1576,7 +1583,8 @@ mod tests {
 
     #[test]
     fn verbindung_schickt_befehle_in_richtiger_form() {
-        let (leitung, gesendet) = Mitschreiber::neu(&["resp 0", "resp 0", "resp 0", "resp 0 2.5000"]);
+        let (leitung, gesendet) =
+            Mitschreiber::neu(&["resp 0", "resp 0", "resp 0", "resp 0 2.5000"]);
         let mut verbindung = Verbindung::neu(leitung);
         verbindung.add(&beispiel().uri, 100).unwrap();
         verbindung.param_set(100, "threshold", -18.0).unwrap();
@@ -1660,7 +1668,10 @@ mod tests {
         kette_setzen(
             &mut zustand,
             Ziel::Bus(0),
-            vec![beispiel(), Insert::neu("http://plugin.org.uk/swh-plugins/plate")],
+            vec![
+                beispiel(),
+                Insert::neu("http://plugin.org.uk/swh-plugins/plate"),
+            ],
         )
         .unwrap();
         zustand_sichern(&zustand, &datei).unwrap();
@@ -1713,7 +1724,11 @@ mod tests {
         let insert = &geladen.kette(Ziel::Streifen(0))[0];
         assert_eq!(insert.param("threshold"), Some(-6.0));
         assert_eq!(
-            insert.params.iter().filter(|(s, _)| s == "threshold").count(),
+            insert
+                .params
+                .iter()
+                .filter(|(s, _)| s == "threshold")
+                .count(),
             1
         );
         assert_eq!(insert.param("ratio"), Some(3.0));
@@ -1731,7 +1746,12 @@ mod tests {
         assert_eq!(zustand.kette(Ziel::Streifen(0)).len(), 1);
 
         assert!(kette_setzen(&mut zustand, Ziel::Streifen(8), vec![]).is_err());
-        assert!(kette_setzen(&mut zustand, Ziel::Streifen(0), vec![beispiel(); MAX_INSERTS + 1]).is_err());
+        assert!(kette_setzen(
+            &mut zustand,
+            Ziel::Streifen(0),
+            vec![beispiel(); MAX_INSERTS + 1]
+        )
+        .is_err());
         assert!(param_setzen(&mut zustand, Ziel::Streifen(0), 0, "a b", 1.0).is_err());
         assert!(param_setzen(&mut zustand, Ziel::Streifen(0), 0, "ratio", f32::NAN).is_err());
     }
@@ -1752,7 +1772,10 @@ mod tests {
         assert!(Ziel::Streifen(7).instanz(15) < 9990);
         assert_eq!(
             Ziel::Bus(0).ports(),
-            ("crosspoint:busA1_L".to_string(), "crosspoint:busA1_R".to_string())
+            (
+                "crosspoint:busA1_L".to_string(),
+                "crosspoint:busA1_R".to_string()
+            )
         );
     }
 
@@ -1775,7 +1798,10 @@ mod tests {
         let zustand = zustand_laden(&datei);
         assert_eq!(zustand.kette(Ziel::Streifen(0)).len(), 1);
         assert!(zustand.kette(Ziel::Streifen(0))[0].bypass);
-        assert_eq!(zustand.kette(Ziel::Streifen(0))[0].param("gain"), Some(-3.0));
+        assert_eq!(
+            zustand.kette(Ziel::Streifen(0))[0].param("gain"),
+            Some(-3.0)
+        );
         let _ = std::fs::remove_dir_all(&ordner);
     }
 
@@ -1785,7 +1811,10 @@ mod tests {
         let text = zustand.als_json().to_json();
         let wert = json::parse(&text).unwrap();
         assert_eq!(wert.get("version").and_then(|v| v.as_f64()), Some(1.0));
-        assert_eq!(wert.get("streifen").unwrap().as_arr().unwrap().len(), STRIPS);
+        assert_eq!(
+            wert.get("streifen").unwrap().as_arr().unwrap().len(),
+            STRIPS
+        );
         assert_eq!(wert.get("busse").unwrap().as_arr().unwrap().len(), BUSES);
     }
 
@@ -1890,8 +1919,12 @@ mod tests {
     fn api_json_hat_die_vereinbarte_form() {
         let mut zustand = FxZustand::neu();
         kette_setzen(&mut zustand, Ziel::Streifen(0), vec![beispiel()]).unwrap();
-        kette_setzen(&mut zustand, Ziel::Bus(5), vec![Insert::neu("http://plugin.org.uk/swh-plugins/plate")])
-            .unwrap();
+        kette_setzen(
+            &mut zustand,
+            Ziel::Bus(5),
+            vec![Insert::neu("http://plugin.org.uk/swh-plugins/plate")],
+        )
+        .unwrap();
         let host = HostStatus {
             aktiv: true,
             port: STANDARD_PORT,
@@ -1913,7 +1946,12 @@ mod tests {
         );
         assert_eq!(kette[0].get("bypass").unwrap().as_bool(), Some(false));
         assert_eq!(
-            kette[0].get("params").unwrap().get("threshold").unwrap().as_f64(),
+            kette[0]
+                .get("params")
+                .unwrap()
+                .get("threshold")
+                .unwrap()
+                .as_f64(),
             Some(-18.0)
         );
 
@@ -1923,7 +1961,10 @@ mod tests {
 
         let host = gelesen.get("host").unwrap();
         assert_eq!(host.get("aktiv").unwrap().as_bool(), Some(true));
-        assert_eq!(host.get("port").unwrap().as_f64(), Some(STANDARD_PORT as f64));
+        assert_eq!(
+            host.get("port").unwrap().as_f64(),
+            Some(STANDARD_PORT as f64)
+        );
         assert_eq!(
             host.get("prozess").unwrap(),
             &Value::Str("selbst (pid 4711)".into())
@@ -1948,12 +1989,14 @@ mod tests {
         let gelesen = json::parse(&wert.to_json()).unwrap();
         let host = gelesen.get("host").unwrap();
         assert_eq!(host.get("aktiv").unwrap().as_bool(), Some(false));
+        assert_eq!(host.get("prozess").unwrap(), &Value::Str("keiner".into()));
         assert_eq!(
-            host.get("prozess").unwrap(),
-            &Value::Str("keiner".into())
-        );
-        assert_eq!(
-            gelesen.get("carla").unwrap().get("aktiv").unwrap().as_bool(),
+            gelesen
+                .get("carla")
+                .unwrap()
+                .get("aktiv")
+                .unwrap()
+                .as_bool(),
             Some(false)
         );
     }

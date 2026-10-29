@@ -624,10 +624,7 @@ mod tests {
         assert_eq!(tasten[0].get("name"), Some(&Value::str("Mute A1")));
         assert_eq!(tasten[0].get("state"), Some(&Value::str("on")));
         assert_eq!(tasten[0].get("display"), Some(&Value::str("on")));
-        assert_eq!(
-            tasten[0].get("latched").and_then(|x| x.as_f64()),
-            Some(1.0)
-        );
+        assert_eq!(tasten[0].get("latched").and_then(|x| x.as_f64()), Some(1.0));
         // Slot 1 ist unbelegt: Standardname, off.
         assert_eq!(tasten[1].get("name"), Some(&Value::str("Makro 2")));
         assert_eq!(tasten[1].get("display"), Some(&Value::str("off")));

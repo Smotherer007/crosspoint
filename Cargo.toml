@@ -2,38 +2,38 @@
 name = "crosspoint"
 version = "0.2.0"
 edition = "2021"
-description = "Crosspoint: 8x8-Mixer fuer PipeWire/JACK - Parametermodell und Mixer-Kern"
+description = "Crosspoint: 8x8-Mixer fuer PipeWire/JACK - Engine und Oberflaeche in einem Prozess"
 
-[lib]
-name = "crosspoint"
-path = "src/lib.rs"
-
+# Der Kern (Parametermodell, DSP, Adapter) liegt in `crates/core` und wird hier
+# als `crosspoint` eingebunden. Grund fuer den Umzug: Cargo erlaubt keine
+# Paketzyklen - die Oberflaeche braucht den Kern, und dieses Paket braucht fuer
+# das Fenster die Oberflaeche. Mit dem Kern als eigenem Paket zeigt der Pfeil
+# in nur eine Richtung: core -> ui -> dieses Paket.
 [dependencies]
-tape = { path = "crates/tape" }
-vban = { path = "crates/vban" }
-macros = { path = "crates/macros" }
-# JSON: lesen und schreiben statt Eigenbau (src/json.rs).
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-# Lock-freier SPSC-Ring fuer die Tape-Bruecke (src/tape_io.rs).
-rtrb = "0.4"
-# HTTP-Server (synchron, ein Thread je Anfrage) und WebSocket (src/http.rs).
-tiny_http = "0.12"
-tungstenite = "0.30"
-# JACK-Client statt handdeklariertem ABI (src/jack.rs); laedt libjack.so.0
-# zur Laufzeit, braucht beim Bauen nur pkg-config (siehe .cargo/config.toml).
-jack = "0.13"
-# PipeWire-Zugriff ueber die offiziellen Bindings statt pw-dump/pw-link-Text
-# (src/pw.rs). Braucht libpipewire-0.3 beim Bauen; die Header liegen unter
-# packaging/pipewire-devel, siehe packaging/pkgconfig/libpipewire-0.3.pc.
-pipewire = "0.10"
-# Kleine Runtime im Registry-Thread (src/pw.rs): Ereignisse einsammeln,
-# ohne die HTTP-Schicht zu blockieren. Nur rt + time, kein Netzwerk.
-tokio = { version = "1", default-features = false, features = ["rt", "time"] }
+crosspoint = { package = "crosspoint-core", path = "crates/core" }
+# GTK-Oberflaeche, nur mit Feature `ui`. Ohne das Feature wird dieses Paket
+# gebaut wie bisher: kein GTK, keine GTK-Header, kein `gtk4` im
+# Abhaengigkeitsbaum - so baut auch die CI, die kein GTK hat.
+crosspoint-ui = { path = "crates/ui-gtk", optional = true }
+
+[features]
+default = []
+# Ein Prozess fuer Engine und Fenster: `cargo build --features ui` baut das
+# Binary `crosspoint`. Ohne das Feature entsteht nur `crosspoint-engine`.
+ui = ["dep:crosspoint-ui"]
 
 [[bin]]
 name = "crosspoint-engine"
 path = "src/main.rs"
 
+[[bin]]
+name = "crosspoint"
+path = "src/bin/crosspoint.rs"
+required-features = ["ui"]
+
 [workspace]
-members = ["crates/vban", "crates/tape", "crates/macros"]
+members = ["crates/core", "crates/vban", "crates/tape", "crates/macros"]
+# Die GTK-Oberflaeche ist ein eigenes Paket mit eigener [workspace]-Tabelle:
+# sie laesst sich unabhaengig bauen (cargo build --manifest-path ...) und
+# bringt GTK nur dann in den Abhaengigkeitsbaum, wenn jemand sie anfasst.
+exclude = ["crates/ui-gtk"]

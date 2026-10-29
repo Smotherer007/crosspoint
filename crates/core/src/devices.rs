@@ -34,7 +34,6 @@ use std::path::PathBuf;
 use crate::json::Value;
 use crate::pw::{self, Graph, Richtung, Zugriff};
 
-
 /// Hardware-Busse des Originals. B1..B3 sind virtuell und haben kein Gerät.
 pub const HARDWARE_BUSES: [&str; 5] = ["A1", "A2", "A3", "A4", "A5"];
 
@@ -106,10 +105,7 @@ pub fn list_sinks(zugriff: &dyn Zugriff) -> Result<Vec<Sink>, String> {
 }
 
 /// Wie [`list_sinks`], aber mit zuschaltbaren Monitoren.
-pub fn list_sinks_mit(
-    zugriff: &dyn Zugriff,
-    mit_monitoren: bool,
-) -> Result<Vec<Sink>, String> {
+pub fn list_sinks_mit(zugriff: &dyn Zugriff, mit_monitoren: bool) -> Result<Vec<Sink>, String> {
     Ok(sinks(&zugriff.graph()?, mit_monitoren))
 }
 
@@ -261,12 +257,7 @@ impl DeviceMap {
     /// Busports hängen – egal von wem sie stammen. Danach werden die echten
     /// Eingangsports des Sinks verbunden. Ein Fehler beim Verbinden hinterlässt
     /// keine Zuordnung, damit Datei und Graph deckungsgleich bleiben.
-    pub fn assign(
-        &mut self,
-        zugriff: &dyn Zugriff,
-        bus: &str,
-        sink: &str,
-    ) -> Result<(), String> {
+    pub fn assign(&mut self, zugriff: &dyn Zugriff, bus: &str, sink: &str) -> Result<(), String> {
         let bus = normalisiere_bus(bus)?;
         let sink = sink.trim();
         if sink.is_empty() {

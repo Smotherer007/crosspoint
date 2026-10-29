@@ -24,9 +24,13 @@ pub mod http;
 pub mod inputs;
 pub mod jack;
 pub mod json;
+/// Start des ganzen Prozesses (Engine, Adapter, Aufpasser) an einer Stelle.
+pub mod lauf;
 pub mod macros_io;
 /// OSC-Eingang (`/strip/<n>/<param>`) für MIDIMonster und Fader.
 pub mod osc;
+/// Pegelbank: der Audio-Thread schreibt, die Oberfläche liest.
+pub mod pegel;
 pub mod pfade;
 /// PipeWire-Graph (`pw-dump`) als Grundlage der Geräteerkennung.
 pub mod pw;

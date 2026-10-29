@@ -431,7 +431,10 @@ impl Roh {
     }
 
     fn flagge(&self, schluessel: &str) -> bool {
-        matches!(self.props.get(schluessel).map(String::as_str), Some("true" | "1"))
+        matches!(
+            self.props.get(schluessel).map(String::as_str),
+            Some("true" | "1")
+        )
     }
 }
 
@@ -512,7 +515,10 @@ impl Bestand {
             let Some(name) = roh.props.get("node.name") else {
                 continue;
             };
-            let Some(rest) = pfad.strip_prefix(name.as_str()).and_then(|r| r.strip_prefix(':')) else {
+            let Some(rest) = pfad
+                .strip_prefix(name.as_str())
+                .and_then(|r| r.strip_prefix(':'))
+            else {
                 continue;
             };
             if rest.is_empty() {
@@ -700,13 +706,7 @@ impl PwClient {
                         .build();
                     match runtime {
                         Ok(runtime) => runtime.block_on(schleife(
-                            daten,
-                            verbunden,
-                            grund,
-                            stopp,
-                            eingang,
-                            remote,
-                            &mut start,
+                            daten, verbunden, grund, stopp, eingang, remote, &mut start,
                         )),
                         Err(e) => grund_setzen(&grund, Some(format!("tokio-Runtime: {e}"))),
                     }
@@ -818,7 +818,16 @@ async fn schleife(
         if stopp.load(Ordering::SeqCst) {
             break;
         }
-        let ende = lauf(&daten, &verbunden, &grund, &stopp, &befehle, remote.as_deref(), start).await;
+        let ende = lauf(
+            &daten,
+            &verbunden,
+            &grund,
+            &stopp,
+            &befehle,
+            remote.as_deref(),
+            start,
+        )
+        .await;
         // Erster Verbindungsversuch ist durch – auch wenn er scheiterte.
         if let Some(start) = start.take() {
             let _ = start.send(());
@@ -1130,7 +1139,9 @@ fn verbinden(
 ) -> Result<(), String> {
     fehler.borrow_mut().take();
     let (aus, ein) = {
-        let bestand = daten.read().map_err(|_| "PipeWire-Zustand gesperrt".to_string())?;
+        let bestand = daten
+            .read()
+            .map_err(|_| "PipeWire-Zustand gesperrt".to_string())?;
         let aus = bestand
             .port_pfad(von)
             .ok_or_else(|| format!("Port {von} steht nicht im PipeWire-Graph"))?;
@@ -1181,7 +1192,9 @@ fn trennen(
 ) -> Result<(), String> {
     fehler.borrow_mut().take();
     let id = {
-        let bestand = daten.read().map_err(|_| "PipeWire-Zustand gesperrt".to_string())?;
+        let bestand = daten
+            .read()
+            .map_err(|_| "PipeWire-Zustand gesperrt".to_string())?;
         bestand.link_id(von, nach)
     };
     let Some(id) = id else {
@@ -1741,7 +1754,9 @@ pub mod tests {
         zugriff
             .trennen("crosspoint:busA1_L", "x:y")
             .expect("trennen");
-        zugriff.verbinden("crosspoint:busA1_L", "x:y").expect("verbinden");
+        zugriff
+            .verbinden("crosspoint:busA1_L", "x:y")
+            .expect("verbinden");
         assert_eq!(
             zugriff.aktionen(),
             vec![

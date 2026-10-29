@@ -19,7 +19,9 @@
 //! nichts, geladen wird zur Laufzeit.
 
 pub use jack::contrib::ClosureProcessHandler;
-pub use jack::{AudioIn, AudioOut, Client, ClientOptions, Control, Port, ProcessScope};
+pub use jack::{
+    AsyncClient, AudioIn, AudioOut, Client, ClientOptions, Control, Port, ProcessScope,
+};
 
 pub type Nframes = u32;
 

@@ -19,7 +19,6 @@ use std::path::PathBuf;
 use crate::json::Value;
 use crate::pw::{self, Graph, Richtung, Zugriff};
 
-
 pub const MAX_HW_STRIPS: usize = 5;
 
 /// Datei mit der Streifen-Zuordnung (nur Namen).
@@ -104,10 +103,7 @@ pub fn list_sources(zugriff: &dyn Zugriff) -> Result<Vec<Source>, String> {
 }
 
 /// Wie [`list_sources`], aber mit zuschaltbaren Monitoren.
-pub fn list_sources_mit(
-    zugriff: &dyn Zugriff,
-    mit_monitoren: bool,
-) -> Result<Vec<Source>, String> {
+pub fn list_sources_mit(zugriff: &dyn Zugriff, mit_monitoren: bool) -> Result<Vec<Source>, String> {
     Ok(quellen(&zugriff.graph()?, mit_monitoren))
 }
 
@@ -238,11 +234,7 @@ fn save_mapping_mit(pfad: &std::path::Path, strip: usize, source: Option<&str>) 
 /// Vorher werden **alle** Links getrennt, die laut Graph in die beiden
 /// Streifenports hineinführen – auch fremde (z. B. `crosspoint:vban_L`). Danach werden
 /// die echten Ports der Quelle verbunden.
-pub fn assign(
-    zugriff: &dyn Zugriff,
-    strip: usize,
-    source: Option<&str>,
-) -> Result<(), String> {
+pub fn assign(zugriff: &dyn Zugriff, strip: usize, source: Option<&str>) -> Result<(), String> {
     assign_mit(zugriff, &mapping_path(), strip, source)
 }
 
@@ -460,10 +452,7 @@ mod tests {
         assert_eq!(kanonisch(" alsa_input.usb "), "alsa_input.usb");
 
         let graph = Graph::parse(DUMP).unwrap();
-        assert_eq!(
-            source_ports(&graph, MONO),
-            [format!("{MONO}:capture_MONO")]
-        );
+        assert_eq!(source_ports(&graph, MONO), [format!("{MONO}:capture_MONO")]);
         // Monitor: der Sink liefert seine monitor_*-Ports, ohne dass jemand
         // einen Portnamen raten muss.
         let hdmi = "alsa_output.pci-0000_03_00.1.hdmi-stereo-extra2";

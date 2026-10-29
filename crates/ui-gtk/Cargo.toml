@@ -1,0 +1,33 @@
+[package]
+name = "crosspoint-ui"
+version = "0.1.0"
+edition = "2021"
+description = "Crosspoint: native GTK4-Oberflaeche (Phase 1) direkt auf Arc<Params>"
+
+[lib]
+name = "crosspoint_ui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "crosspoint-gtk"
+path = "src/main.rs"
+
+[dependencies]
+# Eigenstaendiges Paket mit Pfadabhaengigkeit auf den Kern (crates/core): der
+# Fader schreibt in dieselben Atome, die der Audio-Thread liest - kein HTTP,
+# kein JSON. Der Kern ist ein eigenes Paket, weil das App-Paket (Wurzel) diese
+# Oberflaeche einbindet - ein Paketzyklus waere sonst unvermeidbar.
+crosspoint = { package = "crosspoint-core", path = "../core" }
+# Makro-Bank (Seitenwechsel) und ihre Typen liegen in einer eigenen Crate.
+macros = { path = "../../crates/macros" }
+# Crate heisst im Registry `gtk4`, die Bibliothek darin `gtk` - hier auf `gtk`
+# aliast, damit der Code ueberall `gtk::` schreibt (wie in gtk4-rs-Beispielen).
+gtk = { package = "gtk4", version = "0.9", features = ["v4_6"] }
+# Oberflaechen-Konfiguration (~/.config/crosspoint/ui.json) und Theme-Datei.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Eigene Workspace-Wurzel, damit dieses Verzeichnis unabhaengig baubar ist:
+#   cargo build --manifest-path crates/ui-gtk/Cargo.toml
+[workspace]
+members = []

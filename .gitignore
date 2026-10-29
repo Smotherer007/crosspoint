@@ -1,11 +1,13 @@
-/target
-**/*.rs.bk
-*.wav
-/Voicemeeter8Setup_v3130.zip
-/build-dir
-/.flatpak-builder
-/flatpak-build/
-/prebuilt/
 # Bau-Logs der Flatpak-Laeufe
-.flatpak-*.log
+/build-dir
+/build-dir2/
+/flatpak-build/
+/.flatpak-builder
 /.flatpak-build.log
+.flatpak-*.log
+/prebuilt/
+**/*.rs.bk
+**/target/
+/target
+/Voicemeeter8Setup_v3130.zip
+*.wav

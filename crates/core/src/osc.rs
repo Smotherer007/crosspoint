@@ -13,7 +13,16 @@
 //! /bus/<n>/<param>    <wert>     z. B. /bus/0/gain 3.0
 //! /preset/save                   schreibt preset.json
 //! /preset/load                   liest preset.json
+//! /midi/cc <kanal> <cc> <wert>   MIDI-Control-Change für das Lernen der
+//!                                Oberfläche (kein Parameter wird gesetzt)
 //! ```
+//!
+//! `/midi/cc` ist der Rückweg von MIDIMonster an die Oberfläche: jede
+//! CC-Meldung, die dort ankommt, geht zusätzlich als `/midi/cc <kanal> <cc>
+//! <wert>` an den OSC-Eingang. Der Auftrag landet **nicht** in `Params`,
+//! sondern im Kanal von [`cc_kanal`] – den holt die Lernlogik der
+//! MIDI-Mapping-Tabelle ab. Damit übernimmt der LEARN-Knopf echte Drehregler,
+//! ohne dass die Oberfläche selbst MIDI spricht.
 //!
 //! Angewendet wird über [`Params::set`] – dieselbe Funktion wie `/api/set`,
 //! also mit denselben Grenzen (Gain wird auf -60..+12 dB geklemmt), mit der
@@ -33,8 +42,9 @@
 use std::fmt;
 use std::net::{ToSocketAddrs, UdpSocket};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -133,6 +143,23 @@ pub enum Auftrag {
     PresetSpeichern,
     /// `/preset/load` – Preset-Datei lesen und anwenden.
     PresetLaden,
+    /// `/midi/cc <kanal> <cc> <wert>` – eine MIDI-Control-Change-Meldung, wie
+    /// sie MIDIMonster auf dem Rückweg schickt. Sie landet im Kanal von
+    /// [`cc_kanal`], den die Lernlogik der Oberfläche abholt.
+    MidiCc { kanal: u8, cc: u8, wert: u8 },
+}
+
+/// Eine eingegangene MIDI-Control-Change-Meldung.
+///
+/// `kanal` 0..15, `cc` 0..127, `wert` 0..127. Wird über `/midi/cc` empfangen
+/// (drei Zahlen) und über [`cc_kanal`] an die Oberfläche gereicht – damit kann
+/// der LEARN-Knopf der Mapping-Tabelle echte Drehregler übernehmen, auch ohne
+/// dass die Oberfläche selbst MIDI spricht.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cc {
+    pub kanal: u8,
+    pub cc: u8,
+    pub wert: u8,
 }
 
 /// Eine dekodierte OSC-Nachricht.
@@ -329,6 +356,24 @@ pub fn auftrag(adresse: &str) -> Result<Auftrag, OscFehler> {
     match teile.as_slice() {
         ["preset", "save"] => Ok(Auftrag::PresetSpeichern),
         ["preset", "load"] => Ok(Auftrag::PresetLaden),
+        // `/midi/cc <kanal> <cc> <wert>` (drei Zahlen) oder die Kurzform
+        // `/midi/cc/<nr> <wert>`; die Zahlen selbst kommen aus den Argumenten.
+        ["midi", "cc"] => Ok(Auftrag::MidiCc {
+            kanal: 0,
+            cc: 0,
+            wert: 0,
+        }),
+        ["midi", "cc", nr] => {
+            let nr: u8 = nr.parse().map_err(|_| OscFehler::UngueltigeAdresse)?;
+            if nr > 127 {
+                return Err(OscFehler::UngueltigeAdresse);
+            }
+            Ok(Auftrag::MidiCc {
+                kanal: 0,
+                cc: nr,
+                wert: 0,
+            })
+        }
         [ziel @ ("strip" | "bus"), index, param] => {
             let index: usize = index.parse().map_err(|_| OscFehler::UngueltigeAdresse)?;
             if param.is_empty() || param.len() > 64 {
@@ -405,7 +450,30 @@ pub fn anwende(params: &Arc<Params>, nachricht: &Nachricht) -> Option<Auftrag> {
             crate::restore::markiere_schmutzig();
             Some(auftrag)
         }
+        Auftrag::MidiCc { cc: pfad_cc, .. } => {
+            // Drei Zahlen: Kanal, CC, Wert. Kurzform `/midi/cc/<nr> <wert>`.
+            let (kanal, cc, wert) = match nachricht.args.as_slice() {
+                [k, c, w, ..] => (
+                    zahl_byte(Some(k), 15)?,
+                    zahl_byte(Some(c), 127)?,
+                    zahl_byte(Some(w), 127)?,
+                ),
+                [w] if *pfad_cc > 0 => (0, *pfad_cc, zahl_byte(Some(w), 127)?),
+                _ => return None,
+            };
+            cc_senden(Cc { kanal, cc, wert });
+            Some(Auftrag::MidiCc { kanal, cc, wert })
+        }
     }
+}
+
+/// Ein Argument als Byte 0..=`hoechst` (`f`, `i` oder Text-Zahl).
+fn zahl_byte(arg: Option<&Arg>, hoechst: u8) -> Option<u8> {
+    let v = arg?.als_zahl()?;
+    if !v.is_finite() {
+        return None;
+    }
+    Some(v.round().clamp(0.0, hoechst as f32) as u8)
 }
 
 /// Angewendeten Wert zurücklesen (Grundlage der Rückmeldung).
@@ -478,6 +546,96 @@ pub fn verarbeite_paket(params: &Arc<Params>, paket: &[u8], echo: bool) -> Optio
         }
         _ => None,
     }
+}
+
+/* ==================================================================
+CC-Kanal (MIDI-Lernen in der Oberfläche)
+------------------------------------------------------------------ */
+
+/// Weiterleitung der eingegangenen CC-Meldungen an die Oberfläche.
+///
+/// Ein Kanal, kein Rückkanal: der OSC-Thread legt ab, die Oberfläche holt im
+/// Takt ab. Die Warteschlange ist begrenzt (niemand hört zu, wenn kein Fenster
+/// offen ist – dann darf sie nicht wachsen).
+pub struct CcKanal {
+    sender: Sender<Cc>,
+    empfang: std::sync::Mutex<Receiver<Cc>>,
+    offen: AtomicUsize,
+}
+
+/// Obergrenze der wartenden Meldungen.
+pub const CC_PUFFER: usize = 512;
+
+impl CcKanal {
+    fn neu() -> CcKanal {
+        let (sender, empfang) = std::sync::mpsc::channel();
+        CcKanal {
+            sender,
+            empfang: std::sync::Mutex::new(empfang),
+            offen: AtomicUsize::new(0),
+        }
+    }
+
+    fn senden(&self, cc: Cc) {
+        if self.offen.load(Ordering::Relaxed) >= CC_PUFFER {
+            // Kein Abnehmer: verwerfen statt Speicher wachsen lassen.
+            return;
+        }
+        if self.sender.send(cc).is_ok() {
+            self.offen.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Alle seit dem letzten Abruf eingegangenen Meldungen (älteste zuerst).
+    pub fn abholen(&self) -> Vec<Cc> {
+        let mut out = Vec::new();
+        match self.empfang.lock() {
+            Ok(rx) => {
+                while let Ok(cc) = rx.try_recv() {
+                    out.push(cc);
+                }
+            }
+            Err(e) => {
+                let rx = e.into_inner();
+                while let Ok(cc) = rx.try_recv() {
+                    out.push(cc);
+                }
+            }
+        }
+        self.offen.store(0, Ordering::Relaxed);
+        out
+    }
+
+    /// Die jüngste Meldung, falls eine wartet (das braucht der LEARN-Knopf).
+    pub fn letzte(&self) -> Option<Cc> {
+        self.abholen().pop()
+    }
+
+    /// Wie viele Meldungen warten (für Anzeige und Tests).
+    pub fn wartend(&self) -> usize {
+        self.offen.load(Ordering::Relaxed)
+    }
+}
+
+static CC_KANAL: OnceLock<CcKanal> = OnceLock::new();
+
+/// Der öffentliche Kanal für `/midi/cc`-Meldungen.
+///
+/// ```ignore
+/// // in der Oberfläche, im 100-ms-Takt:
+/// if let Some(cc) = crosspoint::osc::cc_kanal().letzte() {
+///     karte.binden(&ziel, cc.cc);
+/// }
+/// ```
+///
+/// Der Kanal ist prozessweit und wird beim ersten Zugriff angelegt; ohne
+/// laufenden OSC-Eingang bleibt er einfach leer.
+pub fn cc_kanal() -> &'static CcKanal {
+    CC_KANAL.get_or_init(CcKanal::neu)
+}
+
+fn cc_senden(cc: Cc) {
+    cc_kanal().senden(cc);
 }
 
 /* ==================================================================
@@ -960,5 +1118,95 @@ mod tests {
         assert!(!env_schalter("CROSSPOINT_OSC_TEST_GIBTS_NICHT"));
         assert!(binde("127.0.0.1:0").is_ok());
         assert!(binde("127.0.0.1:keinport").is_err());
+    }
+
+    /* ----- /midi/cc ----- */
+
+    #[test]
+    fn midi_cc_adresse_wird_erkannt() {
+        assert_eq!(
+            auftrag("/midi/cc"),
+            Ok(Auftrag::MidiCc {
+                kanal: 0,
+                cc: 0,
+                wert: 0
+            })
+        );
+        assert_eq!(
+            auftrag("/midi/cc/7"),
+            Ok(Auftrag::MidiCc {
+                kanal: 0,
+                cc: 7,
+                wert: 0
+            })
+        );
+        assert_eq!(auftrag("/midi/cc/200"), Err(OscFehler::UngueltigeAdresse));
+        assert_eq!(auftrag("/midi/quatsch"), Err(OscFehler::UnbekannteAdresse));
+    }
+
+    #[test]
+    fn drei_zahlen_landen_im_cc_kanal() {
+        let p = params();
+        // Vorher leeren, damit frühere Tests nicht mitzählen.
+        let _ = cc_kanal().abholen();
+        let paket = kodiere("/midi/cc", &[Arg::Int(0), Arg::Int(7), Arg::Int(64)]);
+        assert!(
+            verarbeite_paket(&p, &paket, false).is_none(),
+            "/midi/cc gibt keine Rückmeldung"
+        );
+        let ereignisse = cc_kanal().abholen();
+        assert!(
+            ereignisse.contains(&Cc {
+                kanal: 0,
+                cc: 7,
+                wert: 64
+            }),
+            "erwartet CC 0/7/64 in {ereignisse:?}"
+        );
+        // Der Kanal ist danach leer: derselbe Abruf liefert nichts mehr.
+        // (Kein zweiter Test darf hier gleichzeitig senden - deshalb wird
+        // nicht auf "leer" geprüft, sondern nur auf "nicht mehr enthalten".)
+        // Parameter wurden nicht angefasst.
+        assert_eq!(gain(&p, 0), 0.0);
+    }
+
+    #[test]
+    fn kurzform_und_klemmen() {
+        let p = params();
+        let _ = cc_kanal().abholen();
+        // Kurzform: /midi/cc/<nr> <wert>
+        verarbeite_paket(&p, &kodiere("/midi/cc/19", &[Arg::Int(90)]), false);
+        // Werte außerhalb der Grenzen werden geklemmt statt verworfen.
+        verarbeite_paket(
+            &p,
+            &kodiere("/midi/cc", &[Arg::Int(3), Arg::Int(200), Arg::Int(-5)]),
+            false,
+        );
+        let ereignisse = cc_kanal().abholen();
+        assert!(ereignisse.contains(&Cc {
+            kanal: 0,
+            cc: 19,
+            wert: 90
+        }));
+        assert!(ereignisse.contains(&Cc {
+            kanal: 3,
+            cc: 127,
+            wert: 0
+        }));
+    }
+
+    #[test]
+    fn zu_wenige_argumente_ergeben_kein_ereignis() {
+        let p = params();
+        let _ = cc_kanal().abholen();
+        assert!(verarbeite_paket(&p, &kodiere("/midi/cc", &[Arg::Int(7)]), false).is_none());
+        assert!(verarbeite_paket(&p, &kodiere("/midi/cc", &[]), false).is_none());
+        // Die Meldung mit nur einer Zahl darf nicht als CC 7 durchgehen:
+        // die Kurzform braucht die Nummer im Pfad.
+        let ereignisse = cc_kanal().abholen();
+        assert!(
+            !ereignisse.iter().any(|c| c.cc == 7 && c.wert == 7),
+            "eine Zahl allein ist kein Kanal/CC/Wert-Tripel: {ereignisse:?}"
+        );
     }
 }

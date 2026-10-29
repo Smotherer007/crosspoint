@@ -431,8 +431,12 @@ mod tests {
             neu[0],
             format!("trennen crosspoint:busA1_L {CORSAIR}:playback_FL")
         );
-        assert!(neu.contains(&format!("verbinden crosspoint:busA1_L {CORSAIR}:playback_FL")));
-        assert!(neu.contains(&format!("verbinden crosspoint:busA1_R {CORSAIR}:playback_FR")));
+        assert!(neu.contains(&format!(
+            "verbinden crosspoint:busA1_L {CORSAIR}:playback_FL"
+        )));
+        assert!(neu.contains(&format!(
+            "verbinden crosspoint:busA1_R {CORSAIR}:playback_FR"
+        )));
         let _ = std::fs::remove_file(&pfad);
     }
 
