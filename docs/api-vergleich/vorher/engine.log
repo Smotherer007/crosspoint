@@ -1,0 +1,27 @@
+Client 'crosspoint-api' verbunden: 48000 Hz, Block 1024 Frames
+
+Ports (crosspoint-api:<name>):
+  strip1_L / strip1_R
+  strip2_L / strip2_R
+  strip3_L / strip3_R
+  strip4_L / strip4_R
+  strip5_L / strip5_R
+  strip6_L / strip6_R
+  strip7_L / strip7_R
+  strip8_L / strip8_R
+  busA1_L / busA1_R
+  busA2_L / busA2_R
+  busA3_L / busA3_R
+  busA4_L / busA4_R
+  busA5_L / busA5_R
+  busB1_L / busB1_R
+  busB2_L / busB2_R
+  busB3_L / busB3_R
+  vban_L / vban_R (VBAN-Eingang, /api/vban/recv)
+
+Verdrahtung: scripts/crosspoint-wire.sh up
+
+Wiederherstellen abgeschaltet (CROSSPOINT_NO_RESTORE)
+Autosave abgeschaltet (CROSSPOINT_NO_RESTORE)
+UI: http://127.0.0.1:18770/  (Pegel-WebSocket: ws://127.0.0.1:18770/ws/levels)
+beende: virtuelle Geraete werden entfernt

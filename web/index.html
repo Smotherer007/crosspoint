@@ -416,37 +416,24 @@
   .tbtn.vban.on{border-color:#46dfa3;color:#e6fff2}
   .tbtn.vban.on .dot{background:var(--green);box-shadow:0 0 7px var(--green)}
 
-  /* ---------- VBAN-Overlay ---------- */
+    /* ---------- Netzwerk-Dialog im Original-Look ---------- */
   .overlay{
     position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;
     background:rgba(8,12,16,.66);
   }
   .overlay.open{display:flex}
-  .vpanel{
-    width:352px;max-width:calc(100vw - 32px);border:1px solid var(--edge);border-radius:3px;
-    background:linear-gradient(180deg,#4f5b68,#39424d 60%,#333b46);
-    box-shadow:0 16px 44px rgba(0,0,0,.7),inset 0 1px 0 var(--edge-hi);
+  /* Umbenennen: Eingabefeld anstelle des Namens im Kanalzug */
+  input.rename{
+    width:100%;height:13px;padding:0 2px;border:1px solid #6cc4ff;border-radius:1px;outline:none;
+    background:#11171d;color:#fff;font:700 8.5px/1 var(--mono);letter-spacing:.06em;
+    text-transform:none;box-shadow:0 0 6px rgba(108,196,255,.45);
   }
-  .vhead{
-    display:flex;align-items:center;justify-content:space-between;height:23px;padding:0 4px 0 9px;
-    border-bottom:1px solid #161c22;background:linear-gradient(#5a6673,#414b57);
-    font-size:7px;letter-spacing:.24em;color:#eaf2fa;text-transform:uppercase;
-  }
+  .bstrip input.rename{font-size:7.5px;height:12px}
   .vclose{
     width:19px;height:19px;padding:0;border-radius:2px;cursor:pointer;border:1px solid #141a20;
     background:linear-gradient(#3b4652,#28303a);color:#c6d4e2;font:700 8px/1 var(--mono);
   }
   .vclose:hover{border-color:#5b7d99;color:#fff}
-  .vbody{display:flex;flex-direction:column;gap:7px;padding:9px}
-  .vrow{display:flex;align-items:center;gap:7px}
-  .vrow label{flex:0 0 46px;font-size:6px;letter-spacing:.16em;color:var(--dim)}
-  .vrow input{
-    flex:1;min-width:0;height:19px;padding:0 5px;border-radius:2px;outline:none;
-    background:#11171d;border:1px solid #080c10;color:#b9e8cf;
-    font:600 8.5px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
-  }
-  .vrow input:focus{border-color:#6cc4ff}
-  .vpower{display:flex;align-items:center;gap:9px;padding-top:1px}
   .vsw{
     position:relative;width:48px;height:21px;padding:0;border-radius:11px;cursor:pointer;
     border:1px solid #0a0f14;background:linear-gradient(#20272f,#141a21);
@@ -463,15 +450,58 @@
   .vsw:disabled{opacity:.5;cursor:not-allowed}
   #vPowerTxt{font:600 8px/1 var(--mono);letter-spacing:.14em;color:#ffb3ae}
   #vPowerTxt.on{color:#7fe0b0}
-  .vstats{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-  .vstat{border:1px solid #1d252d;border-radius:2px;padding:3px 5px;background:#2f3740;
-         min-width:0;overflow:hidden}
-  .vstat span{display:block;font-size:5.4px;letter-spacing:.16em;color:var(--faint)}
-  .vstat b{display:block;font:600 8px/1.35 var(--mono);color:#b9e8cf;letter-spacing:.03em;
-           white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .vstat b.off{color:#f0a8a2}
-  .vnote{font:600 6.4px/1.45 var(--mono);color:#f0a8a2;min-height:9px;word-break:break-word}
-  .vhint{font-size:6px;line-height:1.55;letter-spacing:.06em;color:var(--faint)}
+
+  .npanel{
+    width:min(780px,calc(100vw - 32px));max-height:calc(100vh - 34px);overflow:auto;
+    border:1px solid #10161c;border-radius:2px;background:#2b333d;
+    box-shadow:0 20px 54px rgba(0,0,0,.78),inset 0 1px 0 rgba(255,255,255,.07);
+    font-family:var(--mono);color:#c9d6e2;
+  }
+  .nhead{
+    display:flex;align-items:center;justify-content:space-between;height:26px;padding:0 5px 0 11px;
+    background:linear-gradient(#414c58,#333c47);border-bottom:1px solid #10161c;
+    font:600 8px/1 var(--mono);letter-spacing:.2em;color:#eef6fd;text-transform:uppercase;
+  }
+  .nbody{padding:11px 12px 12px;display:flex;flex-direction:column;gap:10px}
+  .nrow{display:flex;flex-wrap:wrap;align-items:center;gap:16px}
+  .nf{display:flex;align-items:center;gap:6px}
+  .nf>label{font:600 7px/1 var(--mono);letter-spacing:.14em;color:#8fa2b5;text-transform:uppercase}
+  .nf input{
+    width:118px;height:20px;padding:0 6px;border-radius:2px;outline:none;
+    background:#11171d;border:1px solid #0a0f14;color:#b9e8cf;
+    font:600 8.5px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .nf input:focus{border-color:#6cc4ff}
+  .nf input.kurz{width:74px}
+  .nsep{height:1px;background:linear-gradient(90deg,transparent,#1b222a,#1b222a,transparent)}
+  .ntitle{display:flex;align-items:center;gap:8px;font:600 7.5px/1 var(--mono);letter-spacing:.18em;
+    color:#a9bccd;text-transform:uppercase}
+  .ntitle b{color:#e4eef7;font-weight:600}
+  .ntitle .r{margin-left:auto;font:600 7px/1 var(--mono);letter-spacing:.1em;color:#7f93a6;text-transform:none}
+  .ntitle .dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#4c5764;box-shadow:inset 0 0 2px #000}
+  .ntitle .dot.on{background:#39dd93;box-shadow:0 0 7px #39dd93}
+  .ntitle .dot.rot{background:#ff5f57;box-shadow:0 0 7px #ff5f57}
+  table.ntab{width:100%;border-collapse:collapse;font:500 8.5px/1.4 var(--mono)}
+  table.ntab th{background:#39434e;color:#a8bccd;font-weight:600;font-size:7px;letter-spacing:.1em;
+    text-transform:uppercase;text-align:left;padding:3px 6px;border:1px solid #1b222a;white-space:nowrap}
+  table.ntab td{padding:3px 6px;border:1px solid #1b222a;color:#c6d4e2;white-space:nowrap}
+  table.ntab tbody tr:nth-child(odd){background:#262d35}
+  table.ntab tbody tr:nth-child(even){background:#2f3742}
+  table.ntab td.gut{color:#7fe0b0}
+  table.ntab td.schlecht{color:#ff9d96}
+  table.ntab td.leer{color:#6b7d8f;font-style:italic;padding:6px}
+  .nfoot{display:flex;align-items:center;gap:6px;padding-top:2px}
+  .nbtn{
+    height:20px;padding:0 10px;border:1px solid #0f151b;border-radius:2px;cursor:pointer;
+    background:linear-gradient(#3d4956,#2a323c);color:#cfdbe7;
+    font:600 7px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
+  }
+  .nbtn:hover{border-color:#5c7891;color:#fff}
+  .nbtn:active{background:linear-gradient(#2a323c,#3b4653)}
+  .nstat{margin-left:auto;font:600 7px/1 var(--mono);letter-spacing:.08em;color:#7f93a6;text-align:right}
+  .nstat.on{color:#7fe0b0}
+  .nstat.err{color:#ff9d96}
 
   /* ---------- Makro-Leiste ---------- */
   .macros{
@@ -702,30 +732,62 @@
 <div class="toast" id="toast"></div>
 
 <div class="overlay" id="vbanOverlay" role="dialog" aria-modal="true" aria-labelledby="vbanTitle">
-  <div class="vpanel">
-    <div class="vhead">
-      <span id="vbanTitle">VBAN · Netzwerk-Audio</span>
+  <div class="npanel">
+    <div class="nhead">
+      <span id="vbanTitle">IP Audio Network Configuration</span>
       <button class="vclose" id="vbanClose" type="button" title="Schließen (Esc)">✕</button>
     </div>
-    <div class="vbody">
-      <div class="vrow"><label for="vHost">HOST</label>
-        <input id="vHost" type="text" spellcheck="false" value="192.168.1.255" title="Ziel-IP oder Broadcast-Adresse"></div>
-      <div class="vrow"><label for="vPort">PORT</label>
-        <input id="vPort" type="number" min="1" max="65535" step="1" value="6980" title="UDP-Port (Standard 6980)"></div>
-      <div class="vrow"><label for="vStream">STREAM</label>
-        <input id="vStream" type="text" spellcheck="false" value="CROSSPOINT" title="VBAN-Streamname"></div>
-      <div class="vpower">
-        <button class="vsw" id="vPower" type="button" role="switch" aria-checked="false"
-                aria-label="VBAN ein- oder ausschalten" title="VBAN ein/aus"><i></i></button>
-        <span id="vPowerTxt">AUS</span>
+    <div class="nbody">
+      <div class="nrow">
+        <div class="nf">
+          <button class="vsw" id="vPower" type="button" role="switch" aria-checked="false"
+                  aria-label="VBAN ein- oder ausschalten" title="VBAN ein/aus"><i></i></button>
+          <span id="vPowerTxt">AUS</span>
+          <span class="ntitle" style="margin-left:4px"><span class="dot" id="vDot"></span>VBAN</span>
+        </div>
+        <div class="nf"><label for="vPort">UDP Port</label>
+          <input id="vPort" class="kurz" type="number" min="1024" max="65535" step="1" value="6980"
+                 title="UDP-Port für Senden und Empfangen (Standard 6980)"></div>
+        <div class="nf"><label for="vHost">IP Address</label>
+          <input id="vHost" type="text" spellcheck="false" value="127.0.0.1"
+                 title="Ziel-IP oder Broadcast-Adresse des Gegenübers"></div>
       </div>
-      <div class="vstats">
-        <div class="vstat"><span>STATUS</span><b id="vEnabled">–</b></div>
-        <div class="vstat"><span>GESENDET</span><b id="vFrames">–</b></div>
+      <div class="nrow">
+        <div class="nf"><label for="vStream">Stream name</label>
+          <input id="vStream" type="text" spellcheck="false" value="crosspointbusA1"
+                 title="VBAN-Streamname (max. 15 Zeichen, keine Leerzeichen)"></div>
+        <span class="ntitle"><span class="dot" id="vMainDot"></span>Main Stream
+          <b id="vMainSr">48000 Hz</b><span class="r" id="vMainFrames">–</span></span>
       </div>
-      <div class="vnote" id="vErr"></div>
-      <div class="vhint">Host, Port und Stream eintragen, dann VBAN einschalten. Änderungen an den
-        Feldern werden bei laufendem VBAN sofort übernommen.</div>
+
+      <div class="nsep"></div>
+
+      <div class="ntitle"><b>Incoming Streams</b>
+        <span class="r" id="vInInfo">Port <span id="vInPort">6980</span> · Filter <span id="vInFilter">alle</span></span></div>
+      <table class="ntab" aria-label="Eingangspakete">
+        <thead><tr>
+          <th>Stream name</th><th>IP Address</th><th>SR</th><th>Ch</th><th>Format</th>
+          <th>Quality</th><th>Destination</th><th>Errors</th>
+        </tr></thead>
+        <tbody id="vIn"></tbody>
+      </table>
+
+      <div class="ntitle"><b>Outgoing Streams</b>
+        <span class="r" id="vOutInfo">Bus A1 · Stereo</span></div>
+      <table class="ntab" aria-label="Ausgangspakete">
+        <thead><tr>
+          <th>Source</th><th>Stream name</th><th>IP Address</th><th>SR</th><th>Ch</th>
+          <th>Format</th><th>Net Quality</th><th>Errors</th>
+        </tr></thead>
+        <tbody id="vOut"></tbody>
+      </table>
+
+      <div class="nfoot">
+        <button class="nbtn" id="vReset" type="button" title="Alle Netzwerk-Einstellungen auf Standard setzen">Reset Config</button>
+        <button class="nbtn" id="vLoad" type="button" title="Gesicherte Konfiguration laden">Load Config</button>
+        <button class="nbtn" id="vSave" type="button" title="Aktuelle Konfiguration sichern">Save Config</button>
+        <span class="nstat" id="vErr"></span>
+      </div>
     </div>
   </div>
 </div>
@@ -800,6 +862,44 @@
     const items = Array.from(pending.values());
     pending.clear();
     items.forEach((it) => api("/api/set", it).catch(() => {}));
+  }
+
+  /* ---------- Umbenennen (Doppelklick auf Streifen-/Busname) ---------- */
+  /**
+   * Ersetzt den Inhalt von `host` durch ein Eingabefeld. Enter/Blur übernimmt
+   * den Namen über /api/set (param "label"), Escape verwirft ihn. Ein leerer
+   * Name setzt wieder den Vorgabenamen.
+   */
+  function startRename(host, target, index, aktuell, fertig) {
+    if (host.querySelector("input.rename")) return;
+    const inp = document.createElement("input");
+    inp.className = "rename";
+    inp.type = "text";
+    inp.maxLength = 24;
+    inp.value = aktuell || "";
+    inp.placeholder = "Name";
+    let fertigFlag = false;
+    function ende(uebernehmen) {
+      if (fertigFlag) return;
+      fertigFlag = true;
+      const wert = uebernehmen ? inp.value.trim().slice(0, 24) : (aktuell || "");
+      inp.remove();
+      if (uebernehmen) {
+        api("/api/set", { target: target, index: index, param: "label", value: wert })
+          .catch(() => msg("Name nicht übernommen"));
+      }
+      fertig(wert);
+    }
+    inp.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); ende(true); }
+      else if (e.key === "Escape") { e.preventDefault(); ende(false); }
+    });
+    inp.addEventListener("blur", () => ende(true));
+    host.textContent = "";
+    host.appendChild(inp);
+    inp.focus();
+    inp.select();
   }
 
   /* ---------- Eingangsauswahl für die Streifen 1..5 ---------- */
@@ -1269,8 +1369,19 @@
     root.style.setProperty("--h2", COLORS[i % COLORS.length][1]);
 
     const head = el("div", "head");
-    const nm = el("div", "sname", String(s.name || "Kanal " + (i + 1)).toUpperCase());
-    nm.title = s.name + " — Kanal " + (i + 1);
+    const basis = s.name || "Kanal " + (i + 1);
+    const nm = el("div", "sname");
+    function zeigeName(wert) {
+      const text = String(wert || basis);
+      nm.textContent = text.toUpperCase();
+      nm.title = (wert ? text + " · " : "") + basis + " — Kanal " + (i + 1) +
+        " (Doppelklick zum Umbenennen)";
+    }
+    zeigeName(s.label);
+    nm.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      startRename(nm, "strip", i, s.label || "", zeigeName);
+    });
     const sub = el("div", "ssub", /^HW/i.test(s.name) ? "Hardware-Eingang" : "Virtueller Eingang");
     head.append(nm, sub, el("div", "sidx", String(i + 1).padStart(2, "0")));
     root.appendChild(head);
@@ -1442,7 +1553,8 @@
     ui.strips[i] = {
       root, gain, compK, gateK, fader, meter, sends, pan, panVal,
       eqBtn, eqbox, cells: cellBtns, mute: bMute, solo: bSolo,
-      mono: bMono, m: bM, den: bDen, name: s.name, insel: insel.selects[i] || null
+      mono: bMono, m: bM, den: bDen, name: s.name, insel: insel.selects[i] || null,
+      nm: nm, zeigeName: zeigeName, label: s.label || ""
     };
   }
 
@@ -1450,7 +1562,16 @@
   function buildBus(b, i) {
     const root = el("div", "bstrip");
     const head = el("div", "bhead");
-    head.append(el("div", "bname", BUS_NAMES[i]), el("div", "bsub2", "AUSGANG"));
+    const bnm = el("div", "bname", b.label || BUS_NAMES[i]);
+    bnm.title = "Bus " + BUS_NAMES[i] + " (Doppelklick zum Umbenennen)";
+    bnm.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      startRename(bnm, "bus", i, b.label || "", (wert) => {
+        bnm.textContent = wert || BUS_NAMES[i];
+        if (i === selectedBus) selectBus(i);
+      });
+    });
+    head.append(bnm, el("div", "bsub2", "AUSGANG"));
     head.title = "Bus " + BUS_NAMES[i] + " auswählen";
     head.addEventListener("click", () => selectBus(i));
     root.appendChild(head);
@@ -1512,7 +1633,8 @@
     fader.addEventListener("change", flush);
 
     root.appendChild(body);
-    ui.buses[i] = { root, head, kn, fader, meter, mute: bMute, mono: bMono, eq: bEq, lim: bLim, sel: bSel };
+    ui.buses[i] = { root, head, kn, fader, meter, mute: bMute, mono: bMono, eq: bEq, lim: bLim, sel: bSel,
+      nm: bnm, label: b.label || "" };
   }
 
   /* ---------- Master ---------- */
@@ -1553,8 +1675,9 @@
       u.root.classList.toggle("sel", k === i);
       u.sel.classList.toggle("on", k === i);
     });
-    $("mSelName").textContent = BUS_NAMES[i];
-    $("mFoot").textContent = "Bus " + BUS_NAMES[i] + " · Klick auf Buskopf wählt";
+    const busName = (ui.buses[i] && ui.buses[i].label) || BUS_NAMES[i];
+    $("mSelName").textContent = busName;
+    $("mFoot").textContent = "Bus " + busName + " · Klick auf Buskopf wählt";
     if (!state) return;
     const b = state.buses[i];
     if (!b) return;
@@ -1677,6 +1800,11 @@
       u.eqBtn.classList.toggle("on", !!s.eq);
       u.eqbox.classList.toggle("off", !s.eq);
       (s.sends || []).forEach((v, k) => { if (u.sends[k]) u.sends[k].classList.toggle("on", v > 0); });
+      const lbl = s.label || "";
+      if (u.label !== lbl && !u.nm.querySelector("input")) {
+        u.label = lbl;
+        u.zeigeName(lbl);
+      }
     });
 
     st.buses.forEach((b, i) => {
@@ -1691,6 +1819,15 @@
       u.mono.classList.toggle("on", !!b.mono);
       u.eq.classList.toggle("on", !!b.eq);
       u.lim.classList.toggle("on", !!b.limiter);
+      const lbl = b.label || "";
+      if (u.label !== lbl && !u.nm.querySelector("input")) {
+        u.label = lbl;
+        u.nm.textContent = lbl || BUS_NAMES[i];
+        if (i === selectedBus) {
+          $("mSelName").textContent = lbl || BUS_NAMES[i];
+          $("mFoot").textContent = "Bus " + (lbl || BUS_NAMES[i]) + " · Klick auf Buskopf wählt";
+        }
+      }
     });
 
     const mb = st.buses[selectedBus];
@@ -2029,8 +2166,8 @@
     }
   }
 
-  /* ================= 2) VBAN-Overlay ================= */
-  const vban = { open: false, timer: null, busy: false, enabled: false, ready: false };
+  /* ================= 2) VBAN-Overlay (IP Audio Network Configuration) ================= */
+  const vban = { open: false, timer: null, busy: false, an: false, cfg: null };
 
   function buildVban() {
     const btn = $("vbanBtn"), ov = $("vbanOverlay");
@@ -2041,10 +2178,13 @@
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && vban.open) closeVban();
     });
-    $("vPower").addEventListener("click", toggleVban);
-    ["vHost", "vPort", "vStream"].forEach((id) => {
-      $(id).addEventListener("change", () => { if (vban.enabled) startVban(false); });
+    $("vPower").addEventListener("click", () => schalte(!vban.an));
+    ["vPort", "vHost", "vStream"].forEach((id) => {
+      $(id).addEventListener("change", () => { if (vban.an) uebernimmFelder(); });
     });
+    $("vReset").addEventListener("click", () => cfgAktion("reset", "Konfiguration zurückgesetzt"));
+    $("vLoad").addEventListener("click", () => cfgAktion("load", "Konfiguration geladen"));
+    $("vSave").addEventListener("click", () => cfgAktion("save", "Konfiguration gesichert"));
   }
 
   function openVban() {
@@ -2053,7 +2193,7 @@
     ov.classList.add("open");
     vban.open = true;
     loadVban();
-    vban.timer = setInterval(loadVban, 1200);
+    vban.timer = setInterval(loadVban, 1500);
   }
   function closeVban() {
     const ov = $("vbanOverlay");
@@ -2064,36 +2204,127 @@
     vban.timer = null;
   }
 
+  function vbanFehler(text) {
+    const e = $("vErr");
+    if (!e) return;
+    e.textContent = text || "";
+    e.classList.toggle("err", !!text);
+    e.classList.toggle("on", !text && vban.an);
+    if (!text) e.textContent = vban.an ? "verbunden · Änderungen wirken sofort" : "aus";
+  }
+
+  /** Eine Tabellenzeile; `spalten` ist eine Liste von [Text, Klasse]. */
+  function nZeile(tbody, spalten) {
+    const tr = document.createElement("tr");
+    spalten.forEach(([text, cls]) => {
+      const td = document.createElement("td");
+      if (cls) td.className = cls;
+      td.textContent = text;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+
+  function nLeer(tbody, spalten, text) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = spalten;
+    td.className = "leer";
+    td.textContent = text;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  /** Qualitätsspalte: grün ab 90 %, rot darunter, Strich ohne Verkehr. */
+  function qKlasse(text) {
+    if (!text || text === "–") return "";
+    const n = parseInt(text, 10);
+    if (!Number.isFinite(n)) return "";
+    return n >= 90 ? "gut" : "schlecht";
+  }
+
   function paintVban(d) {
-    const on = !!(d && d.enabled);
-    vban.enabled = on;
-    vban.ready = true;
+    const s = (d && d.senden) || {};
+    const e = (d && d.empfangen) || {};
+    vban.cfg = d || {};
+    vban.an = !!s.an;
+
     const pw = $("vPower"), txt = $("vPowerTxt");
     pw.disabled = false;
-    pw.classList.toggle("on", on);
-    pw.setAttribute("aria-checked", on ? "true" : "false");
-    txt.textContent = on ? "AN" : "AUS";
-    txt.classList.toggle("on", on);
-    $("vbanBtn").classList.toggle("on", on);
-    if (typeof d.host === "string" && d.host && document.activeElement !== $("vHost")) $("vHost").value = d.host;
-    if (d.port != null && d.port !== "" && document.activeElement !== $("vPort")) $("vPort").value = d.port;
-    if (typeof d.stream === "string" && d.stream && document.activeElement !== $("vStream")) $("vStream").value = d.stream;
-    const frames = d.sent_frames != null ? String(d.sent_frames) : "–";
-    $("vFrames").textContent = frames;
-    $("vEnabled").textContent = on ? "aktiv" : "inaktiv";
-    $("vEnabled").classList.toggle("off", !on);
-    $("vErr").textContent = d.last_error ? String(d.last_error) : "";
+    pw.classList.toggle("on", vban.an);
+    pw.setAttribute("aria-checked", vban.an ? "true" : "false");
+    txt.textContent = vban.an ? "AN" : "AUS";
+    txt.classList.toggle("on", vban.an);
+    $("vbanBtn").classList.toggle("on", vban.an);
+    $("vDot").className = "dot" + (vban.an ? " on" : "");
+    $("vMainDot").className = "dot" + (vban.an ? " on" : "");
+
+    const feld = (id, wert) => {
+      const el = $(id);
+      if (el && document.activeElement !== el && wert !== undefined && wert !== null && wert !== "") {
+        el.value = wert;
+      }
+    };
+    feld("vHost", s.host);
+    feld("vPort", s.port);
+    feld("vStream", s.stream);
+
+    const sr = d && d.samplerate ? String(d.samplerate) : "–";
+    $("vMainSr").textContent = sr + " Hz";
+    $("vMainFrames").textContent = s.frames != null ? s.frames + " Pakete gesendet" : "–";
+
+    $("vInPort").textContent = e.port != null ? String(e.port) : "–";
+    $("vInFilter").textContent = e.stream ? e.stream : "alle";
+
+    const tin = $("vIn");
+    const tout = $("vOut");
+    tin.innerHTML = "";
+    tout.innerHTML = "";
+    const ein = Array.isArray(d && d.incoming) ? d.incoming : [];
+    if (!ein.length) {
+      nLeer(tin, 8, e.an ? "kein eingehender Stream" : "Empfang ist aus");
+    } else {
+      ein.forEach((z) => nZeile(tin, [
+        [z.stream || "–"],
+        [z.ip || "–"],
+        [z.sr ? z.sr + " Hz" : "–"],
+        [z.ch != null ? String(z.ch) : "–"],
+        [z.format || "–"],
+        [z.quality || "–", qKlasse(z.quality)],
+        [z.ziel || "–"],
+        [z.errors != null ? String(z.errors) : "0", z.errors > 0 ? "schlecht" : ""]
+      ]));
+    }
+    const aus = Array.isArray(d && d.outgoing) ? d.outgoing : [];
+    if (!aus.length) {
+      nLeer(tout, 8, "kein Ausgang konfiguriert");
+    } else {
+      aus.forEach((z) => nZeile(tout, [
+        [z.source || "–"],
+        [z.stream || "–"],
+        [z.ip || "–"],
+        [z.sr ? z.sr + " Hz" : "–"],
+        [z.ch != null ? String(z.ch) : "–"],
+        [z.format || "–"],
+        [z.quality || "–", qKlasse(z.quality)],
+        [z.errors != null ? String(z.errors) : "0", z.errors > 0 ? "schlecht" : ""]
+      ]));
+    }
+    $("vOutInfo").textContent = (aus[0] && aus[0].source ? aus[0].source : "Bus A1") + " · Stereo";
+
+    const fehler = (s.letzter_fehler || "") || (e.letzter_fehler || "");
+    vbanFehler(fehler);
   }
 
   async function loadVban() {
     if (vban.busy) return;
     vban.busy = true;
     try {
-      const d = await getJson("/api/vban");
+      const d = await getJson("/api/vban/config");
+      if (d && d.error) throw new Error(d.error);
       paintVban(d || {});
-    } catch (e) {
-      vban.enabled = false;
-      vban.ready = false;
+    } catch (err) {
+      vban.an = false;
       const pw = $("vPower");
       pw.classList.remove("on");
       pw.setAttribute("aria-checked", "false");
@@ -2101,55 +2332,61 @@
       $("vPowerTxt").textContent = "AUS";
       $("vPowerTxt").classList.remove("on");
       $("vbanBtn").classList.remove("on");
-      $("vEnabled").textContent = "nicht verfügbar";
-      $("vEnabled").classList.add("off");
-      $("vFrames").textContent = "–";
-      $("vErr").textContent = "VBAN-Endpunkt nicht verfügbar (" + e.message + ")";
+      $("vDot").className = "dot rot";
+      $("vMainDot").className = "dot rot";
+      $("vIn").innerHTML = "";
+      $("vOut").innerHTML = "";
+      nLeer($("vIn"), 8, "VBAN-Endpunkt nicht verfügbar");
+      nLeer($("vOut"), 8, "VBAN-Endpunkt nicht verfügbar");
+      vbanFehler("nicht verfügbar (" + err.message + ")");
+      $("vErr").classList.add("err");
     } finally {
       vban.busy = false;
     }
   }
 
-  function vbanPayload(action) {
+  function vbanFelderBody() {
     const port = parseInt($("vPort").value, 10);
+    const an = !!vban.an;
     return {
-      action: action,
-      host: ($("vHost").value || "").trim(),
-      port: Number.isFinite(port) ? port : 6980,
-      stream: ($("vStream").value || "").trim()
+      senden: {
+        an: an,
+        host: ($("vHost").value || "").trim(),
+        port: Number.isFinite(port) ? port : 6980,
+        stream: ($("vStream").value || "").trim()
+      },
+      empfangen: { an: an, port: Number.isFinite(port) ? port : 6980 }
     };
   }
 
-  async function startVban(notify) {
-    const body = vbanPayload("start");
+  async function sendeCfg(body) {
     try {
-      await postJson("/api/vban", body);
-      vban.enabled = true;
-      if (notify) msg("VBAN gestartet → " + body.host + ":" + body.port + " / " + body.stream);
-      await loadVban();
+      const d = await postJson("/api/vban/config", body);
+      if (d && d.error) { vbanFehler(d.error); return null; }
+      paintVban(d || {});
+      return d;
     } catch (e) {
-      $("vErr").textContent = "Start fehlgeschlagen (" + e.message + ")";
-      msg("VBAN nicht verfügbar");
+      vbanFehler("Netzwerk-Dialog nicht erreichbar (" + e.message + ")");
+      return null;
     }
   }
 
-  async function stopVban() {
-    const body = vbanPayload("stop");
-    try {
-      await postJson("/api/vban", body);
-      vban.enabled = false;
-      msg("VBAN gestoppt");
-      await loadVban();
-    } catch (e) {
-      $("vErr").textContent = "Stopp fehlgeschlagen (" + e.message + ")";
-      msg("VBAN nicht verfügbar");
-    }
+  async function schalte(an) {
+    const body = vbanFelderBody();
+    body.senden.an = an;
+    body.empfangen.an = an;
+    const d = await sendeCfg(body);
+    if (d && an) msg("VBAN an → " + body.senden.host + ":" + body.senden.port + " / " + body.senden.stream);
+    if (d && !an) msg("VBAN aus");
   }
 
-  function toggleVban() {
-    const pw = $("vPower");
-    if (pw.disabled) return;
-    if (vban.enabled) stopVban(); else startVban(true);
+  function uebernimmFelder() {
+    sendeCfg(vbanFelderBody());
+  }
+
+  async function cfgAktion(aktion, meldung) {
+    const d = await sendeCfg({ action: aktion });
+    if (d) msg(meldung);
   }
 
   /* ================= 3) Makro-Leiste (2 Seiten × 8 Tasten) ================= */

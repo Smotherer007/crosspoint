@@ -69,17 +69,23 @@ fn u32_at(b: &[u8], o: usize) -> u32 {
 }
 
 /// Geparster WAV-Kopf plus Nutzlast.
+///
+/// `fmt_tag` ist der *wirksame* Format-Tag: bei `WAVE_FORMAT_EXTENSIBLE`
+/// (0xFFFE) steht das echte Format im SubFormat-GUID; hier wird es
+/// aufgeloest, damit Tests weiter `1` (PCM) bzw. `3` (IEEE float) pruefen.
 #[derive(Debug)]
 struct Wav {
     riff_size: u32,
     fmt_size: u32,
     fmt_tag: u16,
+    extensible: bool,
     channels: u16,
     sample_rate: u32,
     byte_rate: u32,
     block_align: u16,
     bits: u16,
     data_len: u32,
+    data_off: usize,
     data: Vec<u8>,
     file_len: u64,
     pad: bool,
@@ -112,33 +118,70 @@ impl Wav {
 }
 
 /// Liest die Datei und prueft die strukturelle Konsistenz des Kopfes.
+///
+/// Der Kopf wird ueber die Chunk-Kette gelesen, nicht ueber feste Offsets:
+/// `hound` schreibt fuer mehr als 16 bit oder mehr als zwei Kanaele
+/// `WAVE_FORMAT_EXTENSIBLE` (40-Byte-`fmt`-Chunk), sonst das klassische
+/// 16-Byte-Layout.
 fn parse_wav(path: &Path) -> Wav {
     let raw = fs::read(path).unwrap_or_else(|e| panic!("{} nicht lesbar: {e}", path.display()));
     assert!(raw.len() >= 44, "Datei kuerzer als ein WAV-Kopf");
     assert_eq!(&raw[0..4], b"RIFF", "RIFF-Signatur fehlt");
     assert_eq!(&raw[8..12], b"WAVE", "WAVE-Signatur fehlt");
     assert_eq!(&raw[12..16], b"fmt ", "fmt-Chunk fehlt an Offset 12");
-    assert_eq!(&raw[36..40], b"data", "data-Chunk fehlt an Offset 36");
 
-    let data_len = u32_at(&raw, 40);
+    let fmt_size = u32_at(&raw, 16);
+    assert!(
+        fmt_size == 16 || fmt_size == 40,
+        "unerwartete fmt-Chunk-Groesse {fmt_size}"
+    );
+    let roh_tag = u16_at(&raw, 20);
+    let extensible = roh_tag == 0xFFFE;
+    // WAVEFORMATEXTENSIBLE: SubFormat-GUID ab Datei-Offset 44, die ersten
+    // beiden Byte sind der Format-Tag (1 = PCM, 3 = IEEE float).
+    let fmt_tag = if extensible {
+        u16_at(&raw, 44)
+    } else {
+        roh_tag
+    };
+
+    // data-Chunk ueber die Kette suchen.
+    let mut i = 20 + fmt_size as usize;
+    let mut data_off = None;
+    while i + 8 <= raw.len() {
+        let len = u32_at(&raw, i + 4) as usize;
+        if &raw[i..i + 4] == b"data" {
+            data_off = Some((i + 8, len));
+            break;
+        }
+        i += 8 + len + (len & 1);
+    }
+    let (data_off, data_len) = data_off.expect("kein data-Chunk");
     let pad = data_len % 2 == 1;
     let w = Wav {
         riff_size: u32_at(&raw, 4),
-        fmt_size: u32_at(&raw, 16),
-        fmt_tag: u16_at(&raw, 20),
+        fmt_size,
+        fmt_tag,
+        extensible,
         channels: u16_at(&raw, 22),
         sample_rate: u32_at(&raw, 24),
         byte_rate: u32_at(&raw, 28),
         block_align: u16_at(&raw, 32),
         bits: u16_at(&raw, 34),
-        data_len,
-        data: raw[44..44 + data_len as usize].to_vec(),
+        data_len: data_len as u32,
+        data_off,
+        data: raw[data_off..data_off + data_len].to_vec(),
         file_len: raw.len() as u64,
         pad,
     };
 
     // Konsistenz: alle Groessenfelder muessen zusammenpassen.
-    assert_eq!(w.fmt_size, 16, "fmt-Chunk muss 16 Byte sein");
+    assert!(
+        w.extensible == (w.bits > 16 || w.channels > 2),
+        "EXTENSIBLE genau bei >16 bit oder >2 Kanaelen (bits {}, kanaele {})",
+        w.bits,
+        w.channels
+    );
     assert_eq!(
         w.byte_rate,
         w.sample_rate as u32 * w.block_align as u32,
@@ -154,15 +197,17 @@ fn parse_wav(path: &Path) -> Wav {
         w.file_len - 8,
         "riff_size muss Dateigroesse - 8 sein"
     );
+    // `hound` schreibt kein Fuellbyte hinter eine ungerade Nutzlast, die Datei
+    // endet also direkt nach dem data-Chunk.
     assert_eq!(
         w.file_len,
-        44 + w.data_len as u64 + if w.pad { 1 } else { 0 },
-        "Dateigroesse passt nicht zu data_len (+Pad)"
+        w.data_off as u64 + w.data_len as u64,
+        "Dateigroesse passt nicht zu data-Offset und data_len"
     );
     assert_eq!(
         w.riff_size as u64,
-        36 + w.data_len as u64 + if w.pad { 1 } else { 0 },
-        "riff_size = 36 + data_len (+Pad)"
+        w.file_len - 8,
+        "riff_size = Dateigroesse - 8"
     );
     assert_eq!(
         w.data_len % w.block_align as u32,
@@ -226,6 +271,8 @@ fn pcm24_kopf_und_framezahl() {
     let w = parse_wav(&dateien[0]);
 
     assert_eq!(w.fmt_tag, 1, "PCM muss Format-Tag 1 haben");
+    assert!(w.extensible, "24 bit liegt als WAVE_FORMAT_EXTENSIBLE vor");
+    assert_eq!(w.fmt_size, 40, "40-Byte-fmt-Chunk bei EXTENSIBLE");
     assert_eq!(w.channels, 2);
     assert_eq!(w.sample_rate, 48_000);
     assert_eq!(w.bits, 24);
@@ -272,6 +319,7 @@ fn float32_kopf_und_werte() {
     let w = parse_wav(&dateien[0]);
 
     assert_eq!(w.fmt_tag, 3, "IEEE float muss Format-Tag 3 haben");
+    assert!(w.extensible, "32 bit liegt als WAVE_FORMAT_EXTENSIBLE vor");
     assert_eq!(w.bits, 32);
     assert_eq!(w.block_align, 8, "Block-Align bei 2x32 bit");
     assert_eq!(w.sample_rate, 44_100);
@@ -305,8 +353,13 @@ fn unvollstaendige_frames_werden_gepuffert() {
     assert_eq!(w.data_len, 18);
 }
 
+/// `hound` schreibt kein Fuellbyte hinter eine ungerade Nutzlast (RIFF sieht
+/// Wortausrichtung vor, `hound` laesst sie aus). Fuer den Mixer ist das
+/// folgenlos: aufgenommen wird immer mit geraden Kanalzahlen (2 * Busse), und
+/// 24 bit je Sample ergibt damit immer eine gerade Nutzlast. Der Test haelt
+/// das Verhalten fest, damit ein Wechsel des Schreibers auffaellt.
 #[test]
-fn ungerade_nutzlast_wird_gepolstert() {
+fn ungerade_nutzlast_bleibt_ohne_pad_byte() {
     let dir = tmp("pad");
     let mut tape = Tape::new();
     tape.start(dir.join("take"), 16_000, 1, Format::Pcm24)
@@ -315,13 +368,13 @@ fn ungerade_nutzlast_wird_gepolstert() {
     tape.stop().unwrap();
 
     let p = &wav_dateien(&dir)[0];
-    let w = parse_wav(p); // prueft riff_size = 36 + 15 + 1
+    let w = parse_wav(p);
     assert_eq!(w.data_len, 15);
-    assert!(w.pad, "ungerade Nutzlast muss ein Pad-Byte bekommen");
+    assert!(w.pad, "15 Byte sind ungerade");
     assert_eq!(w.frames(), 5);
-    assert_eq!(fs::metadata(p).unwrap().len(), 60, "44 + 15 + 1");
-    assert_eq!(w.riff_size, 52);
-    assert_eq!(w.riff_size % 2, 0, "riff_size muss gerade sein");
+    assert_eq!(w.data_off, 68, "EXTENSIBLE-Kopf bei 24 bit");
+    assert_eq!(fs::metadata(p).unwrap().len(), 68 + 15, "kein Pad-Byte");
+    assert_eq!(w.riff_size as u64, w.file_len - 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -363,6 +416,7 @@ fn rotation_erzeugt_zweite_datei() {
     for p in &dateien {
         let w = parse_wav(p); // jeder Kopf muss gueltig sein
         assert_eq!(w.fmt_tag, 1);
+        assert!(w.extensible);
         assert_eq!(w.block_align, 6);
         assert!(
             w.data_len as u64 <= 4096,
@@ -455,19 +509,40 @@ fn header_nach_stop_ist_gueltig_laut_file() {
     let beschreibung_float = file_beschreibung(float).unwrap();
     eprintln!("file: {beschreibung_pcm}\nfile: {beschreibung_float}");
 
+    // `file(1)` nennt bei WAVE_FORMAT_EXTENSIBLE nur Format, Rate und
+    // Kanalzahl, nicht die Bittiefe - die prueft der zweite Werkzeugweg.
     let a = beschreibung_pcm.to_lowercase();
     assert!(a.contains("wave audio"), "file erkennt kein WAV: {a}");
     assert!(a.contains("16000 hz"), "Samplerate nicht erkannt: {a}");
-    assert!(a.contains("24 bit"), "Bittiefe nicht erkannt: {a}");
     assert!(a.contains("mono"), "Kanalzahl nicht erkannt: {a}");
 
     let b = beschreibung_float.to_lowercase();
     assert!(b.contains("wave audio"), "file erkennt kein WAV: {b}");
     assert!(b.contains("48000 hz"), "Samplerate nicht erkannt: {b}");
     assert!(b.contains("stereo"), "Kanalzahl nicht erkannt: {b}");
-    // Diese file(1)-Version gibt bei IEEE-Float nur das Format aus, nicht die
-    // Bittiefe; 32 bit stehen im Kopf und werden von parse_wav geprueft.
-    assert!(b.contains("ieee float"), "Format-Tag 3 nicht erkannt: {b}");
+
+    // Zweiter Weg: ffprobe liest Bittiefe und Sample-Format aus dem
+    // EXTENSIBLE-Kopf. Fehlt ffprobe, bleibt es bei der internen Pruefung.
+    let probe = |p: &Path| -> Option<String> {
+        let out = Command::new("ffprobe")
+            .args(["-v", "error", "-show_entries", "stream=codec_name,channels"])
+            .arg(p)
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).to_lowercase())
+    };
+    match probe(pcm) {
+        Some(text) => assert!(text.contains("pcm_s24le"), "ffprobe: {text}"),
+        None => eprintln!("ffprobe nicht vorhanden - Bittiefe nur intern geprueft"),
+    }
+    match probe(float) {
+        Some(text) => assert!(text.contains("pcm_f32le"), "ffprobe: {text}"),
+        None => eprintln!("ffprobe nicht vorhanden - Format nur intern geprueft"),
+    }
+    // Bittiefe und Sample-Format stehen im EXTENSIBLE-Kopf; geprueft werden
+    // sie von parse_wav und oben von ffprobe.
 }
 
 #[test]

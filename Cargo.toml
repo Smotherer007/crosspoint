@@ -12,6 +12,17 @@ path = "src/lib.rs"
 tape = { path = "crates/tape" }
 vban = { path = "crates/vban" }
 macros = { path = "crates/macros" }
+# JSON: lesen und schreiben statt Eigenbau (src/json.rs).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Lock-freier SPSC-Ring fuer die Tape-Bruecke (src/tape_io.rs).
+rtrb = "0.4"
+# HTTP-Server (synchron, ein Thread je Anfrage) und WebSocket (src/http.rs).
+tiny_http = "0.12"
+tungstenite = "0.30"
+# JACK-Client statt handdeklariertem ABI (src/jack.rs); laedt libjack.so.0
+# zur Laufzeit, braucht beim Bauen nur pkg-config (siehe .cargo/config.toml).
+jack = "0.13"
 
 [[bin]]
 name = "crosspoint-engine"

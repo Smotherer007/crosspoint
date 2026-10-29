@@ -9,6 +9,7 @@ publish = false
 name = "tape"
 path = "src/lib.rs"
 
-# Bewusst keine Abhaengigkeiten: das Crate bleibt eigenstaendig und
-# unabhaengig von crosspoint. Nur die Standardbibliothek.
+# Eigenstaendig und unabhaengig von crosspoint. Einzige Abhaengigkeit ist
+# `hound`: RIFF-Kopf, Sample-Kodierung und Groessen-Patch beim Schliessen.
 [dependencies]
+hound = "3.5"

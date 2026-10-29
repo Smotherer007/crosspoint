@@ -18,11 +18,15 @@ pub mod autostart;
 pub mod devices;
 pub mod dsp;
 pub mod engine;
+/// Effekt-Host (mod-host/Carla als betreute Kindprozesse).
+pub mod fx;
 pub mod http;
 pub mod inputs;
 pub mod jack;
 pub mod json;
 pub mod macros_io;
+/// OSC-Eingang (`/strip/<n>/<param>`) für MIDIMonster und Fader.
+pub mod osc;
 pub mod pfade;
 /// PipeWire-Graph (`pw-dump`) als Grundlage der Geräteerkennung.
 pub mod pw;

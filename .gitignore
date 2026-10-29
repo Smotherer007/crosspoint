@@ -6,3 +6,6 @@
 /.flatpak-builder
 /flatpak-build/
 /prebuilt/
+# Bau-Logs der Flatpak-Laeufe
+.flatpak-*.log
+/.flatpak-build.log

@@ -1,0 +1,2546 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAMM0lEQVR4nN2ba4wlx1XHf6equu9r7uzMzq7XNrvYWcUgESVOvgSEA0ZKJBCywXHkRCAeUfjCdwiIiJAIiYfIB76AgpAiI4KEJYIDSaSYxAmgRCFRTCaJsePYcfYRs157n7Pz7O6qOnzovre7772zO7MZ1jt7pJ57p+7p0+dU/eucU6eqJe0fUlBAmEnbNO8b0u0aBVBc+c8kl9SMqtsI2Sck0rZn4tPVP0r9oWWniHGIsTda5T0ljQGNofxHpDGYpb2u1SsioBGxDpt2KwCEimU/zYXKJgHjEhAh5lvEUICYaoBLcqO5MDLeJB2MSwnZRtlz+xn+lJ0gxmA7fcRbQrFV2dr0AcJ45I1L8ZurJZOY/TXw25BGxW+s4npDTEwqJJTToUYAYNMuIduobpP9P/ojEgEMIdvAdgfEzWJssxt5erG2/BrD1DzZ96RlJ2gMqEaMdcTgAcGVUFBEbO3whH3m9HZKAjGCsRA8NBHQhry2bxqHxn1EUg3ghN7aygVk5AMmcoGJnEC9Is7cIM33htRHxMpE7K8zwNl5wGSmpFUIGaaElc0bbsT1kqriFvrEjRwNkaajn/Tsrt0jNQLEQNwq6P7YEY5/5BFe+YevQtR94Ro0RI689z5OfehfWf/GacwgRWN75Eck6WBJiYpJUsRYQrYJpuoMVcRZkqUB/tLGtg+82UhVSQ4OKC6uo3mo7FGIiul0QZVYZE0fMI2AcegoAtlLlxBn0cqhlEGidjIjUEkjemjD+YhIS7mry5jmvR4ZI50xtS2zEHBNH4ARJHWICElqy0jiI6EoFxgmcdjEgILPAxojiJCkDjFSZmF5KNFkhCRNdi4jcYidlGFm6mFTh3G1jHLUZ0Wv9up3ewQ0KSqSWroDQUwk37KEPAJK0rF0ehFF2Fy1+K1S+U7fYp0n+JJXVRFrtpFh6PQURdi4YgjZSIbBJoEYHOt5LJMYZ+jOgaCVjIAIJF1H2g0ohs0Vg898PZVbxu8GAa2O0xJ6UVvQ1KpdW7dVbWNe3YUM3YGM+vfR/cF7go8okRC0YexeIGDXi4LJ+2fPv93LmEWKiNDpdEi6scz5twKZ35px3w+DgF3RrF7frdztZNRkrSPfPM+vvu+3+aMP/wkXXz1H2knZKHJ+5Z0P8PLLZ0jTlBh1Qs4tggDViE07fOfpp/n4px/D/8gcNsCV/z7B+to6xtpqujRLYvsCAYoxgrUWY0DEYkwgxPb9MUZc2mf5619lee00w4fuRVe3WHv0K7hcsJ0EjfvQB4gIWxsbeMAlgRAcxYbS6aRTvKqRTtJjbnGJQXeIhhRZXCI7f7lykvvMB4gIMQTe+Oa3cOex2wiaYW2XMyfP8twzT2PTZPIOYlRC8ASNaIyE4NFx1r6vEFAuvYss4/f/8EO8/R1v59LFVRaXhjz5uS/w6w8/SG84xNqIoFhrEBMaS9xr6fEaI6CRzZap7VSYLmN80uvwwff/Dh/9pbdi7l5Ez6xy5p+/guukXLl8kcQrRpRswyDqSGS7jp1lx2uIgFHCM05iZuqnGGM58b0XOHdiju7wKPnJV7nywvMMFxe47/6foz9M0Bgw0mH5qWVOv/Dd1lphez1eKwRIma3FGNGq0hxjJMaAsdOFFlWl2+0y6PbpJB3Sbp91l7CweJC/+Mu/ptfrk+c5S4eG/MH7f49Hn1vG2FkbODcBAowxFPkmt99xB3/3j5+gnyTkWc7i4UP82Z/+MZ/4+McYLt6BtQWK4JwSfSDGUHaSKj4GrHOcO3uWh9/1ixx46C3QS8i+/H1e+tI3cXaeGMJV9ajtuMEIUFWMNWxtbvLFf3+S+XvvIlghPfksp188QYyBC6+exfUiESFeUVx3gJ2CtBBC4OSpEyxcPIIMO6ydfpHs8mWsda21xSw92m03EAGqinOO1csr/PmHP8Dgt96GOzhg7YlnCN94nje99X5++aF3UuTriLUUmfL3j36MC2dfmZ7XInS7XTpJiriU0O0RnJuR7EzrUduxZwhQRKiyNUERrIUgfiosjVAwN7/EwmAe2+3TXTzEOfMid999nPf8xvtY2VzDWkdY3+STj/8T587870QHlE4zxlg50MqntFLdaR1nt+0BAkSEosjJVjK6RVkPyFaFxCYY5ya5UYUQAiFG0EieZ1gzxxP/8km+/INvMffzP4Gu5Vx+7Gtk56+QJD1ijC0ZP3w02iMEiAgheI7cfjtvePMbEVOAEbI1Zfmpp9jKMkSkcVGhYlKuoKoUvqDQiGqg8H6bp16PX/p/QoA1Fp+t8bb738Nf/e3fcOn8GtY5VOCBd/wsz3/nWVTTcsRDCdv2QYUGSbnosSKoCNYY4kxI30QICDGQ9IZ88bOf5cHffITOT78Oisjavz3DS6dO0un3SdIUY4UYLH4zx2f5bGHKuBqkNAuh164HXJv2CAEiinWuzL0lEKzFJgmXLl5g+X+Wmb8HNCtYffbbFGsX+chHH+WBX3iQi+fPM7+4wPK3lnnvux/GSh/ZyXpghg6vHQJEiCGyfvE8m4VgjOI3gOhIXUq/P6CfdNDoCL0+a67Df37+SVaGkM9Z3POB73/ua1XGp1dZuDSV5OZAgAjEEOj1+/zuBz7IwsKAIs/pz83zmU99mv944lMIQlRFNeJDwLoun3n8MT5fPEf33qNsPXuW7PGv0+kPd7jBelMhoPTSLkn4yft+hoN33UmeZxzozfHtbz6Nqp9KVlQj3d48i8NF0u6QfLjF5cECIW7n3SfpJkKAKhjnWFtZ4d2PPMDir/0UZqHH+he+y/p/fQ/n5vFh0rByyoQYCFp9hqtEgSm6qRAw+lqGKrEWY22V/V1tu/z6K0I3FQKaN4lM+O8m9KdyHJl4fuMZs/KhXcmYxXsNGS2G68oDKt9tBMaHDqqimwg4AS+NDciK10m9M0vFb6v2Ju9Iht2JDNmFjL1CgEi5nbWWo9agua+O0QFFQFczNAvQmOu6UaBXMnQjnyHDtmXkoeRdz2sZwpQMEYEQ0bW8TKBGMii/N2XITJ8zjYDtzwdMpe2CSVy5Ze4DWhUgxBgkceWeXeHHmZxxDqyBEImj/L4lw1enN9oyYuHH4VKcQyZkiEjJK1I+L07LaOpR688uzwdMIUeJWVH/XJ290RjRrbxxS/klFh7xo36Uloz62E41ejFCllOX8at279GigcIqVdaryaCtx7UQYLb3Ae1LRFCUqBW8tJ6TUSMxjmBXz0k/KlNJ4+ECPoQGb9nuva87tmFGiKHtAyj18NU5v7G+IvjgJ/SYvCbtBNMe9cnv5TXarBgM5zl4+DZC8OOlrsbA0uEjHDxUt0NZADl693FckqANpYwxHL79zrGiZXvk6PHX0+n2oMFrneOOY3fVWomABoYHFjh2/B6QxuDEwJ0/+joOLB5s6DF5Tdq5QwSolBmeMcLC0uGyAFlBMsZIp9dj7sABYgzlIAsEX7CwdJjBcJ4YyxH3PufI0WPc84Y31UfYUTRG5pqda4TgC+YXFrnr9T9Orz8Yy1YgeE+32yO2kATHjt/DwcO3VfrNQvI0Ana2GqyOy/nCk21uYJ2rHZUY0k6XlUsXsKY6bquKS1IuXzjH5voaxpTni6xNuHTuHL7wGFcWMssNEuHCq68QvEeMQaNirGN15TJnTp0gjAzVejnx8g9OtWe2GF468SKb66sYO4ruexwFNGq5IdHqAMEXBcZaxIzOGJedGkLAGFO3V1MpxohzSa2USOlMVbG2OoxVPS8G35Zd8VKV3LX1PI+IKfcI9j4KgBjBGNcqRKqCS9ISyq1eF1xVGxy3a1lEbZexy/ZRaj02qHqeM2mZhulVeMfPG+kxPdLbIWB3FaFtd7Nm889qHp3vuTpvnfLOqh/M5J3SY7u1w3WtBW4VaqCuovqNkZ0g4JagMuyOyI3enSnDXNrKxG49Kg9aalHXMNzYCwcPqYzD0HjFd0uQjE+qihjCdu8MxXwL2+njN1arF6ZuFSQoxIjtDqvwxzh0urFrF0MMBeItrj8kbG2gGve/O5AyV7G9IRoD0ectdNcIqDohFFuYmGC7A6gOHZWneGVf9cUYu8YgYohFVhnfTtba7w43kBA3PWJdmYFVK7D9RFr91cKX/q3MrOpVbPV7+91hqTsBQINHw9VfLr9pqVlbGK0Mta5jjAyaRgCTaYDsP+OZGLBmNGtlosr/AfZwqsdGl8AvAAAAAElFTkSuQmCC">
+  <title>Crosspoint</title>
+<style>
+  :root{
+    --ink:#d3dee9; --dim:#93a5b8; --faint:#71849a;
+    --panel-a:#4c5764; --panel-b:#3a434f; --panel-c:#333b46;
+    --edge:#1b222a; --edge-hi:rgba(255,255,255,.15);
+    --green:#39dd93; --green-d:#1c7d54;
+    --amber:#f3c24b; --red:#ff5f57; --blue:#6cc4ff;
+    --mono:ui-monospace,"DejaVu Sans Mono",monospace;
+    --sans:"DejaVu Sans","Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:var(--sans);font-size:10px;color:var(--ink);
+    background:#262d35;overflow:hidden;user-select:none;
+    background-image:radial-gradient(130% 100% at 50% -20%,#5a6673 0%,#3a434e 48%,#242b33 100%);
+  }
+  button,input{font-family:inherit}
+  button{color:inherit}
+  .app{height:100vh;display:flex;flex-direction:column;gap:6px;padding:6px 8px 8px}
+
+  /* ---------- Kopfzeile ---------- */
+  .titlebar{
+    flex:0 0 44px;display:flex;align-items:center;gap:10px;padding:0 9px;
+    border:1px solid var(--edge);border-radius:3px;
+    background:linear-gradient(180deg,#515d6a 0%,#3c4652 55%,#313943 100%);
+    box-shadow:inset 0 1px 0 var(--edge-hi),0 2px 7px rgba(0,0,0,.45);
+  }
+  .brand{display:flex;align-items:center;gap:9px;min-width:210px}
+  /* Wortmarke: Monospace, aufrecht, eine Farbe - das Orange war zu laut. */
+  .logo{
+    font-family:var(--mono);
+    font-size:19px;font-weight:700;font-style:normal;letter-spacing:.04em;
+    color:#d6e2f0;text-transform:lowercase;
+    text-shadow:0 1px 0 #0b0f13;
+    line-height:1;
+  }
+  .logo b{color:#d6e2f0;font-weight:700}
+  .logo::after{content:"";display:inline-block;width:6px;height:6px;margin-left:5px;
+    background:#39dd93;border-radius:1px;vertical-align:2px;opacity:.9}
+  .bsub{display:flex;flex-direction:column;gap:2px;line-height:1.05;padding-left:9px;
+        border-left:1px solid rgba(255,255,255,.18)}
+  .bsub b{font-size:7.5px;letter-spacing:.24em;color:#e6eef6;font-weight:600}
+  .bsub i{font-style:normal;font-size:6.5px;letter-spacing:.16em;color:var(--faint)}
+  .chip{
+    display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;
+    border:1px solid var(--edge);border-radius:2px;background:linear-gradient(#202830,#141a21);
+    color:#a9e8c7;font:600 8px/1 var(--mono);letter-spacing:.05em;
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .chip .k{color:var(--faint);font-family:var(--sans);font-size:6.5px;letter-spacing:.12em}
+  #status{color:#7fe0b0}
+  #status i{width:7px;height:7px;border-radius:50%;background:#39dd93;box-shadow:0 0 7px #39dd93}
+  #status.off{color:#ffb3ae}
+  #status.off i{background:var(--red);box-shadow:0 0 7px var(--red)}
+  .grow{flex:1}
+  .tbtn{
+    height:23px;padding:0 11px;border:1px solid var(--edge);border-radius:2px;cursor:pointer;
+    background:linear-gradient(#3d4956,#29313b);font-size:7.5px;letter-spacing:.13em;
+    color:#cfdbe7;text-transform:uppercase;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(0,0,0,.45);
+  }
+  .tbtn:hover{border-color:#5c7891;color:#fff}
+  .tbtn:active{background:linear-gradient(#2a323c,#3b4653)}
+
+  /* ---------- Rack ---------- */
+  .deck{flex:1;display:flex;gap:6px;min-height:0}
+  .strips{flex:1 1 65%;display:flex;gap:4px;min-width:0}
+  .side{flex:0 0 35%;display:flex;flex-direction:column;gap:6px;min-width:0}
+  .buses{flex:1;display:flex;gap:4px;min-height:0}
+
+  .strip,.bstrip{
+    flex:1 1 0;min-width:0;display:flex;flex-direction:column;
+    border:1px solid var(--edge);border-radius:3px;overflow:hidden;
+    background:linear-gradient(180deg,var(--panel-a) 0%,var(--panel-b) 48%,var(--panel-c) 100%);
+    box-shadow:inset 0 1px 0 var(--edge-hi),0 1px 4px rgba(0,0,0,.5);
+  }
+  .strip.sel{outline:1px solid #6cc4ff;outline-offset:-1px;box-shadow:0 0 9px rgba(108,196,255,.35),inset 0 1px 0 var(--edge-hi)}
+
+  .head{
+    position:relative;padding:4px 5px 3px;border-bottom:1px solid #141a20;
+    background:linear-gradient(180deg,var(--h1,#3a6f9c),var(--h2,#234a6b));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22);
+  }
+  .sname{font-size:8.5px;font-weight:700;letter-spacing:.09em;color:#f4faff;
+         text-shadow:0 1px 1px rgba(0,0,0,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ssub{font-size:6px;letter-spacing:.07em;color:rgba(255,255,255,.66);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sidx{position:absolute;right:4px;top:4px;font:600 6.5px/1 var(--mono);color:rgba(255,255,255,.5)}
+  .sbody{flex:1;display:flex;flex-direction:column;gap:4px;padding:4px 4px 5px;min-height:0}
+
+  .lbl{font-size:6px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
+  .sep{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent);margin:0 -1px}
+
+  /* ---------- Drehregler ---------- */
+  .knobs{display:flex;justify-content:center;align-items:flex-end;gap:4px}
+  .knobs2{display:flex;justify-content:center;gap:6px}
+  .kw{display:flex;flex-direction:column;align-items:center;gap:1px}
+  .klabel{font-size:5.8px;letter-spacing:.13em;color:var(--dim);text-transform:uppercase}
+  .knob{
+    position:relative;width:34px;height:34px;border-radius:50%;cursor:ns-resize;outline:none;
+    background:radial-gradient(circle at 34% 28%,#8d9dac 0%,#4b5662 52%,#272f38 100%);
+    box-shadow:0 2px 4px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.35),inset 0 -3px 5px rgba(0,0,0,.45);
+  }
+  .knob:focus-visible{box-shadow:0 0 0 1px #6cc4ff,0 2px 5px rgba(0,0,0,.6)}
+  .knob .arc{
+    position:absolute;inset:-3px;border-radius:50%;pointer-events:none;
+    background:conic-gradient(from 225deg,
+      var(--kc,#39dd93) 0deg calc(var(--p,0) * 2.7deg),
+      rgba(0,0,0,.55) calc(var(--p,0) * 2.7deg) 270deg,
+      transparent 270deg 360deg);
+    -webkit-mask:radial-gradient(circle,transparent 0 76%,#000 77% 100%);
+    mask:radial-gradient(circle,transparent 0 76%,#000 77% 100%);
+  }
+  .knob .cap{
+    position:absolute;inset:5px;border-radius:50%;
+    background:radial-gradient(circle at 36% 26%,#e4edf5 0%,#93a4b3 45%,#3b4653 100%);
+    box-shadow:inset 0 -2px 3px rgba(0,0,0,.45),0 1px 2px rgba(0,0,0,.5);
+  }
+  .knob .ptr{
+    position:absolute;left:calc(50% - 1px);top:4px;height:calc(50% - 4px);width:2px;
+    border-radius:1px;background:#1a222a;transform-origin:50% 100%;
+    box-shadow:0 0 1px rgba(255,255,255,.5);
+  }
+  .knob.big{width:74px;height:74px}
+  .knob.big .cap{inset:7px}
+  .knob.big .ptr{width:3px;left:calc(50% - 1.5px);top:9px;height:calc(50% - 9px)}
+  .knob.drag{filter:brightness(1.12)}
+  .gain .knob{width:52px;height:52px}
+  .gain .knob .cap{inset:6px}
+  .gain .knob .ptr{top:6px;height:calc(50% - 6px)}
+  .knobs2 .knob{width:38px;height:38px}
+  .kval{
+    min-width:34px;text-align:center;padding:1px 3px;border-radius:2px;
+    background:#10161d;border:1px solid #080c10;color:#b9e8cf;
+    font:600 7px/1.25 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .gain .kval{font-size:7.5px;min-width:44px}
+
+  /* ---------- EQ ---------- */
+  .eqbox{
+    border:1px solid #1d252d;border-radius:2px;padding:3px;
+    background:linear-gradient(180deg,#3b4550,#2e3740);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  .eqbox.off{opacity:.55}
+  .eqhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;gap:2px}
+  .eqled{
+    height:11px;padding:0 4px;border-radius:2px;cursor:pointer;font:600 6px/1 var(--mono);
+    letter-spacing:.08em;color:#95a8ba;background:linear-gradient(#2b343d,#1c232a);
+    border:1px solid #12181e;
+  }
+  .eqled.on{color:#e6fff2;background:linear-gradient(#2f9f6f,#1b6647);border-color:#46dfa3;
+             box-shadow:0 0 6px rgba(70,223,163,.5)}
+  .eqcells{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+  .eqcell{
+    height:13px;padding:0;border-radius:2px;cursor:pointer;font:600 6px/1 var(--mono);
+    color:#8496a8;background:linear-gradient(#2a323b,#1b222a);border:1px solid #12181e;
+  }
+  .eqcell:hover{color:#dbe9f5;border-color:#4c6b85}
+  .eqcell.on{color:#e9fff4;background:linear-gradient(#2f9a6c,#1a6346);border-color:#46dfa3;
+             box-shadow:0 0 5px rgba(70,223,163,.45)}
+
+  /* ---------- Routing ---------- */
+  .routing{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .rcol{display:flex;flex-direction:column;gap:2px}
+  .rb{
+    height:13.5px;padding:0;border-radius:2px;cursor:pointer;
+    font:600 6.2px/1 var(--mono);letter-spacing:.02em;color:#93a9bd;
+    background:linear-gradient(#333d48,#232a33);border:1px solid #141a20;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .rb:hover{color:#e4f0fa;border-color:#5a7d99}
+  .rb.on{
+    color:#eafff4;background:linear-gradient(#31a373,#1a6045);border-color:#4be3a5;
+    box-shadow:0 0 6px rgba(75,227,165,.5),inset 0 1px 0 rgba(255,255,255,.28);
+    text-shadow:0 0 5px rgba(200,255,230,.6);
+  }
+  .rhint{display:flex;justify-content:space-between;font-size:5.5px;color:var(--faint);
+         letter-spacing:.1em;margin-bottom:1px}
+
+  /* ---------- Pan ---------- */
+  .panrow{display:flex;align-items:center;gap:3px;font-size:5.5px;color:var(--faint)}
+  .panrow input[type=range]{
+    flex:1;min-width:0;height:9px;margin:0;appearance:none;-webkit-appearance:none;background:transparent;
+    cursor:ew-resize;
+  }
+  .panrow input[type=range]::-webkit-slider-runnable-track{
+    height:3px;border-radius:2px;background:#11171d;box-shadow:inset 0 1px 2px #000;
+  }
+  .panrow input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:8px;height:11px;margin-top:-4px;border-radius:1px;
+    background:linear-gradient(#d6e2eb,#7c8c9b);border:1px solid #0b1015;
+  }
+  .panrow input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:#11171d}
+  .panrow input[type=range]::-moz-range-thumb{
+    width:8px;height:11px;border-radius:1px;background:linear-gradient(#d6e2eb,#7c8c9b);border:1px solid #0b1015;
+  }
+  .panv{font:600 6px/1 var(--mono);color:#a9bccd;min-width:15px;text-align:right}
+
+  /* ---------- Fader + Pegel ---------- */
+  .faderzone{flex:1 1 auto;min-height:64px;display:flex;justify-content:center;align-items:stretch;
+             gap:3px;padding:2px 0 0}
+  .scale{position:relative;width:11px;font:500 5px/1 var(--mono);color:#7f92a4;flex:0 0 11px}
+  .scale span{position:absolute;right:0;transform:translateY(-50%)}
+  .meter{
+    position:relative;flex:0 0 9px;border-radius:1px;overflow:hidden;
+    background:#0a0f14;border:1px solid #05080b;box-shadow:inset 0 0 4px #000;
+  }
+  .meter .fill{
+    position:absolute;left:0;right:0;bottom:0;height:0;
+    background:linear-gradient(to top,#1fbf78 0%,#63df5c 55%,#e8d24b 80%,#ff5b4d 100%);
+    /* Keine CSS-Transition: die Glättung (Attack sofort, Release exponentiell)
+       rechnet die rAF-Schleife, sonst kommt zum Takt die Animationszeit dazu. */
+  }
+  .meter .leds{
+    position:absolute;inset:0;pointer-events:none;opacity:.55;
+    background:repeating-linear-gradient(to top,#000 0 1px,transparent 1px 4px);
+  }
+  .meter .peak{
+    position:absolute;left:0;right:0;height:2px;bottom:0;background:#f2f9ff;
+    opacity:0;transition:opacity .4s;
+  }
+  .fader{
+    appearance:none;-webkit-appearance:none;flex:0 0 26px;width:26px;height:100%;margin:0;
+    background:transparent;cursor:ns-resize;writing-mode:vertical-lr;direction:rtl;
+  }
+  .fader::-webkit-slider-runnable-track{
+    width:5px;border-radius:3px;border:1px solid #0a0f14;
+    background:linear-gradient(to top,#37d68f 0 var(--fill,50%),#0d1319 var(--fill,50%) 100%);
+  }
+  .fader::-webkit-slider-thumb{
+    -webkit-appearance:none;width:26px;height:15px;border-radius:2px;margin-left:-11px;
+    background:linear-gradient(#eaf2f8 0%,#a3b4c2 40%,#4a5764 100%);
+    border:1px solid #0a0f14;
+    box-shadow:0 2px 3px rgba(0,0,0,.65),inset 0 1px 0 #fff;
+  }
+  .fader::-moz-range-track{
+    width:5px;border-radius:3px;border:1px solid #0a0f14;
+    background:linear-gradient(to top,#37d68f 0 var(--fill,50%),#0d1319 var(--fill,50%) 100%);
+  }
+  .fader::-moz-range-thumb{
+    width:22px;height:14px;border-radius:2px;
+    background:linear-gradient(#eaf2f8,#a3b4c2 40%,#4a5764);
+    border:1px solid #0a0f14;box-shadow:0 2px 3px rgba(0,0,0,.65);
+  }
+
+  /* ---------- Schalter ---------- */
+  .switches{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .sw{
+    height:14px;padding:0;border-radius:2px;cursor:pointer;
+    font:600 6.2px/1 var(--sans);letter-spacing:.08em;color:#a5b6c7;
+    background:linear-gradient(#38424e,#262e37);border:1px solid #141a20;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  .sw:hover{color:#eaf3fb;border-color:#587c98}
+  .sw.on{color:#eaf6ff;background:linear-gradient(#3c7ea8,#24506c);border-color:#6cc4ff;
+         box-shadow:0 0 6px rgba(108,196,255,.45)}
+  .sw.mute.on{color:#ffe9e7;background:linear-gradient(#a33a34,#6a211d);border-color:#ff6b60;
+              box-shadow:0 0 6px rgba(255,107,96,.5)}
+  .sw.solo.on{color:#fff4d8;background:linear-gradient(#a5791f,#6d4c11);border-color:#f3c24b;
+              box-shadow:0 0 6px rgba(243,194,75,.5)}
+  .sw.sel.on{background:linear-gradient(#35749e,#1f4964);border-color:#6cc4ff}
+  .sw.den.on{color:#efe6ff;background:linear-gradient(#63509a,#3c2f63);border-color:#b79cff;
+             box-shadow:0 0 6px rgba(183,156,255,.45)}
+
+  /* ---------- Master ---------- */
+  .master{
+    flex:0 0 auto;border:1px solid var(--edge);border-radius:3px;
+    background:linear-gradient(180deg,#4f5b68,#3a434e 60%,#333b46);
+    box-shadow:inset 0 1px 0 var(--edge-hi),0 1px 4px rgba(0,0,0,.5);
+  }
+  .mhead{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;height:19px;padding:0 8px;
+    border-bottom:1px solid #161c22;background:linear-gradient(#596574,#414b57);
+    font-size:6.8px;letter-spacing:.26em;color:#e2ebf4;text-transform:uppercase;
+  }
+  .mhead .mchip{font:600 6.5px/1 var(--mono);letter-spacing:.08em;color:#bfe9d5}
+  .mbody{display:flex;align-items:center;gap:10px;padding:6px 8px 7px}
+  .mknob{display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto}
+  .mknob .kval{font-size:8.5px;min-width:56px;color:#c8f3dd}
+  .msw{display:flex;flex-direction:column;gap:2px;flex:0 0 auto}
+  .msw .row2{display:flex;gap:2px}
+  .msw .sw{width:44px}
+  .mfields{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+  .field{display:flex;align-items:center;gap:4px;font-size:6px;letter-spacing:.12em;color:var(--dim)}
+  .field label{flex:0 0 34px}
+  .field input{
+    width:100%;min-width:0;height:17px;padding:0 4px;border-radius:2px;
+    background:#11171d;border:1px solid #080c10;color:#b9e8cf;
+    font:600 8px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .field .u{flex:0 0 auto;color:var(--faint);font-family:var(--mono);font-size:6px}
+  .mmeter{position:relative;height:6px;border-radius:1px;background:#0a0f14;border:1px solid #05080b;
+          overflow:hidden;box-shadow:inset 0 1px 3px #000}
+  .mmeter i{position:absolute;left:0;top:0;bottom:0;width:0;
+            background:linear-gradient(90deg,#1fbf78,#63df5c 55%,#e8d24b 80%,#ff5b4d)}
+  .mfoot{display:flex;justify-content:space-between;font-size:5.8px;color:var(--faint);letter-spacing:.1em;
+         padding:0 8px 5px}
+
+  /* ---------- Busse ---------- */
+  .bstrip{background:linear-gradient(180deg,#4a5461,#39424d 55%,#323a44)}
+  .bhead{
+    position:relative;padding:3px 4px 3px;border-bottom:1px solid #141a20;cursor:pointer;
+    background:linear-gradient(180deg,#44637f,#2a4054);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.2);
+  }
+  .bname{font-size:9px;font-weight:700;letter-spacing:.14em;color:#f2f9ff;line-height:1.05}
+  .bsub2{font-size:5.5px;letter-spacing:.14em;color:rgba(255,255,255,.6)}
+  .bstrip.sel{outline:1px solid #6cc4ff;outline-offset:-1px;box-shadow:0 0 9px rgba(108,196,255,.35)}
+  .bbody{flex:1;display:flex;flex-direction:column;gap:3px;padding:4px 3px 5px;min-height:0}
+  .bbtns{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+  .bbtns .sw{height:13px;font-size:5.6px;letter-spacing:.02em}
+  .bstrip .kw .klabel{display:none}
+  .bstrip .knob{width:40px;height:40px}
+  .bstrip .knob .cap{inset:6px}
+  .bstrip .knob .ptr{top:5px;height:calc(50% - 5px)}
+  .bstrip .kval{min-width:40px;font-size:7px}
+  .bstrip .faderzone{min-height:80px;gap:2px}
+  .bstrip .fader{flex:0 0 20px;width:20px}
+  .bstrip .meter{flex:0 0 8px}
+  .bstrip .fader::-webkit-slider-thumb{width:20px;height:13px;margin-left:-8px}
+  .brow{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .brow .sw{height:14px}
+
+  /* ---------- Tape ---------- */
+  .tape{
+    flex:0 0 48px;display:flex;align-items:center;gap:9px;padding:0 9px;
+    border:1px solid var(--edge);border-radius:3px;
+    background:linear-gradient(180deg,#4d5865,#38414c 60%,#323a44);
+    box-shadow:inset 0 1px 0 var(--edge-hi),0 1px 4px rgba(0,0,0,.45);
+  }
+  .ttitle{display:flex;flex-direction:column;line-height:1.1;padding-right:9px;border-right:1px solid rgba(255,255,255,.14)}
+  .ttitle b{font-size:9px;letter-spacing:.24em;color:#eaf2fa}
+  .ttitle i{font-style:normal;font-size:5.8px;letter-spacing:.16em;color:var(--faint)}
+  .lamps{display:flex;flex-direction:column;gap:3px}
+  .lamp{width:7px;height:7px;border-radius:50%;background:#2a1616;border:1px solid #05080b;
+        box-shadow:inset 0 1px 1px rgba(255,255,255,.2)}
+  .lamp.on{background:#ff5f57;box-shadow:0 0 7px #ff5f57}
+  .lamp.g{background:#0f2a20}
+  .lamp.g.on{background:#39dd93;box-shadow:0 0 7px #39dd93}
+  .tpbtn{
+    height:26px;min-width:46px;border-radius:2px;cursor:pointer;border:1px solid #141a20;
+    background:linear-gradient(#3b4652,#28303a);
+    font:700 7px/1 var(--mono);letter-spacing:.12em;color:#c6d4e2;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 2px rgba(0,0,0,.4);
+  }
+  .tpbtn:hover{border-color:#5b7d99;color:#fff}
+  .tpbtn.rec.on{background:linear-gradient(#b8453c,#76241f);border-color:#ff6b60;color:#ffe9e7;
+                box-shadow:0 0 8px rgba(255,107,96,.5)}
+  .tpbtn.play.on{background:linear-gradient(#2f8f68,#1b5c43);border-color:#4be3a5;color:#e6fff2;
+                 box-shadow:0 0 8px rgba(75,227,165,.5)}
+  .tpbtn.stop.on{background:linear-gradient(#6b7784,#3f4954);border-color:#a9bccd;color:#fff}
+  .tc{
+    font:600 13px/1 var(--mono);letter-spacing:.06em;color:#a9e8c7;background:#0c1218;
+    border:1px solid #070b0f;border-radius:2px;padding:5px 8px;box-shadow:inset 0 1px 4px #000;
+  }
+  .ttargets{display:flex;align-items:center;gap:4px}
+  .ttargets .lbl{padding-right:2px}
+  .tgt{
+    width:23px;height:19px;border-radius:2px;cursor:pointer;border:1px solid #141a20;
+    background:linear-gradient(#333d48,#232a33);color:#93a9bd;
+    font:600 6.2px/1 var(--mono);
+  }
+  .tgt:hover{color:#e4f0fa;border-color:#5a7d99}
+  .tgt.on{color:#eafff4;background:linear-gradient(#2f9a6c,#1a5f44);border-color:#4be3a5;
+          box-shadow:0 0 5px rgba(75,227,165,.4)}
+  .tnote{font-size:5.8px;letter-spacing:.1em;color:var(--faint);white-space:nowrap}
+
+  .toast{
+    position:fixed;right:14px;bottom:108px;padding:7px 11px;border-radius:2px;
+    background:#121a22;border:1px solid #3f6656;color:#b8f0d7;font-size:8px;letter-spacing:.08em;
+    opacity:0;transform:translateY(4px);transition:opacity .2s,transform .2s;pointer-events:none;
+    box-shadow:0 4px 14px rgba(0,0,0,.5);
+  }
+  .toast.show{opacity:1;transform:none}
+
+  /* ---------- Gerätewahl je Bus A1..A5 (Master) ---------- */
+  .mdev{
+    border-top:1px solid #161c22;padding:4px 8px 6px;
+    display:flex;flex-direction:column;gap:3px;
+    background:linear-gradient(180deg,#414b57,#373f49);
+  }
+  .mdevhead{display:flex;align-items:center;justify-content:space-between;gap:6px;
+            font-size:5.6px;letter-spacing:.2em;color:#a5b6c7;text-transform:uppercase}
+  .mdevhead .st{
+    font:600 6px/1 var(--mono);letter-spacing:.04em;color:#8fd9b4;text-transform:none;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:56%;flex:0 1 auto;
+  }
+  .mdevhead .st.off{color:#f0a8a2}
+  .mdevgrid{display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
+            gap:3px 5px;align-items:center}
+  .mdevgrid .bl{font:600 6.5px/1 var(--mono);color:#b9e8cf;letter-spacing:.04em}
+  .devsel{
+    width:100%;min-width:0;height:17px;padding:0 3px;border-radius:2px;cursor:pointer;
+    background:#11171d;border:1px solid #080c10;color:#b9e8cf;outline:none;
+    font:600 7px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .devsel:hover:not(:disabled){border-color:#4c6b85}
+  .devsel:focus-visible{border-color:#6cc4ff;box-shadow:0 0 0 1px rgba(108,196,255,.45)}
+  .devsel:disabled{color:#7d8c9b;opacity:.6;cursor:not-allowed}
+  .devsel option{background:#11171d;color:#d3dee9}
+
+  /* ---------- VBAN-Schalter in der Kopfzeile ---------- */
+  .tbtn.vban{display:inline-flex;align-items:center;gap:6px}
+  .tbtn.vban .dot{
+    width:6px;height:6px;flex:0 0 6px;border-radius:50%;background:#4c5764;
+    box-shadow:inset 0 0 2px #000;
+  }
+  .tbtn.vban.on{border-color:#46dfa3;color:#e6fff2}
+  .tbtn.vban.on .dot{background:var(--green);box-shadow:0 0 7px var(--green)}
+
+    /* ---------- Netzwerk-Dialog im Original-Look ---------- */
+  .overlay{
+    position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;
+    background:rgba(8,12,16,.66);
+  }
+  .overlay.open{display:flex}
+  /* Umbenennen: Eingabefeld anstelle des Namens im Kanalzug */
+  input.rename{
+    width:100%;height:13px;padding:0 2px;border:1px solid #6cc4ff;border-radius:1px;outline:none;
+    background:#11171d;color:#fff;font:700 8.5px/1 var(--mono);letter-spacing:.06em;
+    text-transform:none;box-shadow:0 0 6px rgba(108,196,255,.45);
+  }
+  .bstrip input.rename{font-size:7.5px;height:12px}
+  .vclose{
+    width:19px;height:19px;padding:0;border-radius:2px;cursor:pointer;border:1px solid #141a20;
+    background:linear-gradient(#3b4652,#28303a);color:#c6d4e2;font:700 8px/1 var(--mono);
+  }
+  .vclose:hover{border-color:#5b7d99;color:#fff}
+  .vsw{
+    position:relative;width:48px;height:21px;padding:0;border-radius:11px;cursor:pointer;
+    border:1px solid #0a0f14;background:linear-gradient(#20272f,#141a21);
+    box-shadow:inset 0 1px 3px #000;
+  }
+  .vsw i{
+    position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;
+    background:linear-gradient(#d8e3ec,#7d8c9b);box-shadow:0 1px 2px rgba(0,0,0,.6);
+    transition:left .16s;
+  }
+  .vsw.on{background:linear-gradient(#2f9f6f,#1b6647);border-color:#46dfa3;
+          box-shadow:0 0 9px rgba(70,223,163,.4)}
+  .vsw.on i{left:29px;background:linear-gradient(#f2fff9,#9fe6c6)}
+  .vsw:disabled{opacity:.5;cursor:not-allowed}
+  #vPowerTxt{font:600 8px/1 var(--mono);letter-spacing:.14em;color:#ffb3ae}
+  #vPowerTxt.on{color:#7fe0b0}
+
+  .npanel{
+    width:min(780px,calc(100vw - 32px));max-height:calc(100vh - 34px);overflow:auto;
+    border:1px solid #10161c;border-radius:2px;background:#2b333d;
+    box-shadow:0 20px 54px rgba(0,0,0,.78),inset 0 1px 0 rgba(255,255,255,.07);
+    font-family:var(--mono);color:#c9d6e2;
+  }
+  .nhead{
+    display:flex;align-items:center;justify-content:space-between;height:26px;padding:0 5px 0 11px;
+    background:linear-gradient(#414c58,#333c47);border-bottom:1px solid #10161c;
+    font:600 8px/1 var(--mono);letter-spacing:.2em;color:#eef6fd;text-transform:uppercase;
+  }
+  .nbody{padding:11px 12px 12px;display:flex;flex-direction:column;gap:10px}
+  .nrow{display:flex;flex-wrap:wrap;align-items:center;gap:16px}
+  .nf{display:flex;align-items:center;gap:6px}
+  .nf>label{font:600 7px/1 var(--mono);letter-spacing:.14em;color:#8fa2b5;text-transform:uppercase}
+  .nf input{
+    width:118px;height:20px;padding:0 6px;border-radius:2px;outline:none;
+    background:#11171d;border:1px solid #0a0f14;color:#b9e8cf;
+    font:600 8.5px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .nf input:focus{border-color:#6cc4ff}
+  .nf input.kurz{width:74px}
+  .nsep{height:1px;background:linear-gradient(90deg,transparent,#1b222a,#1b222a,transparent)}
+  .ntitle{display:flex;align-items:center;gap:8px;font:600 7.5px/1 var(--mono);letter-spacing:.18em;
+    color:#a9bccd;text-transform:uppercase}
+  .ntitle b{color:#e4eef7;font-weight:600}
+  .ntitle .r{margin-left:auto;font:600 7px/1 var(--mono);letter-spacing:.1em;color:#7f93a6;text-transform:none}
+  .ntitle .dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#4c5764;box-shadow:inset 0 0 2px #000}
+  .ntitle .dot.on{background:#39dd93;box-shadow:0 0 7px #39dd93}
+  .ntitle .dot.rot{background:#ff5f57;box-shadow:0 0 7px #ff5f57}
+  table.ntab{width:100%;border-collapse:collapse;font:500 8.5px/1.4 var(--mono)}
+  table.ntab th{background:#39434e;color:#a8bccd;font-weight:600;font-size:7px;letter-spacing:.1em;
+    text-transform:uppercase;text-align:left;padding:3px 6px;border:1px solid #1b222a;white-space:nowrap}
+  table.ntab td{padding:3px 6px;border:1px solid #1b222a;color:#c6d4e2;white-space:nowrap}
+  table.ntab tbody tr:nth-child(odd){background:#262d35}
+  table.ntab tbody tr:nth-child(even){background:#2f3742}
+  table.ntab td.gut{color:#7fe0b0}
+  table.ntab td.schlecht{color:#ff9d96}
+  table.ntab td.leer{color:#6b7d8f;font-style:italic;padding:6px}
+  .nfoot{display:flex;align-items:center;gap:6px;padding-top:2px}
+  .nbtn{
+    height:20px;padding:0 10px;border:1px solid #0f151b;border-radius:2px;cursor:pointer;
+    background:linear-gradient(#3d4956,#2a323c);color:#cfdbe7;
+    font:600 7px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
+  }
+  .nbtn:hover{border-color:#5c7891;color:#fff}
+  .nbtn:active{background:linear-gradient(#2a323c,#3b4653)}
+  .nstat{margin-left:auto;font:600 7px/1 var(--mono);letter-spacing:.08em;color:#7f93a6;text-align:right}
+  .nstat.on{color:#7fe0b0}
+  .nstat.err{color:#ff9d96}
+
+  /* ---------- Makro-Leiste ---------- */
+  .macros{
+    flex:0 0 44px;display:flex;align-items:center;gap:8px;padding:0 9px;
+    border:1px solid var(--edge);border-radius:3px;
+    background:linear-gradient(180deg,#4d5865,#38414c 60%,#323a44);
+    box-shadow:inset 0 1px 0 var(--edge-hi),0 1px 4px rgba(0,0,0,.45);
+  }
+  .mtitle{display:flex;flex-direction:column;line-height:1.1;padding-right:9px;flex:0 0 auto;
+          border-right:1px solid rgba(255,255,255,.14)}
+  .mtitle b{font-size:9px;letter-spacing:.24em;color:#eaf2fa}
+  .mtitle i{font-style:normal;font-size:5.8px;letter-spacing:.16em;color:var(--faint)}
+  .mpad{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px;flex:1;min-width:0}
+  .mkey{
+    position:relative;height:30px;min-width:0;padding:0 4px;border:1px solid #141a20;
+    border-radius:2px;cursor:pointer;text-transform:uppercase;
+    background:linear-gradient(#3b4652,#28303a);color:#c6d4e2;
+    font:600 6.6px/1.15 var(--sans);letter-spacing:.06em;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 2px rgba(0,0,0,.4);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .mkey:hover:not(:disabled){border-color:#5b7d99;color:#fff}
+  .mkey:focus-visible{outline:1px solid #6cc4ff;outline-offset:-1px}
+  .mkey:disabled{color:#7d8c9b;opacity:.55;cursor:not-allowed}
+  .mkey.hit{filter:brightness(1.3)}
+  .mkey.on{color:#eafff4;background:linear-gradient(#2f9a6c,#1a5f44);border-color:#4be3a5;
+           box-shadow:0 0 7px rgba(75,227,165,.45),inset 0 1px 0 rgba(255,255,255,.2)}
+  .mkey.latched{box-shadow:inset 0 0 0 1px rgba(243,194,75,.85),0 1px 2px rgba(0,0,0,.4)}
+  .mkey.latched.on{box-shadow:0 0 7px rgba(75,227,165,.45),inset 0 0 0 1px rgba(243,194,75,.9)}
+  .mpage{display:flex;align-items:center;gap:3px;flex:0 0 auto;padding-left:8px;
+         border-left:1px solid rgba(255,255,255,.14)}
+  .mpgbtn{
+    width:20px;height:24px;padding:0;border:1px solid #141a20;border-radius:2px;cursor:pointer;
+    background:linear-gradient(#3b4652,#28303a);color:#c6d4e2;font:700 10px/1 var(--mono);
+  }
+  .mpgbtn:hover{border-color:#5b7d99;color:#fff}
+  .mpglbl{font:600 6.4px/1 var(--mono);letter-spacing:.08em;color:#bfe9d5;
+          min-width:54px;text-align:center}
+  .mstat{
+    flex:0 1 auto;min-width:56px;max-width:118px;text-align:right;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;
+    font:600 6px/1 var(--mono);letter-spacing:.04em;color:var(--faint);
+  }
+  .mstat.off{color:#f0a8a2}
+
+  @media (max-width:1300px){
+    .sbody{padding:3px}
+    .lbl{font-size:5.5px}
+    .knobs2 .knob{width:34px;height:34px}
+    .mfields{display:none}
+    .mkey{height:27px;font-size:6.2px}
+    .macros .mtitle i{display:none}
+    .macros{flex-basis:40px;gap:6px}
+  }
+  @media (max-height:760px){
+    .macros{flex-basis:38px}
+    .mkey{height:25px}
+  }
+
+  /* ---------- Eingangsauswahl (Streifen 1..5) ---------- */
+  .inrow{display:flex;align-items:center;gap:3px;margin-bottom:3px}
+  .inrow .inlbl{font-size:5.4px;letter-spacing:.14em;color:var(--faint);flex:0 0 auto}
+  .insel{
+    flex:1;min-width:0;height:15px;padding:0 2px;border-radius:2px;cursor:pointer;
+    background:#11171d;border:1px solid #080c10;color:#b9e8cf;outline:none;
+    font:600 6px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .insel:hover:not(:disabled){border-color:#4c6b85}
+  .insel:focus-visible{border-color:#6cc4ff;box-shadow:0 0 0 1px rgba(108,196,255,.45)}
+  .insel:disabled{color:#7d8c9b;opacity:.55;cursor:not-allowed}
+  .insel option{background:#11171d;color:#d3dee9}
+  .insel.mon{color:#f3d18b}
+  .eqbox{cursor:pointer}
+  .eqbox .eqcells,.eqbox .eqled{cursor:pointer}
+
+  /* ---------- EQ-Zellen-Editor ---------- */
+  .eqpanel{
+    width:540px;max-width:calc(100vw - 24px);border:1px solid var(--edge);border-radius:3px;
+    background:linear-gradient(180deg,#4f5b68,#39424d 60%,#333b46);
+    box-shadow:0 16px 44px rgba(0,0,0,.7),inset 0 1px 0 var(--edge-hi);
+  }
+  .eqbody{display:flex;flex-direction:column;gap:6px;padding:9px}
+  .eqhd,.eqrow{display:grid;grid-template-columns:22px 96px 74px 60px 58px 34px;
+               gap:5px;align-items:center}
+  .eqhd{font:600 5.6px/1 var(--mono);letter-spacing:.14em;color:var(--dim);
+        text-transform:uppercase;padding:0 6px}
+  .eqhd span:nth-child(n+3){text-align:center}
+  .eqrows{display:flex;flex-direction:column;gap:4px}
+  .eqrow{
+    padding:4px 5px;border:1px solid #1d252d;border-radius:2px;
+    background:linear-gradient(180deg,#3b4550,#2e3740);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .eqrow.off{opacity:.5}
+  .eqcnum{font:600 7px/1 var(--mono);color:#9fb3c6;text-align:center}
+  .eqfield{
+    width:100%;min-width:0;height:18px;padding:0 3px;border-radius:2px;cursor:pointer;
+    background:#11171d;border:1px solid #080c10;color:#b9e8cf;outline:none;
+    font:600 7.5px/1 var(--mono);box-shadow:inset 0 1px 3px rgba(0,0,0,.8);
+  }
+  .eqfield:hover{border-color:#4c6b85}
+  .eqfield:focus-visible{border-color:#6cc4ff;box-shadow:0 0 0 1px rgba(108,196,255,.45)}
+  .eqfield:disabled{opacity:.8;cursor:not-allowed}
+  .eqfield option{background:#11171d;color:#d3dee9}
+  .eqon{
+    height:18px;padding:0;border-radius:2px;cursor:pointer;border:1px solid #141a20;
+    background:linear-gradient(#3b4652,#28303a);color:#9fb3c6;
+    font:700 6.2px/1 var(--mono);letter-spacing:.04em;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
+  }
+  .eqon:hover{color:#eaf3fb;border-color:#587c98}
+  .eqon.on{color:#eafff4;background:linear-gradient(#2f9a6c,#1a5f44);border-color:#4be3a5;
+           box-shadow:0 0 6px rgba(75,227,165,.45),inset 0 1px 0 rgba(255,255,255,.2)}
+  .eqfoot{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+          font:600 5.8px/1.5 var(--mono);color:var(--faint);letter-spacing:.06em;
+          border-top:1px solid #1d252d;padding-top:6px}
+  .eqfoot .warn{color:#f0a8a2}
+  .eqfoot .rng{flex:0 0 auto;text-align:right;white-space:nowrap}
+
+  /* --- Lesbarkeit: die urspruenglichen 5-6 px waren am Bildschirm nicht
+     lesbar. Groessere Schrift fuer alle Bedienelemente, etwas mehr Platz. --- */
+  .devsel, .insel{
+    font-size:10px !important; height:auto !important; min-height:17px;
+    padding:2px 4px !important;
+  }
+  /* WebKit (Fenster der Flatpak-App) zeichnet <select> sonst als weisses
+     Systemelement - Chromium stylte es. Ohne appearance:none sieht die
+     Oberflaeche dort anders aus als im Browser. */
+  select{
+    -webkit-appearance:none; appearance:none;
+    background:#2b333d; color:#d3dee9;
+    border:1px solid #151b22; border-radius:2px;
+    font-family:var(--sans);
+  }
+  select option{background:#2b333d;color:#d3dee9}
+  .rb, .mkey, .sw, .bbtns .sw, .sends .rb{
+    font-size:9px !important; letter-spacing:.02em;
+  }
+  .rb{min-width:19px; min-height:15px}
+  .mkey{height:32px !important; font-size:9px !important}
+  .lbl, .ssub, .num, .ttargets .lbl, .hdr, .meter .lbl{
+    font-size:8.5px !important;
+  }
+  .strip .nm, .strip .ttl{font-size:9.5px !important}
+  select{font-family:var(--sans)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="titlebar">
+    <div class="brand">
+      <div class="logo">cross<b>point</b></div>
+      <div class="bsub"><b>VIRTUELLER MIXER</b><i>PIPEWIRE · JACK</i></div>
+    </div>
+    <span class="chip"><span class="k">RATE</span><span id="sr">–</span></span>
+    <span class="chip"><span class="k">BLOCK</span><span id="blk">–</span></span>
+    <span class="chip" id="lvStat" title="Empfangene Pegel-Bilder pro Sekunde (WebSocket; HTTP-Abfrage nur als Rückfall)"><span class="k">PEGEL</span><span id="lvFps">–</span></span>
+    <span class="chip" id="status"><i></i><span id="statusTxt">VERBINDE</span></span>
+    <span class="grow"></span>
+    <button class="tbtn vban" id="vbanBtn" title="VBAN-Netzwerk-Audio einrichten"><i class="dot"></i>VBAN</button>
+    <button class="tbtn" id="presetSave" title="Aktuelle Einstellungen als Preset speichern">Preset speichern</button>
+    <button class="tbtn" id="presetLoad" title="Gespeichertes Preset laden">Preset laden</button>
+  </header>
+
+  <main class="deck">
+    <section class="strips" id="strips" aria-label="Eingangskanäle"></section>
+    <section class="side">
+      <div class="master" id="master">
+        <div class="mhead"><span>Master Section</span><span class="mchip" id="mSelName">A1</span></div>
+        <div class="mbody">
+          <div class="mknob" id="masterKnob"></div>
+          <div class="msw">
+            <button class="sw sel on" id="mSel" title="Ausgewählter Bus">SEL</button>
+            <div class="row2">
+              <button class="sw" id="mMono" title="Mono">MONO</button>
+              <button class="sw mute" id="mMute" title="Stumm">MUTE</button>
+            </div>
+            <div class="row2">
+              <button class="sw" id="mEq" title="Bus-EQ">EQ</button>
+              <button class="sw" id="mLim" title="Limiter">LIM</button>
+            </div>
+          </div>
+          <div class="mfields">
+            <div class="field"><label for="mTrim">TRIM</label>
+              <input id="mTrim" type="number" step="0.5" min="-20" max="20" value="0"><span class="u">dB</span></div>
+            <div class="field"><label for="mDelay">DELAY</label>
+              <input id="mDelay" type="number" step="1" min="0" max="2000" value="0"><span class="u">ms</span></div>
+            <div class="field"><label for="mMasterOut">PEGEL</label>
+              <div class="mmeter" id="mMeter"><i></i></div></div>
+          </div>
+        </div>
+        <div class="mdev" id="mDev">
+          <div class="mdevhead">
+            <span>Ausgabegerät · Bus A1–A5</span>
+            <span class="st" id="devState" title="Status der Geräteabfrage">–</span>
+          </div>
+          <div class="mdevgrid" id="devGrid"></div>
+        </div>
+        <div class="mfoot"><span id="mFoot">Bus A1 · Klick auf Buskopf wählt</span><span>MASTER</span></div>
+      </div>
+      <div class="buses" id="buses" aria-label="Ausgangsbusse"></div>
+    </section>
+  </main>
+
+  <section class="macros" id="macros" aria-label="Makro-Leiste">
+    <div class="mtitle"><b>MACRO</b><i>8 TASTEN · 2 SEITEN</i></div>
+    <div class="mpad" id="macroPad"></div>
+    <div class="mpage">
+      <button class="mpgbtn" id="mPrev" type="button" title="Vorherige Seite">‹</button>
+      <span class="mpglbl" id="mPage">SEITE 1/2</span>
+      <button class="mpgbtn" id="mNext" type="button" title="Nächste Seite">›</button>
+    </div>
+    <span class="mstat" id="macroState" title="Status der Makro-Abfrage">–</span>
+  </section>
+
+  <footer class="tape">
+    <div class="ttitle"><b>TAPE</b><i>BANDMASCHINE</i></div>
+    <div class="lamps"><span class="lamp" id="lampRec"></span><span class="lamp g" id="lampPlay"></span></div>
+    <button class="tpbtn rec" id="tRec">REC</button>
+    <button class="tpbtn play" id="tPlay">PLAY</button>
+    <button class="tpbtn stop" id="tStop">STOP</button>
+    <div class="tc" id="tc">00:00:00</div>
+    <div class="ttargets"><span class="lbl">Ziel</span><div id="targets" style="display:flex;gap:3px"></div></div>
+    <span class="grow"></span>
+    <span class="tnote">Aufnahme-Steuerung · nur Optik (ohne Funktion)</span>
+  </footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<div class="overlay" id="vbanOverlay" role="dialog" aria-modal="true" aria-labelledby="vbanTitle">
+  <div class="npanel">
+    <div class="nhead">
+      <span id="vbanTitle">IP Audio Network Configuration</span>
+      <button class="vclose" id="vbanClose" type="button" title="Schließen (Esc)">✕</button>
+    </div>
+    <div class="nbody">
+      <div class="nrow">
+        <div class="nf">
+          <button class="vsw" id="vPower" type="button" role="switch" aria-checked="false"
+                  aria-label="VBAN ein- oder ausschalten" title="VBAN ein/aus"><i></i></button>
+          <span id="vPowerTxt">AUS</span>
+          <span class="ntitle" style="margin-left:4px"><span class="dot" id="vDot"></span>VBAN</span>
+        </div>
+        <div class="nf"><label for="vPort">UDP Port</label>
+          <input id="vPort" class="kurz" type="number" min="1024" max="65535" step="1" value="6980"
+                 title="UDP-Port für Senden und Empfangen (Standard 6980)"></div>
+        <div class="nf"><label for="vHost">IP Address</label>
+          <input id="vHost" type="text" spellcheck="false" value="127.0.0.1"
+                 title="Ziel-IP oder Broadcast-Adresse des Gegenübers"></div>
+      </div>
+      <div class="nrow">
+        <div class="nf"><label for="vStream">Stream name</label>
+          <input id="vStream" type="text" spellcheck="false" value="crosspointbusA1"
+                 title="VBAN-Streamname (max. 15 Zeichen, keine Leerzeichen)"></div>
+        <span class="ntitle"><span class="dot" id="vMainDot"></span>Main Stream
+          <b id="vMainSr">48000 Hz</b><span class="r" id="vMainFrames">–</span></span>
+      </div>
+
+      <div class="nsep"></div>
+
+      <div class="ntitle"><b>Incoming Streams</b>
+        <span class="r" id="vInInfo">Port <span id="vInPort">6980</span> · Filter <span id="vInFilter">alle</span></span></div>
+      <table class="ntab" aria-label="Eingangspakete">
+        <thead><tr>
+          <th>Stream name</th><th>IP Address</th><th>SR</th><th>Ch</th><th>Format</th>
+          <th>Quality</th><th>Destination</th><th>Errors</th>
+        </tr></thead>
+        <tbody id="vIn"></tbody>
+      </table>
+
+      <div class="ntitle"><b>Outgoing Streams</b>
+        <span class="r" id="vOutInfo">Bus A1 · Stereo</span></div>
+      <table class="ntab" aria-label="Ausgangspakete">
+        <thead><tr>
+          <th>Source</th><th>Stream name</th><th>IP Address</th><th>SR</th><th>Ch</th>
+          <th>Format</th><th>Net Quality</th><th>Errors</th>
+        </tr></thead>
+        <tbody id="vOut"></tbody>
+      </table>
+
+      <div class="nfoot">
+        <button class="nbtn" id="vReset" type="button" title="Alle Netzwerk-Einstellungen auf Standard setzen">Reset Config</button>
+        <button class="nbtn" id="vLoad" type="button" title="Gesicherte Konfiguration laden">Load Config</button>
+        <button class="nbtn" id="vSave" type="button" title="Aktuelle Konfiguration sichern">Save Config</button>
+        <span class="nstat" id="vErr"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="eqOverlay" role="dialog" aria-modal="true" aria-labelledby="eqTitle">
+  <div class="eqpanel">
+    <div class="vhead">
+      <span id="eqTitle">EQ · Kanal 1</span>
+      <button class="vclose" id="eqClose" type="button" title="Schließen (Esc)">✕</button>
+    </div>
+    <div class="eqbody">
+      <div class="eqhd">
+        <span>Zelle</span><span>Typ</span><span>Frequenz</span><span>Q</span><span>Gain</span><span>An</span>
+      </div>
+      <div class="eqrows" id="eqRows"></div>
+      <div class="eqfoot">
+        <span id="eqInfo">Werte werden direkt an den Streifen gesendet.</span>
+        <span class="rng">20 Hz … 20 kHz · Q 0,1 … 10 · ±24 dB</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+  const BUS_NAMES = ["A1", "A2", "A3", "A4", "A5", "B1", "B2", "B3"];
+  const COLORS = [
+    ["#3f7fae", "#245473"],
+    ["#3d7f8d", "#23545f"],
+    ["#4a8256", "#2a5436"],
+    ["#8a6f3f", "#5d4a26"],
+    ["#83506b", "#573347"],
+    ["#3c6c9c", "#234566"],
+    ["#587f4a", "#38542c"],
+    ["#77507f", "#4c3254"]
+  ];
+  const ui = { strips: [], buses: [] };
+  let built = false, state = null, selectedBus = 0, selectedStrip = -1;
+
+  /* ---------- Hilfsfunktionen ---------- */
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, txt) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (txt !== undefined) e.textContent = txt;
+    return e;
+  };
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const fmtDb = (v) => (v > 0.049 ? "+" : "") + v.toFixed(1) + " dB";
+  const fmtPan = (v) => (Math.abs(v) < 0.02 ? "C" : (v < 0 ? "L" : "R") + Math.round(Math.abs(v) * 100));
+
+  function api(path, body) {
+    const opt = body
+      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {};
+    return fetch(path, opt).then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    });
+  }
+
+  /* gebündelte Parameteränderungen (max. ~16 Pakete/s) */
+  const pending = new Map();
+  let flushTimer = null;
+  function send(target, index, param, value) {
+    pending.set(target + index + ":" + param, { target, index, param, value });
+    if (!flushTimer) flushTimer = setTimeout(flush, 60);
+  }
+  function flush() {
+    flushTimer = null;
+    const items = Array.from(pending.values());
+    pending.clear();
+    items.forEach((it) => api("/api/set", it).catch(() => {}));
+  }
+
+  /* ---------- Umbenennen (Doppelklick auf Streifen-/Busname) ---------- */
+  /**
+   * Ersetzt den Inhalt von `host` durch ein Eingabefeld. Enter/Blur übernimmt
+   * den Namen über /api/set (param "label"), Escape verwirft ihn. Ein leerer
+   * Name setzt wieder den Vorgabenamen.
+   */
+  function startRename(host, target, index, aktuell, fertig) {
+    if (host.querySelector("input.rename")) return;
+    const inp = document.createElement("input");
+    inp.className = "rename";
+    inp.type = "text";
+    inp.maxLength = 24;
+    inp.value = aktuell || "";
+    inp.placeholder = "Name";
+    let fertigFlag = false;
+    function ende(uebernehmen) {
+      if (fertigFlag) return;
+      fertigFlag = true;
+      const wert = uebernehmen ? inp.value.trim().slice(0, 24) : (aktuell || "");
+      inp.remove();
+      if (uebernehmen) {
+        api("/api/set", { target: target, index: index, param: "label", value: wert })
+          .catch(() => msg("Name nicht übernommen"));
+      }
+      fertig(wert);
+    }
+    inp.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); ende(true); }
+      else if (e.key === "Escape") { e.preventDefault(); ende(false); }
+    });
+    inp.addEventListener("blur", () => ende(true));
+    host.textContent = "";
+    host.appendChild(inp);
+    inp.focus();
+    inp.select();
+  }
+
+  /* ---------- Eingangsauswahl für die Streifen 1..5 ---------- */
+  const EINGAENGE = 5;                       // /api/inputs bedient nur HW-In 1..5
+  const insel = { selects: {}, sources: [], loaded: false, ok: false, busy: false, last: 0 };
+
+  /** Langen ALSA-Namen auf eine lesbare Breite kürzen (der Wert bleibt vollständig). */
+  function kurzName(n) {
+    let s = String(n || "").replace(/^alsa_(input|output)\./, "");
+    if (/\.monitor$/.test(s)) s = s.replace(/\.monitor$/, "") + " · MON";
+    return s.length > 30 ? s.slice(0, 29) + "…" : s;
+  }
+
+  function baueInsel(i) {
+    const row = el("div", "inrow");
+    row.appendChild(el("span", "inlbl", "IN"));
+    const s = el("select", "insel");
+    s.dataset.strip = String(i + 1);
+    s.title = "Eingangsquelle für Kanal " + (i + 1);
+    s.setAttribute("aria-label", "Eingangsquelle Kanal " + (i + 1));
+    const ph = el("option", null, "…");
+    ph.value = "";
+    s.appendChild(ph);
+    s.disabled = true;
+    s.addEventListener("change", () => setzeEingang(i, s.value));
+    row.appendChild(s);
+    insel.selects[i] = s;
+    return row;
+  }
+
+  function fuelleInsel(s) {
+    const alt = s.value;
+    const leer = el("option", null, "— kein Eingang —");
+    leer.value = "";
+    const opts = [leer];
+    insel.sources.forEach((src) => {
+      const name = String((src && src.name) || "");
+      if (!name) return;
+      const o = el("option", null, (src.monitor ? "◉ " : "● ") + kurzName(name));
+      o.value = name;
+      o.title = name + (src.monitor ? "  (Monitor eines Ausgangs)" : "  (Aufnahmequelle)");
+      opts.push(o);
+    });
+    s.replaceChildren(...opts);
+    s.value = alt && insel.sources.some((x) => x && x.name === alt) ? alt : "";
+    s.classList.toggle("mon", insel.sources.some((x) => x && x.name === s.value && x.monitor));
+    s.disabled = false;
+    s.dataset.state = "ok";
+  }
+
+  async function ladeEingaenge() {
+    if (insel.busy) return;
+    insel.busy = true;
+    insel.last = Date.now();
+    try {
+      const d = await api("/api/inputs");
+      insel.sources = Array.isArray(d && d.sources) ? d.sources.filter((x) => x && x.name) : [];
+      insel.loaded = true;
+      insel.ok = true;
+      Object.keys(insel.selects).forEach((k) => fuelleInsel(insel.selects[k]));
+    } catch (e) {
+      insel.loaded = true;
+      insel.ok = false;
+      Object.keys(insel.selects).forEach((k) => {
+        const s = insel.selects[k];
+        if (!s) return;
+        const o = el("option", null, "nicht verfügbar");
+        o.value = "";
+        s.replaceChildren(o);
+        s.disabled = true;
+        s.dataset.state = "na";
+      });
+    } finally {
+      insel.busy = false;
+    }
+  }
+
+  async function setzeEingang(i, quelle) {
+    const s = insel.selects[i];
+    if (!s) return;
+    s.disabled = true;
+    try {
+      const d = await api("/api/inputs", { strip: i + 1, source: quelle || "" });
+      if (d && d.error) toast("Kanal " + (i + 1) + ": " + d.error);
+      else toast("Kanal " + (i + 1) + " ← " + (quelle ? kurzName(quelle) : "kein Eingang"));
+      if (d && Array.isArray(d.sources)) insel.sources = d.sources.filter((x) => x && x.name);
+    } catch (e) {
+      toast("Eingangswahl fehlgeschlagen (" + e.message + ")");
+    } finally {
+      if (insel.ok) fuelleInsel(s);
+      else s.disabled = true;
+    }
+  }
+
+  /** Quellenliste holen bzw. (nach Fehlschlag) im Abstand von 15 s erneut versuchen. */
+  function pflegeEingaenge() {
+    if (insel.busy || (insel.loaded && insel.ok)) return;
+    if (Date.now() - insel.last < (insel.loaded ? 15000 : 400)) return;
+    ladeEingaenge();
+  }
+
+  /* ---------- EQ-Zellen-Editor (6 Zellen je Streifen) ---------- */
+  const EQ_TYPEN = ["Peak", "LowShelf", "HighShelf", "LowPass", "HighPass", "BandPass", "Notch"];
+  const EQ_STANDARD = [
+    { freq: 80, q: 0.7 }, { freq: 250, q: 1.0 }, { freq: 1000, q: 1.0 },
+    { freq: 3000, q: 1.0 }, { freq: 8000, q: 1.0 }, { freq: 12000, q: 0.7 }
+  ];
+  const eqEd = { strip: -1, zellen: [], handle: [], gebaut: false };
+
+  function fmtFreq(v) {
+    const n = clamp(Math.round(+v || 20), 20, 20000);
+    return n >= 1000 ? (n % 1000 === 0 ? n / 1000 : (n / 1000).toFixed(1)) + "k" : String(n);
+  }
+
+  function baueEqEditor() {
+    const box = $("eqRows");
+    if (!box || eqEd.gebaut) return;
+    for (let c = 0; c < 6; c++) {
+      const row = el("div", "eqrow");
+      row.dataset.cell = String(c);
+      const num = el("span", "eqcnum", String(c + 1));
+
+      const typ = el("select", "eqfield");
+      typ.setAttribute("aria-label", "Zelle " + (c + 1) + ": Filtertyp");
+      EQ_TYPEN.forEach((t, k) => {
+        const o = el("option", null, t);
+        o.value = String(k);
+        typ.appendChild(o);
+      });
+      typ.addEventListener("change", () => setzeEq(c, "type", +typ.value));
+
+      const freq = el("input", "eqfield");
+      freq.type = "number"; freq.min = "20"; freq.max = "20000"; freq.step = "1";
+      freq.title = "Frequenz 20 … 20000 Hz";
+      freq.setAttribute("aria-label", "Zelle " + (c + 1) + ": Frequenz in Hz");
+      freq.addEventListener("input", () => setzeEq(c, "freq", +freq.value));
+      freq.addEventListener("change", () => {
+        freq.value = String(Math.round(clamp(+freq.value || 20, 20, 20000)));
+        setzeEq(c, "freq", +freq.value);
+      });
+
+      const q = el("input", "eqfield");
+      q.type = "number"; q.min = "0.1"; q.max = "10"; q.step = "0.05";
+      q.title = "Güte Q 0,1 … 10";
+      q.setAttribute("aria-label", "Zelle " + (c + 1) + ": Güte Q");
+      q.addEventListener("input", () => setzeEq(c, "q", +q.value));
+
+      const gain = el("input", "eqfield");
+      gain.type = "number"; gain.min = "-24"; gain.max = "24"; gain.step = "0.5";
+      gain.title = "Verstärkung −24 … +24 dB";
+      gain.setAttribute("aria-label", "Zelle " + (c + 1) + ": Gain in dB");
+      gain.addEventListener("input", () => setzeEq(c, "gain", +gain.value));
+
+      const on = el("button", "eqon", "AUS");
+      on.type = "button";
+      on.title = "Zelle " + (c + 1) + " ein/aus";
+      on.setAttribute("aria-pressed", "false");
+      on.addEventListener("click", () => {
+        const z = eqEd.zellen[c];
+        setzeEq(c, "on", z && z.on ? 0 : 1);
+      });
+
+      row.append(num, typ, freq, q, gain, on);
+      box.appendChild(row);
+      eqEd.handle[c] = { row, typ, freq, q, gain, on };
+    }
+    eqEd.gebaut = true;
+  }
+
+  function zeichneEqZelle(c) {
+    const h = eqEd.handle[c], z = eqEd.zellen[c];
+    if (!h || !z) return;
+    h.typ.value = String(z.type);
+    if (document.activeElement !== h.freq) h.freq.value = String(Math.round(z.freq));
+    if (document.activeElement !== h.q) h.q.value = String(+z.q.toFixed(2));
+    if (document.activeElement !== h.gain) h.gain.value = String(+z.gain.toFixed(1));
+    h.on.classList.toggle("on", !!z.on);
+    h.on.textContent = z.on ? "AN" : "AUS";
+    h.on.setAttribute("aria-pressed", z.on ? "true" : "false");
+    h.row.classList.toggle("off", !z.on);
+  }
+
+  /** Zellwert setzen und als eq<zelle>_<feld> an den Streifen senden. */
+  function setzeEq(c, feld, wert) {
+    if (eqEd.strip < 0) return;
+    let z = eqEd.zellen[c];
+    if (!z) {
+      z = eqEd.zellen[c] = { type: 0, freq: EQ_STANDARD[c].freq, q: EQ_STANDARD[c].q, gain: 0, on: 0 };
+    }
+    if (feld === "type") z.type = clamp(Math.round(+wert || 0), 0, EQ_TYPEN.length - 1);
+    else if (feld === "freq") z.freq = clamp(+wert || 20, 20, 20000);
+    else if (feld === "q") z.q = clamp(+wert || 0.1, 0.1, 10);
+    else if (feld === "gain") z.gain = clamp(+wert || 0, -24, 24);
+    else if (feld === "on") z.on = wert ? 1 : 0;
+    send("strip", eqEd.strip, "eq" + c + "_" + feld, +z[feld]);
+    zeichneEqZelle(c);
+    if (feld === "freq") {
+      const u = ui.strips[eqEd.strip];
+      if (u && u.cells && u.cells[c]) {
+        u.cells[c].textContent = fmtFreq(z.freq);
+        u.cells[c].title = "EQ-Band " + (c + 1) + " · " + Math.round(z.freq) + " Hz";
+      }
+    }
+  }
+
+  function oeffneEq(i) {
+    const u = ui.strips[i];
+    eqEd.strip = i;
+    eqEd.zellen = EQ_STANDARD.map((d) => ({ type: 0, freq: d.freq, q: d.q, gain: 0, on: 0 }));
+    if (u && u.cells) {
+      u.cells.forEach((b, c) => { eqEd.zellen[c].on = b.classList.contains("on") ? 1 : 0; });
+    }
+    baueEqEditor();
+    eqEd.zellen.forEach((_, c) => zeichneEqZelle(c));
+    $("eqTitle").textContent = "EQ · Kanal " + (i + 1) + (u && u.name ? " · " + u.name : "");
+    $("eqOverlay").classList.add("open");
+    const info = $("eqInfo");
+    info.classList.remove("warn");
+    info.textContent = "Zellwerte werden über GET /api/eq?strip=" + (i + 1) + " gelesen …";
+    ladeEq(i);
+  }
+
+  function schliesseEq() {
+    eqEd.strip = -1;
+    $("eqOverlay").classList.remove("open");
+  }
+
+  /** Zellwerte vom Server holen; 404 bedeutet „noch nicht vorhanden“ → Standardwerte. */
+  async function ladeEq(i) {
+    const nr = i + 1;
+    const sagen = (txt, warn) => {
+      if (eqEd.strip !== i) return;
+      const info = $("eqInfo");
+      info.textContent = txt;
+      info.classList.toggle("warn", !!warn);
+    };
+    try {
+      const r = await fetch("/api/eq?strip=" + nr, {
+        headers: { Accept: "application/json" }, cache: "no-store"
+      });
+      if (r.status === 404) {
+        sagen("GET /api/eq?strip=" + nr + " → 404: Der Server liefert die Zellwerte noch nicht. " +
+              "Angezeigt werden Standardwerte; Änderungen gehen trotzdem per /api/set an den Streifen.", true);
+        return;
+      }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const d = await r.json();
+      const liste = Array.isArray(d) ? d : (d && (d.cells || d.eq || d.bands)) || null;
+      if (!Array.isArray(liste) || !liste.length) {
+        sagen("GET /api/eq?strip=" + nr + " liefert keine Zellen – Standardwerte aktiv.", true);
+        return;
+      }
+      if (eqEd.strip !== i) return;
+      liste.slice(0, 6).forEach((z, c) => {
+        const zelle = eqEd.zellen[c];
+        if (!z || !zelle) return;
+        const typ = z.type !== undefined ? z.type : z.kind;
+        if (typ !== undefined && typ !== null) {
+          zelle.type = typeof typ === "number"
+            ? clamp(Math.round(typ), 0, EQ_TYPEN.length - 1)
+            : Math.max(0, EQ_TYPEN.findIndex((t) => t.toLowerCase() === String(typ).toLowerCase()));
+        }
+        if (z.freq !== undefined) zelle.freq = clamp(+z.freq || 20, 20, 20000);
+        if (z.q !== undefined) zelle.q = clamp(+z.q || 0.1, 0.1, 10);
+        if (z.gain !== undefined) zelle.gain = clamp(+z.gain || 0, -24, 24);
+        if (z.on !== undefined) zelle.on = z.on ? 1 : 0;
+        zeichneEqZelle(c);
+      });
+      sagen("Zellwerte von GET /api/eq?strip=" + nr + " übernommen.");
+    } catch (e) {
+      sagen("GET /api/eq?strip=" + nr + " nicht erreichbar (" + e.message + ") – Standardwerte aktiv.", true);
+    }
+  }
+
+  baueEqEditor();
+  $("eqClose").addEventListener("click", schliesseEq);
+  $("eqOverlay").addEventListener("click", (e) => {
+    if (e.target === $("eqOverlay")) schliesseEq();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $("eqOverlay").classList.contains("open")) schliesseEq();
+  });
+
+  function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove("show"), 1800);
+  }
+
+  function fillFader(f) {
+    const p = ((+f.value - +f.min) / (+f.max - +f.min)) * 100;
+    f.style.setProperty("--fill", p.toFixed(1) + "%");
+  }
+
+  function makeMeter(thin) {
+    const m = el("div", "meter" + (thin ? " thin" : ""));
+    const fill = el("div", "fill");
+    const peak = el("div", "peak");
+    const leds = el("div", "leds");
+    m.append(fill, peak, leds);
+    return { el: m, fill: fill, peak: peak, peakDb: -140, ziel: 0, anzeige: 0, gemalt: -1 };
+  }
+
+  /* ---------- Pegel-Anzeige: requestAnimationFrame, Attack sofort ----------
+     Der Pegel kommt als Zielwert (0..1 über die 60-dB-Skala). Gezeichnet
+     wird ausschließlich in der rAF-Schleife, also höchstens einmal je
+     Bildschirmbild – kein DOM-Schreiben aus einem Timer heraus, das ohnehin
+     erst beim nächsten Bild sichtbar würde. Ein Sprung nach oben steht im
+     nächsten Bild; ein Abfall läuft exponentiell aus (Zeitkonstante unten),
+     damit es nicht zappelt.                                                   */
+  const PEGEL_TAU_AB = 0.09;        // s – Release
+  const PEGEL_MIN_SCHRITT = 0.0006; // 0,06 % der Skala: kleinere Schritte malt keiner
+  const PEGEL_PEAK_DB_S = 45;       // dB/s – wie schnell die Spitze zurückfällt
+
+  function meterSet(m, db) {
+    if (!m) return;
+    m.ziel = clamp((db + 60) / 60, 0, 1);
+    if (m.ziel > m.anzeige) m.anzeige = m.ziel; // Attack: sofort
+  }
+
+  function meterMalen(m, dt) {
+    if (!m) return;
+    if (m.anzeige > m.ziel) {
+      m.anzeige += (m.ziel - m.anzeige) * (1 - Math.exp(-dt / PEGEL_TAU_AB));
+      if (m.anzeige - m.ziel < PEGEL_MIN_SCHRITT) m.anzeige = m.ziel;
+    } else if (m.anzeige < m.ziel) {
+      m.anzeige = m.ziel;
+    }
+    if (Math.abs(m.anzeige - m.gemalt) < PEGEL_MIN_SCHRITT) return;
+    m.gemalt = m.anzeige;
+    m.fill.style.height = (m.anzeige * 100).toFixed(2) + "%";
+    const db = m.anzeige * 60 - 60;
+    if (db >= m.peakDb) m.peakDb = db;
+    else m.peakDb = Math.max(db, m.peakDb - PEGEL_PEAK_DB_S * dt);
+    m.peak.style.bottom = (clamp((m.peakDb + 60) / 60, 0, 1) * 100).toFixed(2) + "%";
+    m.peak.style.opacity = m.anzeige > 0.008 ? "1" : "0";
+  }
+
+  /* Master-Pegel (quer) – dieselbe Glättung, andere Achse. */
+  const mMeter = {
+    get el() { const e = $("mMeter"); return e ? e.firstElementChild : null; },
+    ziel: 0, anzeige: 0, gemalt: -1
+  };
+  function mMeterMalen(dt) {
+    if (mMeter.anzeige > mMeter.ziel) {
+      mMeter.anzeige += (mMeter.ziel - mMeter.anzeige) * (1 - Math.exp(-dt / PEGEL_TAU_AB));
+      if (mMeter.anzeige - mMeter.ziel < PEGEL_MIN_SCHRITT) mMeter.anzeige = mMeter.ziel;
+    } else if (mMeter.anzeige < mMeter.ziel) {
+      mMeter.anzeige = mMeter.ziel;
+    }
+    if (Math.abs(mMeter.anzeige - mMeter.gemalt) < PEGEL_MIN_SCHRITT) return;
+    mMeter.gemalt = mMeter.anzeige;
+    const e = mMeter.el;
+    if (e) e.style.width = (mMeter.anzeige * 100).toFixed(2) + "%";
+  }
+
+  let pegelLetzteZeit = 0;
+  function pegelBild(ts) {
+    const dt = pegelLetzteZeit ? Math.min(0.05, (ts - pegelLetzteZeit) / 1000) : 1 / 60;
+    pegelLetzteZeit = ts;
+    for (const u of ui.strips) if (u && u.meter) meterMalen(u.meter, dt);
+    for (const u of ui.buses) if (u && u.meter) meterMalen(u.meter, dt);
+    mMeterMalen(dt);
+    requestAnimationFrame(pegelBild);
+  }
+
+  function makeScale() {
+    const s = el("div", "scale");
+    [0, -6, -12, -24, -48].forEach((db) => {
+      const sp = el("span", null, String(db));
+      sp.style.top = (100 - clamp((db + 60) / 60, 0, 1) * 100).toFixed(2) + "%";
+      s.appendChild(sp);
+    });
+    return s;
+  }
+
+  /* ---------- Drehregler ---------- */
+  function makeKnob(o) {
+    const wrap = el("div", "kw" + (o.cls ? " " + o.cls : ""));
+    if (o.label) wrap.appendChild(el("div", "klabel", o.label));
+    const k = el("div", "knob" + (o.big ? " big" : ""));
+    k.tabIndex = 0;
+    k.setAttribute("role", "slider");
+    k.setAttribute("aria-label", o.label || o.aria || "Regler");
+    k.setAttribute("aria-valuemin", String(o.min));
+    k.setAttribute("aria-valuemax", String(o.max));
+    if (o.color) k.style.setProperty("--kc", o.color);
+    const arc = el("div", "arc");
+    const cap = el("div", "cap");
+    const ptr = el("i", "ptr");
+    cap.appendChild(ptr);
+    k.append(arc, cap);
+    wrap.appendChild(k);
+    const val = el("div", "kval");
+    wrap.appendChild(val);
+
+    const step = o.step || 1;
+    const fmt = o.fmt || ((v) => v.toFixed(1));
+    let v = clamp(o.value !== undefined ? o.value : 0, o.min, o.max);
+    let drag = false, y0 = 0, v0 = 0;
+
+    function paint() {
+      const p = (v - o.min) / (o.max - o.min);
+      arc.style.setProperty("--p", (p * 100).toFixed(2));
+      ptr.style.transform = "rotate(" + (-135 + p * 270).toFixed(2) + "deg)";
+      val.textContent = fmt(v);
+      k.setAttribute("aria-valuenow", v.toFixed(1));
+      k.setAttribute("aria-valuetext", fmt(v));
+    }
+    function set(nv, silent) {
+      nv = clamp(Math.round(nv / step) * step, o.min, o.max);
+      if (Math.abs(nv - v) < 1e-9) { paint(); return; }
+      v = nv;
+      paint();
+      if (!silent && o.onChange) o.onChange(v);
+    }
+
+    k.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      drag = true; y0 = e.clientY; v0 = v;
+      k.classList.add("drag");
+      k.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    k.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const rng = o.max - o.min;
+      const dy = (y0 - e.clientY) / 150;
+      set(v0 + dy * rng * (e.shiftKey ? 0.25 : 1));
+    });
+    function stopDrag() {
+      if (!drag) return;
+      drag = false;
+      k.classList.remove("drag");
+      flush();
+    }
+    k.addEventListener("pointerup", stopDrag);
+    k.addEventListener("pointercancel", stopDrag);
+    k.addEventListener("lostpointercapture", stopDrag);
+    k.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      set(v + (e.deltaY < 0 ? step : -step));
+      flush();
+    }, { passive: false });
+    k.addEventListener("dblclick", () => { set(o.def !== undefined ? o.def : o.min); flush(); });
+    k.addEventListener("keydown", (e) => {
+      let d = 0;
+      if (e.key === "ArrowUp" || e.key === "ArrowRight") d = step;
+      else if (e.key === "ArrowDown" || e.key === "ArrowLeft") d = -step;
+      else if (e.key === "PageUp") d = step * 5;
+      else if (e.key === "PageDown") d = -step * 5;
+      else if (e.key === "Home") { e.preventDefault(); set(o.min); flush(); return; }
+      else if (e.key === "End") { e.preventDefault(); set(o.max); flush(); return; }
+      if (d) { e.preventDefault(); set(v + d); flush(); }
+    });
+
+    paint();
+    return { el: wrap, set: set, get: () => v, dragging: () => drag };
+  }
+
+  /* ---------- Kanalzug ---------- */
+  function buildStrip(s, i) {
+    const root = el("div", "strip");
+    root.style.setProperty("--h1", COLORS[i % COLORS.length][0]);
+    root.style.setProperty("--h2", COLORS[i % COLORS.length][1]);
+
+    const head = el("div", "head");
+    const basis = s.name || "Kanal " + (i + 1);
+    const nm = el("div", "sname");
+    function zeigeName(wert) {
+      const text = String(wert || basis);
+      nm.textContent = text.toUpperCase();
+      nm.title = (wert ? text + " · " : "") + basis + " — Kanal " + (i + 1) +
+        " (Doppelklick zum Umbenennen)";
+    }
+    zeigeName(s.label);
+    nm.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      startRename(nm, "strip", i, s.label || "", zeigeName);
+    });
+    const sub = el("div", "ssub", /^HW/i.test(s.name) ? "Hardware-Eingang" : "Virtueller Eingang");
+    head.append(nm, sub, el("div", "sidx", String(i + 1).padStart(2, "0")));
+    root.appendChild(head);
+
+    const body = el("div", "sbody");
+
+    /* Eingangsquelle — nur die Hardware-Streifen 1..5 */
+    if (i < EINGAENGE) body.appendChild(baueInsel(i));
+
+    /* Gain-Regler */
+    const knobs = el("div", "knobs");
+    const gain = makeKnob({
+      label: "GAIN", min: -60, max: 12, step: 0.5, value: s.gain, def: 0,
+      color: "#f3c24b", fmt: fmtDb, cls: "gain",
+      onChange: (v) => { send("strip", i, "gain", v); fader.value = v; fillFader(fader); }
+    });
+    knobs.appendChild(gain.el);
+    body.appendChild(knobs);
+
+    /* Comp + Gate */
+    const knobs2 = el("div", "knobs2");
+    const compK = makeKnob({
+      label: "COMP", min: -60, max: 0, step: 1, value: -18, def: -18,
+      color: "#6cc4ff", fmt: (v) => v.toFixed(0) + " dB",
+      onChange: (v) => send("strip", i, "comp_threshold", v)
+    });
+    const gateK = makeKnob({
+      label: "GATE", min: -80, max: 0, step: 1, value: -60, def: -60,
+      color: "#b79cff", fmt: (v) => v.toFixed(0) + " dB",
+      onChange: (v) => send("strip", i, "gate_threshold", v)
+    });
+    knobs2.append(compK.el, gateK.el);
+    body.appendChild(knobs2);
+
+    /* EQ-Box mit 6 Zellen */
+    const eqbox = el("div", "eqbox");
+    const eqhead = el("div", "eqhead");
+    eqhead.appendChild(el("span", "lbl", "EQ · 6 Bänder"));
+    const eqBtn = el("button", "eqled", "EQ");
+    eqBtn.title = "Kanal-EQ ein/aus";
+    eqhead.appendChild(eqBtn);
+    const cells = el("div", "eqcells");
+    const bands = ["80", "250", "1k", "3k", "8k", "12k"];
+    const cellBtns = [];
+    bands.forEach((label, c) => {
+      const b = el("button", "eqcell", label);
+      b.title = "EQ-Band " + (c + 1) + " · " + label + " Hz";
+      b.addEventListener("click", () => {
+        const on = !b.classList.contains("on");
+        b.classList.toggle("on", on);
+        send("strip", i, "eq" + c + "_on", on ? 1 : 0);
+      });
+      cells.appendChild(b);
+      cellBtns.push(b);
+    });
+    eqbox.append(eqhead, cells);
+    eqbox.title = "Klick öffnet den EQ-Zellen-Editor (6 Zellen)";
+    eqbox.setAttribute("role", "button");
+    eqbox.tabIndex = 0;
+    eqbox.addEventListener("click", (ev) => {
+      if (ev.target.closest(".eqcell") || ev.target.closest(".eqled")) return;
+      oeffneEq(i);
+    });
+    eqbox.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " " || ev.key === "Spacebar") {
+        if (ev.target.closest(".eqcell") || ev.target.closest(".eqled")) return;
+        ev.preventDefault();
+        oeffneEq(i);
+      }
+    });
+    body.appendChild(eqbox);
+    eqBtn.addEventListener("click", () => {
+      const on = !eqBtn.classList.contains("on");
+      eqBtn.classList.toggle("on", on);
+      eqbox.classList.toggle("off", !on);
+      send("strip", i, "eq", on ? 1 : 0);
+    });
+
+    /* Routing A1..A5 / B1..B3 */
+    const hint = el("div", "rhint");
+    hint.append(el("span", null, "A-BUS"), el("span", null, "B-BUS"));
+    const routing = el("div", "routing");
+    const colA = el("div", "rcol"), colB = el("div", "rcol");
+    const sends = [];
+    BUS_NAMES.forEach((bn, k) => {
+      const b = el("button", "rb", bn);
+      b.title = "Send nach " + bn;
+      b.addEventListener("click", () => {
+        const on = !b.classList.contains("on");
+        b.classList.toggle("on", on);
+        send("strip", i, "send" + k, on ? 1 : 0);
+      });
+      (k < 5 ? colA : colB).appendChild(b);
+      sends.push(b);
+    });
+    routing.append(colA, colB);
+    body.append(hint, routing);
+
+    /* Pan */
+    const panrow = el("div", "panrow");
+    const pan = el("input");
+    pan.type = "range"; pan.className = "pan";
+    pan.min = "-1"; pan.max = "1"; pan.step = "0.02"; pan.value = String(s.pan || 0);
+    pan.title = "Panorama";
+    const panVal = el("span", "panv", fmtPan(s.pan || 0));
+    panrow.append(el("span", null, "L"), pan, el("span", null, "R"), panVal);
+    pan.addEventListener("input", () => {
+      panVal.textContent = fmtPan(+pan.value);
+      send("strip", i, "pan", +pan.value);
+    });
+    body.appendChild(panrow);
+
+    /* Fader + Pegel */
+    const fz = el("div", "faderzone");
+    const meter = makeMeter();
+    const fader = el("input");
+    fader.type = "range"; fader.className = "fader";
+    fader.min = "-60"; fader.max = "12"; fader.step = "0.5";
+    fader.value = String(s.gain);
+    fader.title = "Fader (Gain)";
+    fillFader(fader);
+    fader.addEventListener("input", () => {
+      gain.set(+fader.value, true);
+      fillFader(fader);
+      send("strip", i, "gain", +fader.value);
+    });
+    fader.addEventListener("change", flush);
+    fz.append(makeScale(), meter.el, fader);
+    body.appendChild(fz);
+
+    /* Schalter unten */
+    const sw = el("div", "switches");
+    const bSel = el("button", "sw sel", "SEL");
+    const bMute = el("button", "sw mute", "MUTE");
+    const bSolo = el("button", "sw solo", "SOLO");
+    const bMono = el("button", "sw", "MONO");
+    const bM = el("button", "sw", "M");
+    const bDen = el("button", "sw den", "DEN");
+    bSel.title = "Kanal auswählen";
+    bMute.title = "Stummschalten";
+    bSolo.title = "Solo";
+    bMono.title = "Mono";
+    bM.title = "Mono (Kurzschalter)";
+    bDen.title = "Denoiser";
+    sw.append(bSel, bM, bMute, bSolo, bMono, bDen);
+    body.appendChild(sw);
+
+    const toggle = (btn, param) => {
+      const on = !btn.classList.contains("on");
+      btn.classList.toggle("on", on);
+      send("strip", i, param, on ? 1 : 0);
+    };
+    bMute.addEventListener("click", () => toggle(bMute, "mute"));
+    bSolo.addEventListener("click", () => toggle(bSolo, "solo"));
+    const setMono = (on) => {
+      bMono.classList.toggle("on", on);
+      bM.classList.toggle("on", on);
+      send("strip", i, "mono", on ? 1 : 0);
+    };
+    bMono.addEventListener("click", () => setMono(!bMono.classList.contains("on")));
+    bM.addEventListener("click", () => setMono(!bM.classList.contains("on")));
+    bDen.addEventListener("click", () => toggle(bDen, "denoiser"));
+    bSel.addEventListener("click", () => {
+      selectedStrip = selectedStrip === i ? -1 : i;
+      ui.strips.forEach((u, k) => u.root.classList.toggle("sel", k === selectedStrip));
+    });
+
+    root.appendChild(body);
+    ui.strips[i] = {
+      root, gain, compK, gateK, fader, meter, sends, pan, panVal,
+      eqBtn, eqbox, cells: cellBtns, mute: bMute, solo: bSolo,
+      mono: bMono, m: bM, den: bDen, name: s.name, insel: insel.selects[i] || null,
+      nm: nm, zeigeName: zeigeName, label: s.label || ""
+    };
+  }
+
+  /* ---------- Bus-Zug ---------- */
+  function buildBus(b, i) {
+    const root = el("div", "bstrip");
+    const head = el("div", "bhead");
+    const bnm = el("div", "bname", b.label || BUS_NAMES[i]);
+    bnm.title = "Bus " + BUS_NAMES[i] + " (Doppelklick zum Umbenennen)";
+    bnm.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      startRename(bnm, "bus", i, b.label || "", (wert) => {
+        bnm.textContent = wert || BUS_NAMES[i];
+        if (i === selectedBus) selectBus(i);
+      });
+    });
+    head.append(bnm, el("div", "bsub2", "AUSGANG"));
+    head.title = "Bus " + BUS_NAMES[i] + " auswählen";
+    head.addEventListener("click", () => selectBus(i));
+    root.appendChild(head);
+
+    const body = el("div", "bbody");
+
+    const fader = el("input");
+    fader.type = "range"; fader.className = "fader";
+    fader.min = "-60"; fader.max = "12"; fader.step = "0.5";
+    fader.value = String(b.gain);
+    fader.title = "Bus-Fader";
+    fillFader(fader);
+
+    const kn = makeKnob({
+      min: -60, max: 12, step: 0.5, value: b.gain, def: 0,
+      color: "#6cc4ff", fmt: fmtDb,
+      onChange: (v) => { send("bus", i, "gain", v); fader.value = v; fillFader(fader); }
+    });
+    body.appendChild(kn.el);
+
+    const btns = el("div", "bbtns");
+    const bMono = el("button", "sw", "MONO");
+    const bEq = el("button", "sw", "EQ");
+    const bLim = el("button", "sw", "LIM");
+    bMono.title = "Bus mono";
+    bEq.title = "Bus-EQ";
+    bLim.title = "Limiter";
+    btns.append(bMono, bEq, bLim);
+    body.appendChild(btns);
+
+    const meter = makeMeter(true);
+    const fz = el("div", "faderzone");
+    fz.append(meter.el, fader);
+    body.appendChild(fz);
+
+    const brow = el("div", "brow");
+    const bMute = el("button", "sw mute", "MUTE");
+    const bSel = el("button", "sw sel", "SEL");
+    bMute.title = "Bus stumm";
+    bSel.title = "Bus für Master wählen";
+    brow.append(bMute, bSel);
+    body.appendChild(brow);
+
+    const toggle = (btn, param) => {
+      const on = !btn.classList.contains("on");
+      btn.classList.toggle("on", on);
+      send("bus", i, param, on ? 1 : 0);
+    };
+    bMute.addEventListener("click", () => toggle(bMute, "mute"));
+    bMono.addEventListener("click", () => toggle(bMono, "mono"));
+    bEq.addEventListener("click", () => toggle(bEq, "eq"));
+    bLim.addEventListener("click", () => toggle(bLim, "limiter"));
+    bSel.addEventListener("click", () => selectBus(i));
+    fader.addEventListener("input", () => {
+      kn.set(+fader.value, true);
+      fillFader(fader);
+      send("bus", i, "gain", +fader.value);
+    });
+    fader.addEventListener("change", flush);
+
+    root.appendChild(body);
+    ui.buses[i] = { root, head, kn, fader, meter, mute: bMute, mono: bMono, eq: bEq, lim: bLim, sel: bSel,
+      nm: bnm, label: b.label || "" };
+  }
+
+  /* ---------- Master ---------- */
+  let masterKnob = null;
+  function buildMaster() {
+    masterKnob = makeKnob({
+      label: "MASTER", min: -60, max: 12, step: 0.5, value: 0, def: 0,
+      color: "#4be3a5", fmt: fmtDb, big: true,
+      onChange: (v) => {
+        send("bus", selectedBus, "gain", v);
+        const u = ui.buses[selectedBus];
+        if (u) { u.kn.set(v, true); u.fader.value = v; fillFader(u.fader); }
+      }
+    });
+    $("masterKnob").appendChild(masterKnob.el);
+
+    const toggle = (btn, param) => {
+      const on = !btn.classList.contains("on");
+      btn.classList.toggle("on", on);
+      send("bus", selectedBus, param, on ? 1 : 0);
+    };
+    $("mMute").addEventListener("click", () => toggle($("mMute"), "mute"));
+    $("mMono").addEventListener("click", () => toggle($("mMono"), "mono"));
+    $("mEq").addEventListener("click", () => toggle($("mEq"), "eq"));
+    $("mLim").addEventListener("click", () => toggle($("mLim"), "limiter"));
+    $("mSel").addEventListener("click", () => selectBus((selectedBus + 1) % BUS_NAMES.length));
+
+    const trim = $("mTrim"), delay = $("mDelay");
+    const pushTrim = () => send("bus", selectedBus, "trim", +trim.value || 0);
+    const pushDelay = () => send("bus", selectedBus, "delay", Math.max(0, +delay.value || 0));
+    trim.addEventListener("change", () => { pushTrim(); flush(); });
+    delay.addEventListener("change", () => { pushDelay(); flush(); });
+  }
+
+  function selectBus(i) {
+    selectedBus = i;
+    ui.buses.forEach((u, k) => {
+      u.root.classList.toggle("sel", k === i);
+      u.sel.classList.toggle("on", k === i);
+    });
+    const busName = (ui.buses[i] && ui.buses[i].label) || BUS_NAMES[i];
+    $("mSelName").textContent = busName;
+    $("mFoot").textContent = "Bus " + busName + " · Klick auf Buskopf wählt";
+    if (!state) return;
+    const b = state.buses[i];
+    if (!b) return;
+    masterKnob.set(b.gain, true);
+    $("mTrim").value = (+b.trim || 0).toFixed(1);
+    $("mDelay").value = Math.round(+b.delay_ms || 0);
+    $("mMono").classList.toggle("on", !!b.mono);
+    $("mMute").classList.toggle("on", !!b.mute);
+    $("mEq").classList.toggle("on", !!b.eq);
+    $("mLim").classList.toggle("on", !!b.limiter);
+  }
+
+  /* ---------- Tape (echte Aufnahme über /api/tape) ---------- */
+  function buildTape() {
+    const box = $("targets");
+    BUS_NAMES.forEach((bn, k) => {
+      const btn = el("button", "tgt", bn);
+      if (k === 0) {
+        btn.classList.add("on");
+        btn.title = "Aufnahmequelle: Bus A1";
+      } else {
+        btn.disabled = true;
+        btn.style.opacity = ".35";
+        btn.title = "Aufnahme nur von Bus A1 (weitere Ziele noch nicht implementiert)";
+      }
+      box.appendChild(btn);
+    });
+
+    const rec = $("tRec"), play = $("tPlay"), stop = $("tStop");
+    const lampRec = $("lampRec"), lampPlay = $("lampPlay");
+    let startedAt = 0;
+
+    const paintTc = () => {
+      const secs = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+      const h = String(Math.floor(secs / 3600)).padStart(2, "0");
+      const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
+      const s = String(secs % 60).padStart(2, "0");
+      $("tc").textContent = h + ":" + m + ":" + s;
+    };
+
+    const tape = (action) =>
+      fetch("/api/tape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      }).then((r) => r.json()).catch(() => ({}));
+
+    rec.addEventListener("click", async () => {
+      if (rec.classList.contains("on")) {
+        await tape("stop");
+      } else {
+        await tape("start");
+        startedAt = Date.now();
+      }
+      sync();
+    });
+
+    play.addEventListener("click", () => {
+      lampPlay.classList.add("on");
+      setTimeout(() => lampPlay.classList.remove("on"), 400);
+      toast("Wiedergabe ist nicht implementiert – nur Aufnahme");
+    });
+
+    stop.addEventListener("click", async () => {
+      await tape("stop");
+      startedAt = 0;
+      sync();
+    });
+
+    async function sync() {
+      let st = {};
+      try {
+        st = await (await fetch("/api/tape")).json();
+      } catch (e) { return; }
+      const on = !!st.recording;
+      rec.classList.toggle("on", on);
+      lampRec.classList.toggle("on", on);
+      if (!on) startedAt = 0;
+      paintTc();
+      const note = document.querySelector(".tnote");
+      if (note) note.textContent = on ? ("aufnahme läuft · " + (st.status || "")) : (st.status || "bereit");
+    }
+    sync();
+    setInterval(sync, 700);
+  }
+
+  /* ---------- Aufbau ---------- */
+  function build(st) {
+    const strips = $("strips"), buses = $("buses");
+    strips.innerHTML = ""; buses.innerHTML = "";
+    ui.strips.length = 0; ui.buses.length = 0;
+    st.strips.forEach((s, i) => { buildStrip(s, i); strips.appendChild(ui.strips[i].root); });
+    st.buses.forEach((b, i) => { buildBus(b, i); buses.appendChild(ui.buses[i].root); });
+    buildMaster();
+    buildTape();
+    selectedBus = 0;
+    selectBus(0);
+    built = true;
+  }
+
+  /* ---------- Zustand anwenden ---------- */
+  function applyState(st) {
+    st.strips.forEach((s, i) => {
+      const u = ui.strips[i];
+      if (!u) return;
+      if (!u.gain.dragging() && document.activeElement !== u.fader) {
+        u.gain.set(s.gain, true);
+        u.fader.value = s.gain;
+        fillFader(u.fader);
+      }
+      if (document.activeElement !== u.pan) {
+        u.pan.value = s.pan;
+        u.panVal.textContent = fmtPan(s.pan);
+      }
+      u.mute.classList.toggle("on", !!s.mute);
+      u.solo.classList.toggle("on", !!s.solo);
+      u.mono.classList.toggle("on", !!s.mono);
+      u.m.classList.toggle("on", !!s.mono);
+      u.den.classList.toggle("on", !!s.denoiser);
+      u.eqBtn.classList.toggle("on", !!s.eq);
+      u.eqbox.classList.toggle("off", !s.eq);
+      (s.sends || []).forEach((v, k) => { if (u.sends[k]) u.sends[k].classList.toggle("on", v > 0); });
+      const lbl = s.label || "";
+      if (u.label !== lbl && !u.nm.querySelector("input")) {
+        u.label = lbl;
+        u.zeigeName(lbl);
+      }
+    });
+
+    st.buses.forEach((b, i) => {
+      const u = ui.buses[i];
+      if (!u) return;
+      if (!u.kn.dragging() && document.activeElement !== u.fader) {
+        u.kn.set(b.gain, true);
+        u.fader.value = b.gain;
+        fillFader(u.fader);
+      }
+      u.mute.classList.toggle("on", !!b.mute);
+      u.mono.classList.toggle("on", !!b.mono);
+      u.eq.classList.toggle("on", !!b.eq);
+      u.lim.classList.toggle("on", !!b.limiter);
+      const lbl = b.label || "";
+      if (u.label !== lbl && !u.nm.querySelector("input")) {
+        u.label = lbl;
+        u.nm.textContent = lbl || BUS_NAMES[i];
+        if (i === selectedBus) {
+          $("mSelName").textContent = lbl || BUS_NAMES[i];
+          $("mFoot").textContent = "Bus " + (lbl || BUS_NAMES[i]) + " · Klick auf Buskopf wählt";
+        }
+      }
+    });
+
+    const mb = st.buses[selectedBus];
+    if (mb) {
+      if (!masterKnob.dragging()) masterKnob.set(mb.gain, true);
+      if (document.activeElement !== $("mTrim")) $("mTrim").value = (+mb.trim || 0).toFixed(1);
+      if (document.activeElement !== $("mDelay")) $("mDelay").value = Math.round(+mb.delay_ms || 0);
+      $("mMono").classList.toggle("on", !!mb.mono);
+      $("mMute").classList.toggle("on", !!mb.mute);
+      $("mEq").classList.toggle("on", !!mb.eq);
+      $("mLim").classList.toggle("on", !!mb.limiter);
+    }
+
+    $("sr").textContent = st.sample_rate ? (st.sample_rate / 1000).toFixed(1) + " kHz" : "–";
+    $("blk").textContent = st.block ? st.block + " smp" : "–";
+  }
+
+  // Setzt nur die Zielwerte; gezeichnet wird im nächsten rAF-Bild.
+  function applyLevels(lv) {
+    (lv.strips || []).forEach((db, i) => {
+      if (ui.strips[i]) meterSet(ui.strips[i].meter, db);
+    });
+    (lv.buses || []).forEach((db, i) => {
+      if (ui.buses[i]) meterSet(ui.buses[i].meter, db);
+    });
+    const bdb = (lv.buses || [])[selectedBus];
+    if (bdb !== undefined) meterSet(mMeter, bdb);
+  }
+
+  /* ---------- Pegel: WebSocket im Sendetakt, Polling nur als Rückfall -----
+     Der Server schiebt die Pegel über /ws/levels: 60-Hz-Takt, gesendet wird
+     bei jedem neuen Audioblock (~47/s bei 1024 Frames @ 48 kHz). Die Anzeige
+     hängt an rAF und glättet selbst. Nur wenn der Kanal tot ist (alter
+     Server, Netzfehler), läuft die HTTP-Abfrage mit 120 ms weiter; die
+     Anzeige bleibt in beiden Fällen dieselbe.                              */
+  const lvz = { ws: null, modus: "start", frames: 0, poll: null, aus: false, retry: null };
+  window.__wsFrames = 0;
+  window.__wsFps = 0;
+  window.__wsMode = "start";
+
+  function lvPollStart() {
+    lvPollStop();
+    lvz.modus = "polling";
+    window.__wsMode = "polling";
+    const hol = () => {
+      if (lvz.modus !== "polling") return;
+      api("/api/levels").then(applyLevels).catch(() => {});
+    };
+    hol();
+    lvz.poll = setInterval(hol, 120);
+  }
+
+  function lvPollStop() {
+    if (lvz.poll) {
+      clearInterval(lvz.poll);
+      lvz.poll = null;
+    }
+  }
+
+  function lvWsStart() {
+    if (lvz.aus) return;
+    if (lvz.retry) {
+      clearTimeout(lvz.retry);
+      lvz.retry = null;
+    }
+    let ws;
+    try {
+      ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/levels");
+    } catch (e) {
+      lvz.modus = "aus";
+      lvPollStart();
+      return;
+    }
+    lvz.ws = ws;
+    // Kommt binnen 2,5 s kein offener Kanal, gilt der Weg als gescheitert.
+    const wache = setTimeout(() => {
+      if (ws.readyState !== 1) {
+        try { ws.close(); } catch (e) {}
+      }
+    }, 2500);
+
+    ws.onopen = () => {
+      clearTimeout(wache);
+      lvPollStop();
+      lvz.modus = "ws";
+      window.__wsMode = "ws";
+      setStatus(true);
+    };
+    ws.onmessage = (ev) => {
+      let lv;
+      try { lv = JSON.parse(ev.data); } catch (e) { return; }
+      lvz.frames++;
+      window.__wsFrames = lvz.frames;
+      if (typeof lv.f === "number") window.__wsFrameNr = lv.f;
+      applyLevels(lv);
+    };
+    ws.onclose = () => {
+      clearTimeout(wache);
+      if (lvz.ws === ws) lvz.ws = null;
+      if (lvz.aus) {
+        window.__wsMode = "aus";
+        return;
+      }
+      // Ab jetzt sofort Polling, und alle 8 s ein neuer Versuch.
+      lvz.modus = "aus";
+      lvPollStart();
+      lvz.retry = setTimeout(() => {
+        lvz.retry = null;
+        lvWsStart();
+      }, 8000);
+    };
+  }
+
+  /* Statuszeile: wie viele Pegel-Bilder pro Sekunde wirklich ankommen.
+     Ein Sekundenfenster, damit die Zahl ruhig steht; __wsFps ist dieselbe
+     Zahl für Messungen. */
+  (function pegelZaehler() {
+    let letzte = lvz.frames;
+    let t0 = performance.now();
+    setInterval(() => {
+      const t = performance.now();
+      const dt = (t - t0) / 1000;
+      const fps = dt > 0 ? (lvz.frames - letzte) / dt : 0;
+      letzte = lvz.frames;
+      t0 = t;
+      window.__wsFps = Math.round(fps * 10) / 10;
+      const feld = $("lvFps");
+      if (feld) {
+        const weg = lvz.modus === "ws" ? "WS" : lvz.modus === "polling" ? "HTTP" : "–";
+        feld.textContent = Math.round(fps) + "/s " + weg;
+      }
+    }, 1000);
+  })();
+
+  // Messhilfen: erzwingen den einen oder anderen Weg (für tests/latency_test.py)
+  window.__lvForcePoll = () => {
+    lvz.aus = true;
+    try { if (lvz.ws) lvz.ws.close(); } catch (e) {}
+    lvPollStart();
+  };
+  window.__lvForceWs = () => {
+    lvz.aus = false;
+    lvPollStop();
+    lvWsStart();
+  };
+
+  function setStatus(ok) {
+    const s = $("status");
+    s.classList.toggle("off", !ok);
+    $("statusTxt").textContent = ok ? "ONLINE" : "OFFLINE";
+  }
+
+  /* ---------- Zustand: weiterhin per HTTP (120 ms), Pegel per WebSocket ---------- */
+  let busy = false;
+  async function tick() {
+    if (busy) return;
+    busy = true;
+    try {
+      const st = await api("/api/state");
+      state = st;
+      if (!built) build(st);
+      applyState(st);
+      pflegeEingaenge();
+      setStatus(true);
+    } catch (e) {
+      setStatus(false);
+    } finally {
+      busy = false;
+    }
+  }
+
+  /* ---------- Presets ---------- */
+  $("presetSave").addEventListener("click", () => {
+    api("/api/preset", { action: "save" })
+      .then(() => toast("Preset gespeichert"))
+      .catch(() => toast("Speichern fehlgeschlagen"));
+  });
+  $("presetLoad").addEventListener("click", () => {
+    api("/api/preset", { action: "load" })
+      .then(() => { toast("Preset geladen"); return tick(); })
+      .catch(() => toast("Kein Preset gefunden"));
+  });
+
+  tick();
+  setInterval(tick, 120);
+  requestAnimationFrame(pegelBild);
+  lvWsStart();
+})();
+</script>
+<script>
+/* ------------------------------------------------------------------
+   Zusatzmodule: Gerätewahl (A1..A5), VBAN, Makro-Leiste.
+   Eigener Block, damit die bestehende Mixer-Logik und ihre API
+   unverändert bleibt. Die Endpunkte /api/devices, /api/vban und
+   /api/macros liefert der Server noch nicht – jeder Netzfehler wird
+   abgefangen und als "nicht verfügbar" angezeigt.
+   ------------------------------------------------------------------ */
+"use strict";
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, txt) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (txt !== undefined) e.textContent = txt;
+    return e;
+  };
+  const BUSES = ["A1", "A2", "A3", "A4", "A5"];
+  const PER_PAGE = 8;
+  const PAGES = 2;
+
+  function getJson(path) {
+    return fetch(path, { headers: { Accept: "application/json" }, cache: "no-store" }).then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    });
+  }
+  function postJson(path, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    });
+  }
+  function msg(t) {
+    const box = $("toast");
+    if (!box) return;
+    box.textContent = t;
+    box.classList.add("show");
+    clearTimeout(msg._t);
+    msg._t = setTimeout(() => box.classList.remove("show"), 2200);
+  }
+
+  /* ================= 1) Geräteauswahl je Bus A1..A5 ================= */
+  const dev = { sel: {}, sig: "", ok: null, busy: false };
+
+  function buildDevices() {
+    const grid = $("devGrid");
+    if (!grid || grid.dataset.built) return;
+    BUSES.forEach((bus) => {
+      const lbl = el("span", "bl", bus);
+      const s = el("select", "devsel");
+      s.id = "dev" + bus;
+      s.title = "Ausgabegerät für Bus " + bus;
+      s.setAttribute("aria-label", "Ausgabegerät Bus " + bus);
+      s.disabled = true;
+      const ph = el("option", null, "…");
+      ph.value = "";
+      s.appendChild(ph);
+      s.addEventListener("change", () => assignDevice(bus, s.value));
+      grid.append(lbl, s);
+      dev.sel[bus] = s;
+    });
+    grid.dataset.built = "1";
+  }
+
+  function devStatus(ok, txt) {
+    dev.ok = ok;
+    const st = $("devState");
+    if (!st) return;
+    st.textContent = txt;
+    st.classList.toggle("off", !ok);
+  }
+
+  function devUnavailable() {
+    BUSES.forEach((bus) => {
+      const s = dev.sel[bus];
+      if (!s) return;
+      s.disabled = true;
+      if (s.dataset.state !== "na") {
+        const o = el("option", null, "nicht verfügbar");
+        o.value = "";
+        s.replaceChildren(o);
+        s.dataset.state = "na";
+      }
+    });
+    devStatus(false, "nicht verfügbar");
+  }
+
+  async function assignDevice(bus, sink) {
+    const s = dev.sel[bus];
+    try {
+      await postJson("/api/devices", { bus: bus, sink: sink || null });
+      msg("Bus " + bus + " → " + (sink || "kein Gerät"));
+      dev.sig = "";
+      await loadDevices();
+    } catch (e) {
+      if (s) s.disabled = true;
+      devStatus(false, "Zuweisung fehlgeschlagen");
+      msg("Gerätewahl nicht verfügbar (" + e.message + ")");
+    }
+  }
+
+  async function loadDevices() {
+    if (dev.busy) return;
+    dev.busy = true;
+    try {
+      const d = await getJson("/api/devices");
+      const sinks = Array.isArray(d && d.sinks)
+        ? d.sinks.filter((x) => x && typeof x.name === "string" && x.name)
+        : [];
+      const asg = (d && d.assigned) || {};
+      const sig = JSON.stringify([sinks.map((x) => [x.name, x.desc || ""]),
+                                   BUSES.map((b) => (typeof asg[b] === "string" ? asg[b] : ""))]);
+      if (sig !== dev.sig) {
+        dev.sig = sig;
+        BUSES.forEach((bus) => {
+          const s = dev.sel[bus];
+          if (!s) return;
+          if (document.activeElement === s) return; /* offene Liste nicht ersetzen */
+          const frag = document.createDocumentFragment();
+          const none = el("option", null, "— kein Gerät —");
+          none.value = "";
+          frag.appendChild(none);
+          sinks.forEach((k) => {
+            const o = el("option", null, k.desc || k.name);
+            o.value = k.name;
+            o.title = k.name + (k.desc ? " · " + k.desc : "");
+            frag.appendChild(o);
+          });
+          s.replaceChildren(frag);
+          s.disabled = false;
+          s.dataset.state = "ok";
+          const cur = typeof asg[bus] === "string" ? asg[bus] : "";
+          s.value = cur && sinks.some((k) => k.name === cur) ? cur : "";
+        });
+      }
+      const used = BUSES.filter((b) => typeof asg[b] === "string" && asg[b]).length;
+      devStatus(true, sinks.length + " Geräte · " + used + " zugewiesen");
+    } catch (e) {
+      if (dev.ok !== false) devUnavailable();
+    } finally {
+      dev.busy = false;
+    }
+  }
+
+  /* ================= 2) VBAN-Overlay (IP Audio Network Configuration) ================= */
+  const vban = { open: false, timer: null, busy: false, an: false, cfg: null };
+
+  function buildVban() {
+    const btn = $("vbanBtn"), ov = $("vbanOverlay");
+    if (!btn || !ov) return;
+    btn.addEventListener("click", openVban);
+    $("vbanClose").addEventListener("click", closeVban);
+    ov.addEventListener("click", (e) => { if (e.target === ov) closeVban(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && vban.open) closeVban();
+    });
+    $("vPower").addEventListener("click", () => schalte(!vban.an));
+    ["vPort", "vHost", "vStream"].forEach((id) => {
+      $(id).addEventListener("change", () => { if (vban.an) uebernimmFelder(); });
+    });
+    $("vReset").addEventListener("click", () => cfgAktion("reset", "Konfiguration zurückgesetzt"));
+    $("vLoad").addEventListener("click", () => cfgAktion("load", "Konfiguration geladen"));
+    $("vSave").addEventListener("click", () => cfgAktion("save", "Konfiguration gesichert"));
+  }
+
+  function openVban() {
+    const ov = $("vbanOverlay");
+    if (!ov || vban.open) return;
+    ov.classList.add("open");
+    vban.open = true;
+    loadVban();
+    vban.timer = setInterval(loadVban, 1500);
+  }
+  function closeVban() {
+    const ov = $("vbanOverlay");
+    if (!ov) return;
+    ov.classList.remove("open");
+    vban.open = false;
+    clearInterval(vban.timer);
+    vban.timer = null;
+  }
+
+  function vbanFehler(text) {
+    const e = $("vErr");
+    if (!e) return;
+    e.textContent = text || "";
+    e.classList.toggle("err", !!text);
+    e.classList.toggle("on", !text && vban.an);
+    if (!text) e.textContent = vban.an ? "verbunden · Änderungen wirken sofort" : "aus";
+  }
+
+  /** Eine Tabellenzeile; `spalten` ist eine Liste von [Text, Klasse]. */
+  function nZeile(tbody, spalten) {
+    const tr = document.createElement("tr");
+    spalten.forEach(([text, cls]) => {
+      const td = document.createElement("td");
+      if (cls) td.className = cls;
+      td.textContent = text;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+
+  function nLeer(tbody, spalten, text) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = spalten;
+    td.className = "leer";
+    td.textContent = text;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  /** Qualitätsspalte: grün ab 90 %, rot darunter, Strich ohne Verkehr. */
+  function qKlasse(text) {
+    if (!text || text === "–") return "";
+    const n = parseInt(text, 10);
+    if (!Number.isFinite(n)) return "";
+    return n >= 90 ? "gut" : "schlecht";
+  }
+
+  function paintVban(d) {
+    const s = (d && d.senden) || {};
+    const e = (d && d.empfangen) || {};
+    vban.cfg = d || {};
+    vban.an = !!s.an;
+
+    const pw = $("vPower"), txt = $("vPowerTxt");
+    pw.disabled = false;
+    pw.classList.toggle("on", vban.an);
+    pw.setAttribute("aria-checked", vban.an ? "true" : "false");
+    txt.textContent = vban.an ? "AN" : "AUS";
+    txt.classList.toggle("on", vban.an);
+    $("vbanBtn").classList.toggle("on", vban.an);
+    $("vDot").className = "dot" + (vban.an ? " on" : "");
+    $("vMainDot").className = "dot" + (vban.an ? " on" : "");
+
+    const feld = (id, wert) => {
+      const el = $(id);
+      if (el && document.activeElement !== el && wert !== undefined && wert !== null && wert !== "") {
+        el.value = wert;
+      }
+    };
+    feld("vHost", s.host);
+    feld("vPort", s.port);
+    feld("vStream", s.stream);
+
+    const sr = d && d.samplerate ? String(d.samplerate) : "–";
+    $("vMainSr").textContent = sr + " Hz";
+    $("vMainFrames").textContent = s.frames != null ? s.frames + " Pakete gesendet" : "–";
+
+    $("vInPort").textContent = e.port != null ? String(e.port) : "–";
+    $("vInFilter").textContent = e.stream ? e.stream : "alle";
+
+    const tin = $("vIn");
+    const tout = $("vOut");
+    tin.innerHTML = "";
+    tout.innerHTML = "";
+    const ein = Array.isArray(d && d.incoming) ? d.incoming : [];
+    if (!ein.length) {
+      nLeer(tin, 8, e.an ? "kein eingehender Stream" : "Empfang ist aus");
+    } else {
+      ein.forEach((z) => nZeile(tin, [
+        [z.stream || "–"],
+        [z.ip || "–"],
+        [z.sr ? z.sr + " Hz" : "–"],
+        [z.ch != null ? String(z.ch) : "–"],
+        [z.format || "–"],
+        [z.quality || "–", qKlasse(z.quality)],
+        [z.ziel || "–"],
+        [z.errors != null ? String(z.errors) : "0", z.errors > 0 ? "schlecht" : ""]
+      ]));
+    }
+    const aus = Array.isArray(d && d.outgoing) ? d.outgoing : [];
+    if (!aus.length) {
+      nLeer(tout, 8, "kein Ausgang konfiguriert");
+    } else {
+      aus.forEach((z) => nZeile(tout, [
+        [z.source || "–"],
+        [z.stream || "–"],
+        [z.ip || "–"],
+        [z.sr ? z.sr + " Hz" : "–"],
+        [z.ch != null ? String(z.ch) : "–"],
+        [z.format || "–"],
+        [z.quality || "–", qKlasse(z.quality)],
+        [z.errors != null ? String(z.errors) : "0", z.errors > 0 ? "schlecht" : ""]
+      ]));
+    }
+    $("vOutInfo").textContent = (aus[0] && aus[0].source ? aus[0].source : "Bus A1") + " · Stereo";
+
+    const fehler = (s.letzter_fehler || "") || (e.letzter_fehler || "");
+    vbanFehler(fehler);
+  }
+
+  async function loadVban() {
+    if (vban.busy) return;
+    vban.busy = true;
+    try {
+      const d = await getJson("/api/vban/config");
+      if (d && d.error) throw new Error(d.error);
+      paintVban(d || {});
+    } catch (err) {
+      vban.an = false;
+      const pw = $("vPower");
+      pw.classList.remove("on");
+      pw.setAttribute("aria-checked", "false");
+      pw.disabled = true;
+      $("vPowerTxt").textContent = "AUS";
+      $("vPowerTxt").classList.remove("on");
+      $("vbanBtn").classList.remove("on");
+      $("vDot").className = "dot rot";
+      $("vMainDot").className = "dot rot";
+      $("vIn").innerHTML = "";
+      $("vOut").innerHTML = "";
+      nLeer($("vIn"), 8, "VBAN-Endpunkt nicht verfügbar");
+      nLeer($("vOut"), 8, "VBAN-Endpunkt nicht verfügbar");
+      vbanFehler("nicht verfügbar (" + err.message + ")");
+      $("vErr").classList.add("err");
+    } finally {
+      vban.busy = false;
+    }
+  }
+
+  function vbanFelderBody() {
+    const port = parseInt($("vPort").value, 10);
+    const an = !!vban.an;
+    return {
+      senden: {
+        an: an,
+        host: ($("vHost").value || "").trim(),
+        port: Number.isFinite(port) ? port : 6980,
+        stream: ($("vStream").value || "").trim()
+      },
+      empfangen: { an: an, port: Number.isFinite(port) ? port : 6980 }
+    };
+  }
+
+  async function sendeCfg(body) {
+    try {
+      const d = await postJson("/api/vban/config", body);
+      if (d && d.error) { vbanFehler(d.error); return null; }
+      paintVban(d || {});
+      return d;
+    } catch (e) {
+      vbanFehler("Netzwerk-Dialog nicht erreichbar (" + e.message + ")");
+      return null;
+    }
+  }
+
+  async function schalte(an) {
+    const body = vbanFelderBody();
+    body.senden.an = an;
+    body.empfangen.an = an;
+    const d = await sendeCfg(body);
+    if (d && an) msg("VBAN an → " + body.senden.host + ":" + body.senden.port + " / " + body.senden.stream);
+    if (d && !an) msg("VBAN aus");
+  }
+
+  function uebernimmFelder() {
+    sendeCfg(vbanFelderBody());
+  }
+
+  async function cfgAktion(aktion, meldung) {
+    const d = await sendeCfg({ action: aktion });
+    if (d) msg(meldung);
+  }
+
+  /* ================= 3) Makro-Leiste (2 Seiten × 8 Tasten) ================= */
+  const mac = { page: 0, keys: [], data: [], ok: null, busy: false, held: new Set(), painted: "" };
+
+  function buildMacros() {
+    const pad = $("macroPad");
+    if (!pad || pad.dataset.built) return;
+    for (let i = 0; i < PER_PAGE; i++) {
+      const b = el("button", "mkey");
+      b.type = "button";
+      b.disabled = true;
+      b.textContent = "–";
+      b.title = "Makro " + (i + 1);
+      b.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 && e.pointerType === "mouse") return;
+        e.preventDefault();
+        if (b.setPointerCapture) { try { b.setPointerCapture(e.pointerId); } catch (_) {} }
+        pressMacro(i);
+      });
+      const up = () => releaseMacro(i);
+      b.addEventListener("pointerup", up);
+      b.addEventListener("pointercancel", up);
+      b.addEventListener("lostpointercapture", up);
+      b.addEventListener("pointerleave", () => { if (mac.held.has(i)) up(); });
+      b.addEventListener("blur", up);
+      b.addEventListener("keydown", (e) => {
+        if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); pressMacro(i); }
+      });
+      b.addEventListener("keyup", (e) => {
+        if (e.key === " " || e.key === "Enter") { e.preventDefault(); releaseMacro(i); }
+      });
+      pad.appendChild(b);
+      mac.keys.push(b);
+    }
+    pad.dataset.built = "1";
+    $("mPrev").addEventListener("click", () => setPage(mac.page - 1));
+    $("mNext").addEventListener("click", () => setPage(mac.page + 1));
+  }
+
+  function setPage(p) {
+    const np = ((p % PAGES) + PAGES) % PAGES;
+    if (np === mac.page) return;
+    mac.page = np;
+    mac.held.clear();
+    $("mPage").textContent = "SEITE " + (np + 1) + "/" + PAGES;
+    mac.keys.forEach((b) => b.classList.remove("hit", "on", "latched"));
+    paintMacros();
+  }
+
+  function recFor(idx) {
+    for (let i = 0; i < mac.data.length; i++) if (mac.data[i] && mac.data[i].index === idx) return mac.data[i];
+    return null;
+  }
+
+  function paintMacros() {
+    const base = mac.page * PER_PAGE;
+    for (let i = 0; i < PER_PAGE; i++) {
+      const idx = base + i, b = mac.keys[i];
+      if (!b) continue;
+      const rec = recFor(idx);
+      if (rec) {
+        b.disabled = false;
+        b.textContent = String(rec.name || ("TASTE " + (idx + 1)));
+        b.title = "Makro " + (idx + 1) + (rec.name ? " · " + rec.name : "") + (rec.latched ? " · gehalten" : "");
+      } else {
+        b.disabled = true;
+        b.textContent = mac.ok === false ? "nicht verfügbar" : "—";
+        b.title = "Makro " + (idx + 1) + " · keine Daten";
+      }
+      b.classList.toggle("on", !!(rec && rec.state) || mac.held.has(i));
+      b.classList.toggle("latched", !!(rec && rec.latched));
+    }
+  }
+
+  function pressMacro(i) {
+    if (mac.held.has(i)) return;
+    const b = mac.keys[i];
+    if (!b || b.disabled) return;
+    mac.held.add(i);
+    b.classList.add("hit", "on");
+    postJson("/api/macros", { action: "press", index: mac.page * PER_PAGE + i }).catch(() => {
+      mac.ok = false;
+      macStatus("nicht verfügbar");
+    });
+  }
+
+  function releaseMacro(i) {
+    if (!mac.held.has(i)) return;
+    mac.held.delete(i);
+    const b = mac.keys[i], idx = mac.page * PER_PAGE + i;
+    const rec = recFor(idx);
+    if (b) {
+      b.classList.remove("hit");
+      b.classList.toggle("on", !!(rec && rec.state));
+    }
+    postJson("/api/macros", { action: "release", index: idx }).catch(() => {});
+  }
+
+  function macStatus(txt) {
+    const st = $("macroState");
+    if (!st) return;
+    st.textContent = txt;
+    st.classList.toggle("off", txt === "nicht verfügbar");
+  }
+
+  async function loadMacros() {
+    if (mac.busy) return;
+    mac.busy = true;
+    try {
+      const d = await getJson("/api/macros");
+      const list = Array.isArray(d && d.buttons)
+        ? d.buttons.filter((x) => x && typeof x.index === "number")
+        : [];
+      const sig = JSON.stringify(list.map((x) => [x.index, x.name || "", !!x.state, !!x.latched]));
+      mac.data = list;
+      mac.ok = true;
+      macStatus(list.length + " belegt");
+      if (sig !== mac.painted) { mac.painted = sig; paintMacros(); }
+    } catch (e) {
+      mac.ok = false;
+      mac.data = [];
+      mac.painted = "";
+      macStatus("nicht verfügbar");
+      paintMacros();
+    } finally {
+      mac.busy = false;
+    }
+  }
+
+  /* ================= Start ================= */
+  buildDevices();
+  buildVban();
+  buildMacros();
+  loadDevices();
+  loadMacros();
+  setInterval(loadDevices, 2500);
+  setInterval(loadMacros, 900);
+})();
+
+    /* --- Skalierung: die Konsole ist in festen Pixeln gezeichnet (Original-
+       Look), bei grossen Fenstern wird sie deshalb hochskaliert, damit die
+       Schrift lesbar bleibt. Mindestens Faktor 1, gehoert auf max. 2.6. --- */
+    function crosspointFit() {
+      const b = document.body;
+      b.style.zoom = "1";
+      const w = b.scrollWidth, hh = b.scrollHeight;
+      if (!w || !hh) return;
+      const z = Math.min(window.innerWidth / w, window.innerHeight / hh);
+      b.style.zoom = String(Math.min(2.6, Math.max(1, z)));
+    }
+    window.addEventListener("resize", crosspointFit);
+    window.addEventListener("load", crosspointFit);
+    setTimeout(crosspointFit, 60);
+</script>
+</body>
+</html>

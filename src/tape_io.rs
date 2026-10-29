@@ -4,6 +4,21 @@
 //! Thread zieht sie heraus und schreibt sie über `tape::Tape` als WAV. Damit
 //! liegt kein Lock und keine Allokation im Echtzeitpfad.
 //!
+//! Die Ringe selbst kommen von **`rtrb`** (lock-freier Single-Producer/
+//! Single-Consumer-Ring). Der Eigenbau davor (eigene `head`/`tail`-Zähler,
+//! `UnsafeCell`-Feld, handgezählte Slots) war die Stelle, an der ein vergessener
+//! `Release`-Store stillschweigend Audio verschluckt hätte.
+//!
+//! Ein Block besteht aus zwei Teilen, die zusammen im Ring liegen:
+//!
+//! * Länge und Kanalzahl ([`BlockKopf`], eigener Ring mit genau `slots` Plätzen),
+//! * die Samples (`f32`-Ring mit `slots * frames * channels` Plätzen).
+//!
+//! Der Produzent schreibt erst die Samples, dann den Kopf; der Konsument liest
+//! erst den Kopf, dann die Samples. Damit ist ein Kopf nie ohne seine Samples
+//! sichtbar, und die Blockzahl ist durch den Kopf-Ring exakt auf `slots`
+//! begrenzt – unabhängig davon, wie `rtrb` seinen Puffer ausrichtet.
+//!
 //! Zwei Ringe teilen sich dieses Muster:
 //!
 //! * [`Ring`] – ein Stereo-Block pro Slot (Bus A1, VBAN, Altverdrahtung).
@@ -15,13 +30,12 @@
 
 use std::cell::UnsafeCell;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{
-    AtomicBool, AtomicUsize, Ordering::Acquire, Ordering::Relaxed, Ordering::Release,
-};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use rtrb::{Consumer, Producer, RingBuffer};
 use tape::{Format, Tape};
 
 use crate::BUS_NAMES;
@@ -29,70 +43,147 @@ use crate::BUS_NAMES;
 /// Höchstzahl aufgenommener Busse (0..7) und damit Stereo-Paare pro Block.
 pub const MAX_BUSSE: usize = crate::BUSES;
 
-/// Fester Ring: `slots` Blöcke zu je `frames` Stereo-Frames.
-pub struct Ring {
-    data: Box<[UnsafeCell<f32>]>,
-    frames: usize,
-    slots: usize,
-    head: AtomicUsize,
-    tail: AtomicUsize,
+/// Kopfdaten eines Blocks: Samples im Datenring und Kanalzahl.
+///
+/// `samples / chans` ergibt die Framezahl des Blocks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BlockKopf {
+    samples: u32,
+    chans: u32,
 }
 
-// Der Ring ist bewusst als SPSC gebaut: genau ein Produzent (Audio-Thread),
-// genau ein Konsument (Schreiber-Thread). Das ist die Bedingung für `Sync`.
-unsafe impl Sync for Ring {}
-unsafe impl Send for Ring {}
+/// Die zwei Hälften eines Rings, wie `rtrb` sie liefert.
+///
+/// `Producer` und `Consumer` werden getrennt gehalten, weil sie in
+/// verschiedenen Threads leben. Der `UnsafeCell` ist die Zusicherung, dass
+/// jeder der beiden nur von *einem* Thread benutzt wird (siehe `unsafe impl
+/// Sync`).
+struct Paar<T> {
+    tx: UnsafeCell<Producer<T>>,
+    rx: UnsafeCell<Consumer<T>>,
+}
 
-impl Ring {
-    pub fn new(slots: usize, frames: usize) -> Ring {
-        let n = slots * frames * 2;
-        Ring {
-            data: (0..n).map(|_| UnsafeCell::new(0.0f32)).collect(),
-            frames,
-            slots,
-            head: AtomicUsize::new(0),
-            tail: AtomicUsize::new(0),
+// SPSC: genau ein Produzent (Audio-Thread), genau ein Konsument
+// (Schreiber-Thread). Das ist die Bedingung für `Sync`.
+unsafe impl<T: Send> Sync for Paar<T> {}
+unsafe impl<T: Send> Send for Paar<T> {}
+
+impl<T: Send> Paar<T> {
+    fn neu(kapazitaet: usize) -> Paar<T> {
+        let (tx, rx) = RingBuffer::new(kapazitaet.max(1));
+        Paar {
+            tx: UnsafeCell::new(tx),
+            rx: UnsafeCell::new(rx),
         }
     }
 
-    /// Produzent: einen Block ablegen. `false`, wenn der Ring voll ist.
+    /// Produzentenseite (nur aus dem Audio-Thread aufrufen).
+    ///
+    /// # Safety
+    /// Aufruf nur aus dem einen Produzenten-Thread.
+    #[allow(clippy::mut_from_ref)]
+    unsafe fn tx(&self) -> &mut Producer<T> {
+        unsafe { &mut *self.tx.get() }
+    }
+
+    /// Konsumentenseite (nur aus dem Schreiber-Thread aufrufen).
+    ///
+    /// # Safety
+    /// Aufruf nur aus dem einen Konsumenten-Thread.
+    #[allow(clippy::mut_from_ref)]
+    unsafe fn rx(&self) -> &mut Consumer<T> {
+        unsafe { &mut *self.rx.get() }
+    }
+
+    fn ist_leer(&self) -> bool {
+        // `is_empty` auf der Konsumentenseite ist ein Lesezugriff; er darf
+        // auch aus dem Produzenten-Thread kommen (z. B. in Tests).
+        unsafe { self.rx().is_empty() }
+    }
+}
+
+/// Fester Ring: `slots` Blöcke zu je `frames` Stereo-Frames.
+pub struct Ring {
+    kopf: Paar<BlockKopf>,
+    daten: Paar<f32>,
+    frames: usize,
+    slots: usize,
+}
+
+impl Ring {
+    pub fn new(slots: usize, frames: usize) -> Ring {
+        let slots = slots.max(1);
+        let frames = frames.max(1);
+        Ring {
+            kopf: Paar::neu(slots),
+            daten: Paar::neu(slots * frames * 2),
+            frames,
+            slots,
+        }
+    }
+
+    /// Produzent: einen Stereo-Block ablegen. `false`, wenn der Ring voll ist
+    /// oder der Block keinen ganzen Frame enthält.
     pub fn push(&self, interleaved: &[f32]) -> bool {
-        let head = self.head.load(Relaxed);
-        let tail = self.tail.load(Acquire);
-        if head.wrapping_sub(tail) >= self.slots {
+        self.schiebe(interleaved, 2)
+    }
+
+    fn schiebe(&self, interleaved: &[f32], chans: usize) -> bool {
+        let ganze = interleaved.len() - interleaved.len() % chans;
+        let samples = ganze.min(self.frames * chans);
+        if samples == 0 {
             return false;
         }
-        let slot = head % self.slots;
-        let base = slot * self.frames * 2;
-        let n = (self.frames * 2).min(interleaved.len());
+        // SAFETY: `schiebe` läuft ausschliesslich im Audio-Thread (Produzent).
         unsafe {
-            let dst = self.data.as_ptr().add(base) as *mut f32;
-            std::ptr::copy_nonoverlapping(interleaved.as_ptr(), dst, n);
+            if self.kopf.tx().is_full() {
+                return false;
+            }
+            let Ok(chunk) = self.daten.tx().write_chunk_uninit(samples) else {
+                return false;
+            };
+            let geschrieben = chunk.fill_from_iter(interleaved[..samples].iter().copied());
+            debug_assert_eq!(geschrieben, samples, "Ring meldet Platz, nimmt ihn nicht");
+            let _ = self.kopf.tx().push(BlockKopf {
+                samples: samples as u32,
+                chans: chans as u32,
+            });
         }
-        self.head.store(head.wrapping_add(1), Release);
         true
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tail.load(Acquire) == self.head.load(Acquire)
+        self.kopf.ist_leer()
     }
 
     /// Konsument: einen Block holen. Liefert die Zahl der Stereo-Frames.
+    ///
+    /// `out` muss für den ganzen Block reichen; ist es zu klein, bleibt der
+    /// Block im Ring (`None`) – ein halber Block wäre ein Sprung im Signal.
     pub fn pop(&self, out: &mut [f32]) -> Option<usize> {
-        let tail = self.tail.load(Relaxed);
-        let head = self.head.load(Acquire);
-        if tail == head {
-            return None;
-        }
-        let slot = tail % self.slots;
-        let base = slot * self.frames * 2;
-        let n = (self.frames * 2).min(out.len());
+        // SAFETY: `pop` läuft ausschliesslich im Schreiber-Thread (Konsument).
         unsafe {
-            let src = self.data.as_ptr().add(base) as *const f32;
-            std::ptr::copy_nonoverlapping(src, out.as_mut_ptr(), n);
+            let kopf = *self.kopf.rx().peek().ok()?;
+            let samples = kopf.samples as usize;
+            let chans = kopf.chans.max(1) as usize;
+            if out.len() < samples {
+                return None;
+            }
+            {
+                let chunk = self.daten.rx().read_chunk(samples).ok()?;
+                let (a, b) = chunk.as_slices();
+                out[..a.len()].copy_from_slice(a);
+                out[a.len()..a.len() + b.len()].copy_from_slice(b);
+                chunk.commit_all();
+            }
+            let _ = self.kopf.rx().pop();
+            Some(samples / chans)
         }
-        self.tail.store(tail.wrapping_add(1), Release);
-        Some(n / 2)
+    }
+
+    /// Slots (Blöcke), die der Ring fasst.
+    pub fn slots(&self) -> usize {
+        self.slots
     }
 }
 
@@ -100,25 +191,16 @@ impl Ring {
 ///
 /// Ein Slot faßt `frames` Frames zu je `pairs` Kanalpaaren. Ein Block wird als
 /// `[frame0_ch0 .. frame0_chN, frame1_ch0 ..]` abgelegt (N = 2*pairs-1); die
-/// Kanäle des jeweiligen Blocks werden pro Slot mitgespeichert, damit ein
-/// Ring auch weniger Paare als seine Kapazität transportieren kann.
+/// Kanäle des jeweiligen Blocks stehen im [`BlockKopf`], damit ein Ring auch
+/// weniger Paare als seine Kapazität transportieren kann.
 pub struct MultiRing {
-    data: Box<[UnsafeCell<f32>]>,
-    /// Kanäle je Slot (0 = noch nicht beschrieben).
-    chans: Box<[AtomicUsize]>,
-    /// Frames im jeweiligen Slot (ein Block darf kürzer als `frames` sein).
-    lens: Box<[AtomicUsize]>,
+    kopf: Paar<BlockKopf>,
+    daten: Paar<f32>,
     frames: usize,
     slots: usize,
     pairs: usize,
-    head: AtomicUsize,
-    tail: AtomicUsize,
     last_channels: AtomicUsize,
 }
-
-// Wie `Ring`: ein Produzent, ein Konsument.
-unsafe impl Sync for MultiRing {}
-unsafe impl Send for MultiRing {}
 
 impl MultiRing {
     /// `slots` Blöcke zu `frames` Frames, je Slot bis zu `pairs` Kanalpaare
@@ -128,16 +210,11 @@ impl MultiRing {
         let frames = frames.max(1);
         let pairs = pairs.clamp(1, MAX_BUSSE);
         MultiRing {
-            data: (0..slots * frames * pairs * 2)
-                .map(|_| UnsafeCell::new(0.0f32))
-                .collect(),
-            chans: (0..slots).map(|_| AtomicUsize::new(0)).collect(),
-            lens: (0..slots).map(|_| AtomicUsize::new(0)).collect(),
+            kopf: Paar::neu(slots),
+            daten: Paar::neu(slots * frames * pairs * 2),
             frames,
             slots,
             pairs,
-            head: AtomicUsize::new(0),
-            tail: AtomicUsize::new(0),
             last_channels: AtomicUsize::new(pairs * 2),
         }
     }
@@ -156,8 +233,13 @@ impl MultiRing {
         self.frames
     }
 
+    /// Slots (Blöcke), die der Ring fasst.
+    pub fn slots(&self) -> usize {
+        self.slots
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.tail.load(Acquire) == self.head.load(Acquire)
+        self.kopf.ist_leer()
     }
 
     /// Kanäle des zuletzt entnommenen Blocks.
@@ -177,25 +259,27 @@ impl MultiRing {
     /// Kapazität sein, z. B. wenn nur zwei Busse aufgenommen werden).
     pub fn push_pairs(&self, interleaved: &[f32], pairs: usize) -> bool {
         let pairs = pairs.clamp(1, self.pairs);
-        let ch = pairs * 2;
-        let frames = (interleaved.len() / ch).min(self.frames);
-        if frames == 0 {
+        let chans = pairs * 2;
+        let ganze = interleaved.len() - interleaved.len() % chans;
+        let samples = ganze.min(self.frames * chans);
+        if samples == 0 {
             return false;
         }
-        let head = self.head.load(Relaxed);
-        let tail = self.tail.load(Acquire);
-        if head.wrapping_sub(tail) >= self.slots {
-            return false;
-        }
-        let slot = head % self.slots;
-        let base = slot * self.frames * self.pairs * 2;
+        // SAFETY: `push_pairs` läuft ausschliesslich im Audio-Thread.
         unsafe {
-            let dst = self.data.as_ptr().add(base) as *mut f32;
-            std::ptr::copy_nonoverlapping(interleaved.as_ptr(), dst, frames * ch);
+            if self.kopf.tx().is_full() {
+                return false;
+            }
+            let Ok(chunk) = self.daten.tx().write_chunk_uninit(samples) else {
+                return false;
+            };
+            let geschrieben = chunk.fill_from_iter(interleaved[..samples].iter().copied());
+            debug_assert_eq!(geschrieben, samples);
+            let _ = self.kopf.tx().push(BlockKopf {
+                samples: samples as u32,
+                chans: chans as u32,
+            });
         }
-        self.chans[slot].store(ch, Relaxed);
-        self.lens[slot].store(frames, Relaxed);
-        self.head.store(head.wrapping_add(1), Release);
         true
     }
 
@@ -205,28 +289,29 @@ impl MultiRing {
     /// einen Frame des Blocks zu klein ist. Die Kanalzahl des Blocks steht
     /// danach in [`MultiRing::last_channels`].
     pub fn pop_block(&self, out: &mut [f32]) -> Option<usize> {
-        let tail = self.tail.load(Relaxed);
-        let head = self.head.load(Acquire);
-        if tail == head {
-            return None;
-        }
-        let slot = tail % self.slots;
-        let ch = self.chans[slot].load(Relaxed).max(2);
-        if out.len() < ch {
-            return None;
-        }
-        let frames = self.lens[slot]
-            .load(Relaxed)
-            .clamp(1, self.frames)
-            .min(out.len() / ch);
-        let base = slot * self.frames * self.pairs * 2;
+        // SAFETY: `pop_block` läuft ausschliesslich im Schreiber-Thread.
         unsafe {
-            let src = self.data.as_ptr().add(base) as *const f32;
-            std::ptr::copy_nonoverlapping(src, out.as_mut_ptr(), frames * ch);
+            let kopf = *self.kopf.rx().peek().ok()?;
+            let chans = kopf.chans.max(2) as usize;
+            if out.len() < chans {
+                return None;
+            }
+            let frames = (kopf.samples as usize / chans).min(out.len() / chans);
+            if frames == 0 {
+                return None;
+            }
+            let samples = frames * chans;
+            {
+                let chunk = self.daten.rx().read_chunk(samples).ok()?;
+                let (a, b) = chunk.as_slices();
+                out[..a.len()].copy_from_slice(a);
+                out[a.len()..a.len() + b.len()].copy_from_slice(b);
+                chunk.commit_all();
+            }
+            let _ = self.kopf.rx().pop();
+            self.last_channels.store(chans, Relaxed);
+            Some(frames)
         }
-        self.last_channels.store(ch, Relaxed);
-        self.tail.store(tail.wrapping_add(1), Release);
-        Some(frames)
     }
 }
 
@@ -512,24 +597,33 @@ mod tests {
         u16::from_le_bytes([b[22], b[23]])
     }
 
-    fn wav_frames(p: &Path) -> u32 {
+    /// (Offset der Nutzlast, Laenge) aus der Chunk-Kette. Der Kopf ist seit
+    /// `hound` nicht mehr zwangslaeufig 44 Byte lang (24 bit und mehr als zwei
+    /// Kanaele ergeben WAVE_FORMAT_EXTENSIBLE, 68 Byte bis `data`), deshalb
+    /// wird die Kette abgelaufen statt feste Offsets gelesen.
+    fn data_chunk(p: &Path) -> (usize, usize) {
         let b = header(p);
-        let ch = wav_kanaele(p) as usize;
-        let bps = 3usize; // Pcm24
         let mut i = 12usize;
         while i + 8 <= b.len() {
             let len = u32::from_le_bytes([b[i + 4], b[i + 5], b[i + 6], b[i + 7]]) as usize;
             if &b[i..i + 4] == b"data" {
-                assert_eq!(
-                    ch * bps * (len / (ch * bps)),
-                    len,
-                    "data-Chunk nicht framealigned"
-                );
-                return (len / (ch * bps)) as u32;
+                return (i + 8, len);
             }
             i += 8 + len + (len & 1);
         }
         panic!("kein data-Chunk in {}", p.display());
+    }
+
+    fn wav_frames(p: &Path) -> u32 {
+        let (_, len) = data_chunk(p);
+        let ch = wav_kanaele(p) as usize;
+        let bps = 3usize; // Pcm24
+        assert_eq!(
+            ch * bps * (len / (ch * bps)),
+            len,
+            "data-Chunk nicht framealigned"
+        );
+        (len / (ch * bps)) as u32
     }
 
     fn warte<F: FnMut() -> bool>(mut f: F, ms: u64) -> bool {
@@ -736,15 +830,15 @@ mod tests {
 
         let dateien = wav_dateien(&dir);
         assert_eq!(dateien.len(), 2, "Dateien: {dateien:?}");
-        // Finalisiert = data-Chunk-Größe passt zur Dateilänge (Kopf gepatcht).
+        // Finalisiert = data-Chunk endet genau am Dateiende (Kopf gepatcht).
         for p in &dateien {
             let b = std::fs::read(p).expect("lesen");
-            let len = b.len();
-            let data = u32::from_le_bytes([b[40], b[41], b[42], b[43]]) as usize;
+            let (off, data) = data_chunk(p);
+            assert_eq!(off + data, b.len(), "{} nicht finalisiert", p.display());
             assert_eq!(
-                data + tape::HEADER_LEN,
-                len,
-                "{} nicht finalisiert",
+                u32::from_le_bytes([b[4], b[5], b[6], b[7]]) as usize + 8,
+                b.len(),
+                "riff_size in {} passt nicht",
                 p.display()
             );
             assert!(wav_frames(p) > 0);
@@ -752,6 +846,96 @@ mod tests {
         assert!(
             s.contains("gestoppt") && s.contains("4 Kanaele"),
             "Status: {s}"
+        );
+    }
+
+    /// Funktionstest der ganzen Kette: 1 kHz-Sinus (Amplitude 0,5) durch
+    /// Mehrspur-Ring und Schreiber, danach die Datei auswerten.
+    ///
+    /// Geprueft wird, was beim Nutzer ankommt: Pegel je Kanal und die
+    /// tatsaechliche Frequenz aus den Nulldurchgaengen.
+    #[test]
+    fn funktionstest_1khz_pegel_und_frequenz() {
+        const SR: u32 = 48_000;
+        const HZ: f32 = 1_000.0;
+        const AMP: f32 = 0.5;
+        let dir = testverzeichnis("1khz");
+        let frames = 2048;
+        let ctl = Arc::new(TapeControl::new(Arc::new(Ring::new(4, frames)), frames));
+        ctl.mehrspurig.store(true, Relaxed);
+        spawn_writer(ctl.clone(), dir.clone(), SR);
+        ctl.recording.store(true, Relaxed);
+        warte_status(&ctl, |s| s.starts_with("rec"), 3000);
+
+        // 0,5 s Sinus, blockweise wie aus dem Audio-Callback (1024 Frames).
+        let gesamt = SR as usize / 2;
+        let mut block = vec![0.0f32; 1024 * 2];
+        let mut phase = 0.0f32;
+        let mut geschrieben = 0usize;
+        while geschrieben < gesamt {
+            let n = 1024.min(gesamt - geschrieben);
+            for i in 0..n {
+                let v = AMP * (2.0 * std::f32::consts::PI * HZ * phase / SR as f32).sin();
+                phase += 1.0;
+                block[i * 2] = v;
+                block[i * 2 + 1] = v;
+            }
+            let mut versuche = 0;
+            while !ctl.multi.push_pairs(&block[..n * 2], 1) {
+                thread::sleep(Duration::from_millis(1));
+                versuche += 1;
+                assert!(
+                    versuche < 5000,
+                    "Ring nimmt nichts an, Status: {:?}",
+                    ctl.status()
+                );
+            }
+            geschrieben += n;
+        }
+        assert!(warte(|| ctl.multi.is_empty(), 5000), "Ring nicht geleert");
+        ctl.recording.store(false, Relaxed);
+        warte_status(&ctl, |s| s.starts_with("gestoppt"), 3000);
+        ctl.shutdown.store(true, Relaxed);
+
+        let dateien = wav_dateien(&dir);
+        assert_eq!(dateien.len(), 1, "{dateien:?}");
+        let p = &dateien[0];
+        let b = header(p);
+        assert_eq!(wav_kanaele(p), 2, "Stereo wie im Callback");
+        let (off, len) = data_chunk(p);
+        assert_eq!(len, geschrieben * 2 * 3, "alle Frames geschrieben");
+
+        // PCM24 auswerten: Vorzeichen erweitern, Pegel und Nulldurchgaenge.
+        let mut peak = 0i32;
+        let mut nullen = 0usize;
+        let mut vorher = 0i32;
+        for i in 0..(len / 3) {
+            let v = i32::from_le_bytes([b[off + i * 3], b[off + i * 3 + 1], b[off + i * 3 + 2], 0]);
+            let v = if v & 0x0080_0000 != 0 {
+                v | !0x00FF_FFFF
+            } else {
+                v
+            };
+            if i % 2 == 0 {
+                // nur linker Kanal
+                peak = peak.max(v.abs());
+                if vorher < 0 && v >= 0 {
+                    nullen += 1;
+                }
+                vorher = v;
+            }
+        }
+        let pegel_db = 20.0 * (peak as f32 / 8_388_607.0).log10();
+        let dauer = geschrieben as f32 / SR as f32;
+        let gemessen_hz = nullen as f32 / dauer;
+        println!("1 kHz: Peak {peak} = {pegel_db:.2} dBFS, {gemessen_hz:.0} Hz");
+        assert!(
+            (pegel_db - (-6.02)).abs() < 0.05,
+            "Pegel {pegel_db:.2} dBFS statt -6,02 (Amplitude 0,5)"
+        );
+        assert!(
+            (gemessen_hz - HZ).abs() < 5.0,
+            "Frequenz {gemessen_hz:.0} Hz statt 1000"
         );
     }
 

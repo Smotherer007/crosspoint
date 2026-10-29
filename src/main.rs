@@ -1,12 +1,14 @@
 //! crosspoint-engine – Einstiegspunkt: JACK-Client, Parameter, Steuer-API.
 
-use std::ffi::c_void;
 use std::path::PathBuf;
+use std::ptr;
 use std::sync::Arc;
 use std::thread;
 
 use crosspoint::engine::{EngineDsp, Io, Params};
-use crosspoint::jack::{self, Jack, Port};
+use crosspoint::jack::{
+    AudioIn, AudioOut, ClosureProcessHandler, Control, Jack, Port, ProcessScope,
+};
 use crosspoint::macros_io::MacroControl;
 use crosspoint::vban_io::{VbanControl, VbanRecvControl};
 use crosspoint::{BUSES, BUS_NAMES, STRIPS};
@@ -14,10 +16,12 @@ use crosspoint::{BUSES, BUS_NAMES, STRIPS};
 struct Rt {
     params: Arc<Params>,
     dsp: EngineDsp,
-    ins: [[*mut Port; 2]; STRIPS],
-    outs: [[*mut Port; 2]; BUSES],
+    /// Ports gehören (seit der Crate `jack`) uns; die Puffer kommen aus dem
+    /// `ProcessScope` des Callbacks.
+    ins: [[Option<Port<AudioIn>>; 2]; STRIPS],
+    outs: [[Option<Port<AudioOut>>; 2]; BUSES],
     /// Ausgangspaare für empfangenes VBAN-Audio (`vban_L`/`vban_R`).
-    vban_out: [*mut Port; 2],
+    vban_out: [Option<Port<AudioOut>>; 2],
     tape: Arc<crosspoint::tape_io::TapeControl>,
     vban: Arc<VbanControl>,
     vban_ring: Arc<crosspoint::tape_io::Ring>,
@@ -36,12 +40,15 @@ impl Rt {
     /// so viele Callbacks verteilt, wie nötig – so bleiben Blockgröße des Rings
     /// und des JACK-Callbacks unabhängig. Ist der Ring leer, wird der Rest des
     /// Puffers still geschrieben. Kein Lock, keine Allokation.
-    fn vban_eingang(&mut self, frames: usize) {
-        let (l, r) = unsafe {
-            (
-                jack::buffer(self.vban_out[0], frames as u32).as_mut_ptr(),
-                jack::buffer(self.vban_out[1], frames as u32).as_mut_ptr(),
-            )
+    fn vban_eingang(&mut self, ps: &ProcessScope, frames: usize) {
+        // Je Port einzeln leihen, die Zeiger sind danach unabhaengig.
+        let l = match self.vban_out[0].as_mut() {
+            Some(p) => p.as_mut_slice(ps).as_mut_ptr(),
+            None => return,
+        };
+        let r = match self.vban_out[1].as_mut() {
+            Some(p) => p.as_mut_slice(ps).as_mut_ptr(),
+            None => return,
         };
         let mut i = 0;
         while i < frames {
@@ -78,24 +85,23 @@ impl Rt {
         }
     }
 
-    fn run(&mut self, frames: usize) {
+    fn run(&mut self, ps: &ProcessScope) {
+        let frames = ps.n_frames() as usize;
         let mut io = Io {
-            ins: [[std::ptr::null(); 2]; STRIPS],
-            outs: [[std::ptr::null_mut(); 2]; BUSES],
+            ins: [[ptr::null(); 2]; STRIPS],
+            outs: [[ptr::null_mut(); 2]; BUSES],
         };
-        unsafe {
-            for s in 0..STRIPS {
-                for c in 0..2 {
-                    if !self.ins[s][c].is_null() {
-                        io.ins[s][c] = jack::buffer(self.ins[s][c], frames as u32).as_ptr();
-                    }
+        for s in 0..STRIPS {
+            for c in 0..2 {
+                if let Some(p) = self.ins[s][c].as_ref() {
+                    io.ins[s][c] = p.as_slice(ps).as_ptr();
                 }
             }
-            for b in 0..BUSES {
-                for c in 0..2 {
-                    if !self.outs[b][c].is_null() {
-                        io.outs[b][c] = jack::buffer(self.outs[b][c], frames as u32).as_mut_ptr();
-                    }
+        }
+        for b in 0..BUSES {
+            for c in 0..2 {
+                if let Some(p) = self.outs[b][c].as_mut() {
+                    io.outs[b][c] = p.as_mut_slice(ps).as_mut_ptr();
                 }
             }
         }
@@ -132,18 +138,10 @@ impl Rt {
         }
 
         // Empfangenes VBAN-Audio auf die beiden Zusatzports legen.
-        if !self.vban_out[0].is_null() && !self.vban_out[1].is_null() {
-            self.vban_eingang(frames);
+        if self.vban_out[0].is_some() && self.vban_out[1].is_some() {
+            self.vban_eingang(ps, frames);
         }
     }
-}
-
-extern "C" fn process_cb(nframes: u32, arg: *mut c_void) -> i32 {
-    let rt = unsafe { &mut *(arg as *mut Rt) };
-    if nframes > 0 {
-        rt.run(nframes as usize);
-    }
-    0
 }
 
 static SHUTDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -191,8 +189,8 @@ fn wire(richtung: &str) {
 fn main() {
     // SIGINT/SIGTERM nur als Merker: die Aufraeumarbeit macht die Hauptschleife.
     unsafe {
-        signal(2, on_signal as usize);
-        signal(15, on_signal as usize);
+        signal(2, on_signal as *const () as usize);
+        signal(15, on_signal as *const () as usize);
     }
     // Einmalige Migration des Konfigurationsverzeichnisses, bevor irgendetwas
     // daraus gelesen wird (~/.config/vm8-linux -> ~/.config/crosspoint).
@@ -232,12 +230,12 @@ fn main() {
         crosspoint::vban_io::RECV_BLOCK_FRAMES,
     ));
     let macroctl = Arc::new(MacroControl::new());
-    let rt: &'static mut Rt = Box::leak(Box::new(Rt {
+    let mut rt = Rt {
         params: params.clone(),
         dsp: EngineDsp::new(2048),
-        ins: [[std::ptr::null_mut(); 2]; STRIPS],
-        outs: [[std::ptr::null_mut(); 2]; BUSES],
-        vban_out: [std::ptr::null_mut(); 2],
+        ins: std::array::from_fn(|_| [None, None]),
+        outs: std::array::from_fn(|_| [None, None]),
+        vban_out: [None, None],
         tape: tape.clone(),
         vban: vban.clone(),
         vban_ring: vban_ring.clone(),
@@ -246,11 +244,9 @@ fn main() {
         vban_pos: 0,
         vban_len: 0,
         scratch: vec![0.0f32; 2048 * 2],
-    }));
+    };
 
-    // SAFETY: `rt` liegt in einer Arc, die bis zum Programmende gehalten wird
-    // (siehe unten) - der Zeiger bleibt also gueltig, solange der Client lebt.
-    let jack = match unsafe { Jack::open(&client_name, process_cb, rt as *mut Rt as *mut c_void) } {
+    let jack = match Jack::open(&client_name) {
         Ok(j) => j,
         Err(e) => {
             eprintln!("JACK/PipeWire: {e}");
@@ -264,39 +260,56 @@ fn main() {
     params
         .block
         .store(jack.block, std::sync::atomic::Ordering::Relaxed);
+    let server_name = jack.name.clone();
+    let sample_rate = jack.sample_rate;
     println!(
-        "Client '{}' verbunden: {} Hz, Block {} Frames",
-        jack.name, jack.sample_rate, jack.block
+        "Client '{server_name}' verbunden: {sample_rate} Hz, Block {} Frames",
+        jack.block
     );
 
     for s in 0..STRIPS {
-        let l = jack.port_in(&format!("strip{}_L", s + 1)).expect("Port");
-        let r = jack.port_in(&format!("strip{}_R", s + 1)).expect("Port");
-        rt.ins[s] = [l, r];
+        rt.ins[s] = [
+            Some(jack.port_in(&format!("strip{}_L", s + 1)).expect("Port")),
+            Some(jack.port_in(&format!("strip{}_R", s + 1)).expect("Port")),
+        ];
     }
     for b in 0..BUSES {
-        let l = jack
-            .port_out(&format!("bus{}_L", BUS_NAMES[b]))
-            .expect("Port");
-        let r = jack
-            .port_out(&format!("bus{}_R", BUS_NAMES[b]))
-            .expect("Port");
-        rt.outs[b] = [l, r];
+        rt.outs[b] = [
+            Some(
+                jack.port_out(&format!("bus{}_L", BUS_NAMES[b]))
+                    .expect("Port"),
+            ),
+            Some(
+                jack.port_out(&format!("bus{}_R", BUS_NAMES[b]))
+                    .expect("Port"),
+            ),
+        ];
     }
     // Zusatz-Ausgänge für empfangenes VBAN-Audio. Sie werden wie ein
     // Hardware-Eingang per pw-link auf einen Streifen gelegt, z. B.
     //   pw-link crosspoint:vban_L crosspoint:strip1_L
     //   pw-link crosspoint:vban_R crosspoint:strip1_R
     rt.vban_out = [
-        jack.port_out("vban_L").expect("Port"),
-        jack.port_out("vban_R").expect("Port"),
+        Some(jack.port_out("vban_L").expect("Port")),
+        Some(jack.port_out("vban_R").expect("Port")),
     ];
-    if let Err(e) = jack.activate() {
-        eprintln!("{e}");
-        std::process::exit(1);
-    }
 
-    println!("\nPorts ({}:<name>):", jack.name);
+    // Ab `activate` ruft JACK `run` je Block auf. Der `AsyncClient` hält den
+    // Client bis zum Programmende; danach wird er deaktiviert und geschlossen.
+    let _client = match jack.activate(ClosureProcessHandler::new(
+        move |_c: &crosspoint::jack::Client, ps: &ProcessScope| {
+            rt.run(ps);
+            Control::Continue
+        },
+    )) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+
+    println!("\nPorts ({server_name}:<name>):");
     for s in 0..STRIPS {
         println!("  strip{}_L / strip{}_R", s + 1, s + 1);
     }
@@ -309,9 +322,9 @@ fn main() {
     let preset = preset_path();
     let tape_dir = preset.with_file_name("tape");
     let _ = std::fs::create_dir_all(&tape_dir);
-    crosspoint::tape_io::spawn_writer(tape.clone(), tape_dir, jack.sample_rate);
+    crosspoint::tape_io::spawn_writer(tape.clone(), tape_dir, sample_rate);
 
-    crosspoint::vban_io::spawn_sender(vban.clone(), vban_ring.clone(), jack.sample_rate);
+    crosspoint::vban_io::spawn_sender(vban.clone(), vban_ring.clone(), sample_rate);
     crosspoint::vban_io::spawn_empfaenger(vban_recv.clone(), vban_recv_ring.clone());
 
     // Macro-Kommandos aus der UI auf die Parameter anwenden.
@@ -362,6 +375,13 @@ fn main() {
 
     wire("up");
 
+    // OSC-Eingang: `/strip/<n>/<param>` und `/bus/<n>/<param>` landen über
+    // dieselbe Funktion wie `/api/set` in den Parametern (für MIDIMonster).
+    let osc_halt = crosspoint::osc::spawn(params.clone());
+    // Effekt-Host: mod-host/Carla als betreuter Kindprozess (fehlt er, nur
+    // eine Logzeile, die Engine läuft weiter).
+    crosspoint::fx::spawn(params.clone());
+
     // Jetzt stehen die Busports im Graphen: gemerkte Zuordnungen anwenden.
     if crosspoint::restore::deaktiviert() {
         println!("Wiederherstellen abgeschaltet (CROSSPOINT_NO_RESTORE)");
@@ -409,6 +429,7 @@ fn main() {
     }
 
     eprintln!("beende: virtuelle Geraete werden entfernt");
+    osc_halt.anhalten();
     wire("down");
 }
 

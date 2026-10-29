@@ -44,12 +44,46 @@ finish-args:
   # schreiben und wieder entfernen - POST /api/autostart.
   - --filesystem=xdg-config/autostart:create
 
-# Kein Rust im Flatpak-Build: die Engine wird im CI-Job "Tarball" gebaut und
-# hier als fertiges Binary eingesetzt (prebuilt/crosspoint-engine). Die
-# GNOME-Runtime stellt keine rust-Extension bereit (flathub kennt
-# org.gnome.Sdk.Extension.rust-stable nicht), und Rust im Container
-# nachzuinstallieren waere ein eigener Fehlerherd.
+# Kein Rust im Flatpak-Build: die Engine wird im CI-Job "Test" gebaut und hier
+# als fertiges Binary eingesetzt (prebuilt/crosspoint-engine). Die GNOME-Runtime
+# bringt keine rust-Extension mit, und Rust im Container nachzuinstallieren
+# waere ein eigener Fehlerherd.
+#
+# Die Cargo-Abhaengigkeiten der Engine sind trotzdem eingefroren: der erste
+# Modul unten laedt `flatpak/new-sources.json` (erzeugt mit
+# flatpak-cargo-generator.py aus flatpak-builder-tools aus Cargo.lock) als
+# Quellen. Damit prueft flatpak-builder beim Bau jede Pruefsumme; fehlt ein
+# Paket, bricht der Bau ab. Ein Rust-Bau im Sandkasten wuerde dieselben
+# Verzeichnisse als `[source.vendored-sources] directory = "vendor"` benutzen.
 modules:
+  # Eingefrorene Cargo-Quellen: nur Pruefung, nichts wird installiert.
+  # (101 Pakete, Stand: siehe flatpak/new-sources.json; entpackt nach
+  #  cargo/vendor/<name>-<version>, wie `cargo vendor` es erwartet.)
+  - name: cargo-quellen
+    buildsystem: simple
+    build-commands:
+      - |
+        # `set -e`: ein fehlendes Paket muss den Bau abbrechen, nicht nur eine
+        # Zeile im Log hinterlassen.
+        set -eu
+        # Je Paket stehen zwei Eintraege in der Liste (Archiv + Pruefsummen-
+        # Datei); gezaehlt werden die Archive, je eines pro Verzeichnis.
+        anzahl=$(grep -c '"type": "archive"' new-sources.json)
+        gefunden=$(ls -d cargo/vendor/*/ | wc -l)
+        echo "Cargo-Quellen: $gefunden von $anzahl eingefrorenen Paketen entpackt"
+        test "$anzahl" -gt 0
+        test "$gefunden" -eq "$anzahl"
+        echo "Vendored-Sources: $(ls -d cargo/vendor)"
+    sources:
+      # Als Quellenliste: flatpak-builder laedt jede Datei, prueft die
+      # Pruefsumme und entpackt sie nach cargo/vendor/<name>-<version>.
+      - new-sources.json
+      # Zusaetzlich als Datei, damit der Zaehlschritt unten die Liste selbst
+      # lesen kann (eine Quellenliste wird nicht in das Bauverzeichnis kopiert).
+      - type: file
+        path: new-sources.json
+
+
   - name: crosspoint
     buildsystem: simple
     build-commands:
@@ -83,6 +117,7 @@ modules:
           - .git
           - target
           - build-dir
+          - flatpak
           - crates/macros/target
           - crates/tape/target
           - crates/vban/target

@@ -1,7 +1,9 @@
 # Crosspoint
 
 8×8-Mixer für PipeWire/JACK in Rust: 8 Streifen, 8 Busse (A1–A5 Hardware, B1–B3
-virtuell), ohne Kernelmodul und ohne Fremd-Crates. Die Engine ist ein
+virtuell), ohne Kernelmodul. Die Infrastruktur kommt aus etablierten Crates
+(JSON: `serde_json`, HTTP/WebSocket: `tiny_http` + `tungstenite`, WAV: `hound`,
+Ring: `rtrb`, JACK: `jack`) - siehe `docs/08-refactor-bibliotheken.md`. Die Engine ist ein
 JACK-Client; die Oberfläche läuft als Web-App auf `127.0.0.1:8770` und wird als
 eigenes Fenster gestartet.
 
@@ -28,7 +30,7 @@ Hashes sind reine Analysebelege.
 | Steuer-API + UI (`src/http.rs`, `web/`) | JSON-API, Web-Oberfläche, Presets |
 | VBAN (`crates/vban`, `src/vban_io.rs`) | Sender/Empfänger, VBAN-kompatibel in beiden Richtungen |
 | Tape (`crates/tape`, `src/tape_io.rs`) | Bandmaschine mit WAV-Mitschnitt |
-| Tests | `cargo test --release --workspace`: 124 im Hauptcrate, 94 in den path-Crates, alle grün |
+| Tests | `cargo test --release --workspace`: 189 im Hauptcrate, 94 in den path-Crates, alle grün |
 
 Gemessen (nicht behauptet): 1-kHz-Sinus −6 dBFS durch Streifen 1 → Bus A1 ergibt
 −6,00 dBFS; Gain −12 dB → −18,00 dBFS; Mute → Stille; Routing A1→A2 wandert;
@@ -135,12 +137,30 @@ curl http://127.0.0.1:8770/api/restore   # {"devices":n,"inputs":n,"preset":bool
 curl -X POST http://127.0.0.1:8770/api/restore -d '{"preset":true,"devices":true,"inputs":false}'
 curl http://127.0.0.1:8770/api/autostart # {"enabled":…,"path":…,"exec":…}
 curl -X POST http://127.0.0.1:8770/api/autostart -d '{"enabled":true}'
+curl http://127.0.0.1:8770/api/vban/config   # Sende-/Empfangsweg + beide Tabellen
+curl -X POST http://127.0.0.1:8770/api/vban/config \
+     -d '{"senden":{"an":true,"host":"192.168.1.255","port":6980,"stream":"CROSSPOINT"},"empfangen":{"an":true,"port":6980}}'
+curl -X POST http://127.0.0.1:8770/api/vban/config -d '{"action":"save"}'   # auch "load" und "reset"
 ```
 
 Parameter: `gain`, `pan`, `mute`, `solo`, `mono`, `eq`, `comp`, `gate`, `denoiser`,
 `send0..send7`, `eq<zelle>_on|type|freq|q|gain`, `comp_threshold|ratio|attack|release|knee`,
 `gate_threshold|attack|hold|release`; Busse: `gain`, `mute`, `mono`, `eq`, `limiter`,
 `trim`, `delay`. Die Engine hat keine Authentifizierung und lauscht nur auf `127.0.0.1`.
+
+**Anzeigenamen:** Streifen und Busse tragen auf Wunsch einen eigenen Namen. Der
+Wert ist Text, nicht Zahl; ein leerer Text setzt wieder `HW In 1`/`A1`:
+
+```bash
+curl -X POST http://127.0.0.1:8770/api/set \
+     -d '{"target":"strip","index":0,"param":"label","value":"Gesang"}'
+curl -X POST http://127.0.0.1:8770/api/set \
+     -d '{"target":"bus","index":0,"param":"label","value":"Monitor"}'
+```
+
+In der Oberfläche genügt ein Doppelklick auf den Namen im Kanalzug. Der Name
+steht im Preset (`label` je Streifen/Bus) und kommt beim Wiederherstellen zurück.
+Erlaubt sind bis zu 24 Zeichen ohne Steuerzeichen.
 
 ## Flatpak
 

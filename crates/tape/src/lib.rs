@@ -1,7 +1,9 @@
 //! # tape - Tape-Recorder fuer den Mixer
 //!
-//! Eigenstaendiges Crate (nur `std`, keine externen Abhaengigkeiten), das
-//! interleaved f32-Audiobloecke als WAV auf Platte schreibt. Es kennt keine
+//! Eigenstaendiges Crate, das interleaved f32-Audiobloecke als WAV auf Platte
+//! schreibt. Den RIFF-Kopf und das Nachpatchen der Groessen macht **`hound`**
+//! (die einzige Abhaengigkeit); die Zustandsmaschine, Rotation, Benennung und
+//! Metadaten bleiben hier. Es kennt keine
 //! Typen des Haupt-Crates `crosspoint`; die Anbindung passiert ausschliesslich ueber
 //! die unten dokumentierte API mit primitiven Typen.
 //!
@@ -21,9 +23,9 @@
 //! * `write_block` nimmt einen Block interleaved f32 (`frames * channels`
 //!   Samples, 0.0 = Stille, 1.0 = Vollaussteuerung). Die Laenge muss kein
 //!   Vielfaches der Kanalzahl sein; ein angefangenes Frame wird gehalten.
-//!   Im Hotpath wird **nicht allokiert**: kodiert wird in einen bei `start`
-//!   vorallokierten Byte-Puffer, geschrieben ueber einen [`std::io::BufWriter`].
-//! * `stop` patcht den RIFF-Kopf (Groessen, Pad-Byte) und liefert die
+//!   Im Hotpath wird **nicht allokiert**: die Samples gehen einzeln in den
+//!   `hound`-Schreiber, der in einen [`std::io::BufWriter`] schreibt.
+//! * `stop` laesst `hound` den Kopf finalisieren und liefert die
 //!   [`RecordingMeta`] mit Samplerate, Kanaelen, Startzeit, Frames und Peak.
 //!
 //! Zustandsmaschine: [`State::Idle`] -> `Recording` -> [`State::Stopped`].
@@ -68,7 +70,7 @@ mod wav;
 
 pub use meta::{FileMeta, RecordingMeta};
 pub use recorder::{Tape, MAX_CHANNELS};
-pub use wav::HEADER_LEN;
+pub use wav::block_align;
 
 use std::fmt;
 use std::io;
@@ -181,6 +183,8 @@ pub enum TapeError {
     UngueltigeKonfiguration(String),
     /// Kein verwertbarer Zielpfad uebergeben.
     KeinZielpfad,
+    /// Fehler des WAV-Schreibers (`hound`).
+    Wav(hound::Error),
 }
 
 impl fmt::Display for TapeError {
@@ -192,6 +196,7 @@ impl fmt::Display for TapeError {
             }
             TapeError::UngueltigeKonfiguration(s) => write!(f, "ungueltige Konfiguration: {s}"),
             TapeError::KeinZielpfad => f.write_str("kein Zielpfad angegeben"),
+            TapeError::Wav(e) => write!(f, "WAV-Fehler: {e}"),
         }
     }
 }
@@ -200,6 +205,7 @@ impl std::error::Error for TapeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             TapeError::Io(e) => Some(e),
+            TapeError::Wav(e) => Some(e),
             _ => None,
         }
     }
@@ -208,5 +214,11 @@ impl std::error::Error for TapeError {
 impl From<io::Error> for TapeError {
     fn from(e: io::Error) -> Self {
         TapeError::Io(e)
+    }
+}
+
+impl From<hound::Error> for TapeError {
+    fn from(e: hound::Error) -> Self {
+        TapeError::Wav(e)
     }
 }

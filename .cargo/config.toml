@@ -1,0 +1,8 @@
+# Bauumgebung des Repos.
+#
+# `jack-sys` (Crate `jack`) sucht beim Bauen per pkg-config nach `jack`. Auf
+# Bazzite und in der Flatpak-Runtime gibt es kein `jack.pc`, weil JACK selbst
+# nicht installiert ist - die ABI liefert PipeWire. Der Ersatz liegt im Repo,
+# damit `cargo build` ohne Shell-Vorbereitung funktioniert.
+[env]
+PKG_CONFIG_PATH = { value = "packaging/pkgconfig", relative = true }

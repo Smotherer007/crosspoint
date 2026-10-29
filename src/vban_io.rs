@@ -185,6 +185,8 @@ pub fn pruefe_host(host: &str) -> Result<(), String> {
 pub struct VbanControl {
     enabled: AtomicBool,
     gesendete_frames: AtomicU64,
+    /// Zaehler der gemeldeten Fehler (fuer die Spalte „Errors“ im Dialog).
+    fehler_anzahl: AtomicU64,
     letzter_fehler: Mutex<String>,
     konfig: Mutex<VbanKonfig>,
 }
@@ -206,6 +208,7 @@ impl VbanControl {
         VbanControl {
             enabled: AtomicBool::new(false),
             gesendete_frames: AtomicU64::new(0),
+            fehler_anzahl: AtomicU64::new(0),
             letzter_fehler: Mutex::new(String::new()),
             konfig: Mutex::new(konfig),
         }
@@ -245,11 +248,36 @@ impl VbanControl {
     }
 
     /// Fehlertext setzen (leerer String löscht ihn).
+    ///
+    /// Jeder **neue** Fehlertext zählt mit – nicht jeder Aufruf, damit ein
+    /// stehenbleibender Text die Spalte „Errors“ nicht inflationär füllt.
     pub fn set_fehler(&self, s: impl Into<String>) {
+        let s = s.into();
         match self.letzter_fehler.lock() {
-            Ok(mut g) => *g = s.into(),
-            Err(e) => *e.into_inner() = s.into(),
+            Ok(mut g) => {
+                if !s.is_empty() && *g != s {
+                    self.fehler_anzahl.fetch_add(1, Relaxed);
+                }
+                *g = s;
+            }
+            Err(e) => {
+                let mut g = e.into_inner();
+                if !s.is_empty() && *g != s {
+                    self.fehler_anzahl.fetch_add(1, Relaxed);
+                }
+                *g = s;
+            }
         }
+    }
+
+    /// Anzahl gemeldeter Fehler (Spalte „Errors“ der Ausgangstabelle).
+    pub fn fehler(&self) -> u64 {
+        self.fehler_anzahl.load(Relaxed)
+    }
+
+    /// Fehlerzähler setzen (nur Tests).
+    pub fn setze_fehler_anzahl(&self, n: u64) {
+        self.fehler_anzahl.store(n, Relaxed);
     }
 
     /// Aktuelle Konfiguration (Kopie).
@@ -695,6 +723,23 @@ fn lin_db(x: f32) -> f32 {
     ((db * 10.0).round() / 10.0).max(-120.0)
 }
 
+/// Eine Gegenstelle, von der Pakete ankommen (Zeile der Eingangstabelle).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Quelle {
+    /// Streamname aus dem VBAN-Header.
+    pub stream: String,
+    /// Quell-IP des Absenders.
+    pub ip: String,
+    /// Abtastrate aus dem Header.
+    pub sample_rate: u32,
+    /// Kanalzahl im Paket.
+    pub kanaele: u16,
+    /// Angenommene Pakete dieses Absenders.
+    pub packets: u64,
+    /// Für diese Gegenstelle verworfene Pakete.
+    pub errors: u64,
+}
+
 /// Steuerung und Zähler des Empfangswegs.
 ///
 /// Alles, was der Empfänger-Thread und der HTTP-Handler gemeinsam brauchen,
@@ -709,7 +754,12 @@ pub struct VbanRecvControl {
     level: [AtomicU32; 2],
     stream: Mutex<String>,
     fehler: Mutex<String>,
+    /// Zuletzt gesehene Absender, höchstens [`MAX_QUELLEN`] Einträge.
+    quellen: Mutex<Vec<Quelle>>,
 }
+
+/// So viele Absender zeigt die Eingangstabelle höchstens.
+pub const MAX_QUELLEN: usize = 8;
 
 impl Default for VbanRecvControl {
     fn default() -> Self {
@@ -731,6 +781,7 @@ impl VbanRecvControl {
             ],
             stream: Mutex::new(String::new()),
             fehler: Mutex::new(String::new()),
+            quellen: Mutex::new(Vec::new()),
         }
     }
 
@@ -830,6 +881,31 @@ impl VbanRecvControl {
         self.dropped.store(dropped, Relaxed);
     }
 
+    /// Einen Fehler einer Gegenstelle zuordnen (die Errors-Spalte je Zeile).
+    fn notiere_fehler(&self, ip: &str) {
+        if ip.is_empty() {
+            return;
+        }
+        let Ok(mut liste) = self.quellen.lock() else {
+            return;
+        };
+        if let Some(q) = liste.iter_mut().find(|q| q.ip == ip) {
+            q.errors += 1;
+            return;
+        }
+        if liste.len() >= MAX_QUELLEN {
+            liste.remove(0);
+        }
+        liste.push(Quelle {
+            stream: "?".into(),
+            ip: ip.to_string(),
+            sample_rate: 0,
+            kanaele: 0,
+            packets: 0,
+            errors: 1,
+        });
+    }
+
     fn zaehle_paket(&self) {
         self.packets.fetch_add(1, Relaxed);
     }
@@ -869,17 +945,30 @@ impl VbanRecvControl {
     /// Ein Datagramm verarbeiten: prüfen, filtern, zählen, in den Ring legen.
     ///
     /// Ohne Socket – so ist der ganze Weg (Header-Prüfung, Filter, Zähler,
-    /// Ring) im Unit-Test prüfbar.
+    /// Ring) im Unit-Test prüfbar. Die Quell-IP bleibt hier leer.
     pub fn verarbeite(
         &self,
         sammler: &mut Sammler,
         ring: &Ring,
         bytes: &[u8],
     ) -> Result<Empfangsframe, RecvFehler> {
+        self.verarbeite_von(sammler, ring, bytes, "")
+    }
+
+    /// Wie [`VbanRecvControl::verarbeite`], merkt sich aber zusätzlich die
+    /// Gegenstelle (`ip`) für die Eingangstabelle des Dialogs.
+    pub fn verarbeite_von(
+        &self,
+        sammler: &mut Sammler,
+        ring: &Ring,
+        bytes: &[u8],
+        ip: &str,
+    ) -> Result<Empfangsframe, RecvFehler> {
         let frame = match parse_empfang(bytes) {
             Ok(f) => f,
             Err(e) => {
                 self.zaehle_verworfen();
+                self.notiere_fehler(ip);
                 self.set_fehler(format!("verworfen: {e}"));
                 return Err(e);
             }
@@ -890,16 +979,57 @@ impl VbanRecvControl {
                 stream: frame.stream.clone(),
             };
             self.zaehle_verworfen();
+            self.notiere_fehler(ip);
             self.set_fehler(format!("verworfen: '{filter}' != '{}'", frame.stream));
             return Err(e);
         }
         self.zaehle_paket();
         self.melde_pegel(&frame.samples);
+        self.notiere_quelle(ip, &frame);
         let (_, verloren) = sammler.schiebe(ring, &frame.samples);
         for _ in 0..verloren {
             self.zaehle_verworfen();
         }
         Ok(frame)
+    }
+
+    /// Gegenstelle fortschreiben: neue Zeile oder Zähler der bekannten erhöhen.
+    fn notiere_quelle(&self, ip: &str, frame: &Empfangsframe) {
+        if ip.is_empty() {
+            return;
+        }
+        let Ok(mut liste) = self.quellen.lock() else {
+            return;
+        };
+        let rate = frame.sample_rate.hz();
+        if let Some(q) = liste
+            .iter_mut()
+            .find(|q| q.ip == ip && q.stream == frame.stream)
+        {
+            q.packets += 1;
+            q.sample_rate = rate;
+            q.kanaele = frame.kanaele;
+            return;
+        }
+        if liste.len() >= MAX_QUELLEN {
+            liste.remove(0);
+        }
+        liste.push(Quelle {
+            stream: frame.stream.clone(),
+            ip: ip.to_string(),
+            sample_rate: rate,
+            kanaele: frame.kanaele,
+            packets: 1,
+            errors: 0,
+        });
+    }
+
+    /// Zuletzt gesehene Gegenstellen (für `GET /api/vban/config`).
+    pub fn quellen(&self) -> Vec<Quelle> {
+        self.quellen
+            .lock()
+            .map(|q| q.clone())
+            .unwrap_or_else(|e| e.into_inner().clone())
     }
 
     /// JSON für `GET /api/vban/recv`.
@@ -982,9 +1112,10 @@ pub fn spawn_empfaenger(ctl: Arc<VbanRecvControl>, ring: Arc<Ring>) -> thread::J
             if let Some(s) = sock.as_ref() {
                 loop {
                     match s.recv_from(&mut buf) {
-                        Ok((n, _src)) => {
+                        Ok((n, src)) => {
                             empfangen += 1;
-                            let _ = ctl.verarbeite(&mut sammler, &ring, &buf[..n]);
+                            let ip = src.ip().to_string();
+                            let _ = ctl.verarbeite_von(&mut sammler, &ring, &buf[..n], &ip);
                         }
                         Err(e)
                             if e.kind() == std::io::ErrorKind::WouldBlock
@@ -1009,6 +1140,212 @@ pub fn spawn_empfaenger(ctl: Arc<VbanRecvControl>, ring: Arc<Ring>) -> thread::J
             }
         }
     })
+}
+
+/* ==================================================================
+Konfiguration für den Dialog „IP Audio Network Configuration“
+================================================================== */
+
+/// Ziel der empfangenen Streams im Pult. Die Engine legt empfangenes
+/// VBAN-Audio auf die beiden Zusatzports; von dort verdrahtet der Nutzer es
+/// per `pw-link` auf einen Streifen.
+pub const ZIEL_EINGANG: &str = "vban_L/R";
+
+/// Anteil in Prozent für die Spalte „Quality“.
+///
+/// Ohne Verkehr gibt es keine Aussage: dann steht ein Gedankenstrich, keine
+/// erfundene 100 %.
+fn prozent(gut: u64, schlecht: u64) -> String {
+    let gesamt = gut.saturating_add(schlecht);
+    if gesamt == 0 {
+        return "–".to_string();
+    }
+    let p = (gut as f64 * 100.0 / gesamt as f64).round() as u32;
+    format!("{p}%")
+}
+
+/// Alles, was der VBAN-Dialog zeigt: Sende- und Empfangsweg, Incoming- und
+/// Outgoing-Tabelle.
+pub fn konfig_json(send: &VbanControl, recv: &VbanRecvControl, sample_rate: u32) -> String {
+    let k = send.konfig();
+    let senden = Value::obj(vec![
+        ("an", Value::Bool(send.enabled())),
+        ("host", Value::Str(k.host.clone())),
+        ("port", Value::Num(f64::from(k.port))),
+        ("stream", Value::Str(k.stream.clone())),
+        ("frames", Value::Num(send.gesendete_frames() as f64)),
+        ("fehler", Value::Num(send.fehler() as f64)),
+        ("letzter_fehler", Value::Str(send.letzter_fehler())),
+    ]);
+    let empfangen = Value::obj(vec![
+        ("an", Value::Bool(recv.enabled())),
+        ("port", Value::Num(f64::from(recv.port()))),
+        ("stream", Value::Str(recv.stream())),
+        ("pakete", Value::Num(recv.packets() as f64)),
+        ("verworfen", Value::Num(recv.dropped() as f64)),
+        ("letzter_fehler", Value::Str(recv.letzter_fehler())),
+    ]);
+    let incoming: Vec<Value> = recv
+        .quellen()
+        .into_iter()
+        .map(|q| {
+            Value::obj(vec![
+                ("stream", Value::Str(q.stream)),
+                ("ip", Value::Str(q.ip)),
+                ("sr", Value::Num(f64::from(q.sample_rate))),
+                ("ch", Value::Num(f64::from(q.kanaele))),
+                ("format", Value::Str("FLOAT32".into())),
+                ("quality", Value::Str(prozent(q.packets, q.errors))),
+                ("ziel", Value::Str(ZIEL_EINGANG.into())),
+                ("errors", Value::Num(q.errors as f64)),
+            ])
+        })
+        .collect();
+    // Die Ausgangszeile steht immer: sie zeigt das eingestellte Ziel, auch
+    // wenn gerade nichts gesendet wird.
+    let outgoing = vec![Value::obj(vec![
+        ("source", Value::Str("Bus A1".into())),
+        ("stream", Value::Str(k.stream.clone())),
+        ("ip", Value::Str(k.host.clone())),
+        ("sr", Value::Num(f64::from(sample_rate))),
+        ("ch", Value::Num(2.0)),
+        ("format", Value::Str("FLOAT32".into())),
+        (
+            "quality",
+            Value::Str(prozent(send.gesendete_frames(), send.fehler())),
+        ),
+        ("errors", Value::Num(send.fehler() as f64)),
+    ])];
+    Value::obj(vec![
+        ("senden", senden),
+        ("empfangen", empfangen),
+        ("samplerate", Value::Num(f64::from(sample_rate))),
+        ("incoming", Value::Arr(incoming)),
+        ("outgoing", Value::Arr(outgoing)),
+    ])
+    .to_json()
+}
+
+/// Sende- und Empfangsweg aus einem JSON setzen.
+///
+/// Erst prüfen, dann setzen: ein ungültiger Port lässt die übrigen Felder
+/// unangetastet, statt halb übernommen zu werden.
+pub fn wende_konfig_an(
+    send: &VbanControl,
+    recv: &VbanRecvControl,
+    v: &Value,
+) -> Result<(), String> {
+    let text = |o: &Value, k: &str| {
+        o.get(k).and_then(|x| match x {
+            Value::Str(s) => Some(s.clone()),
+            _ => None,
+        })
+    };
+    let zahl = |o: &Value, k: &str| o.get(k).and_then(|x| x.as_f64());
+    let an = |o: &Value, k: &str| o.get(k).and_then(|x| x.as_bool());
+
+    if let Some(sd) = v.get("senden") {
+        let k = send.konfig();
+        let host = text(sd, "host").unwrap_or(k.host);
+        let port = zahl(sd, "port")
+            .map(|p| p as u32)
+            .unwrap_or(u32::from(k.port));
+        let stream = text(sd, "stream").unwrap_or(k.stream);
+        let port = pruefe_port_wert(port)?;
+        send.set(&host, u32::from(port), &stream)?;
+        if let Some(w) = an(sd, "an") {
+            send.set_enabled(w);
+        }
+    }
+    if let Some(ed) = v.get("empfangen") {
+        let port = zahl(ed, "port")
+            .map(|p| p as u32)
+            .unwrap_or(u32::from(recv.port()));
+        let port = pruefe_port_wert(port)?;
+        if let Some(stream) = text(ed, "stream") {
+            recv.set_stream(&stream)?;
+        }
+        recv.set_port(u32::from(port))?;
+        if let Some(w) = an(ed, "an") {
+            recv.set_enabled(w);
+        }
+    }
+    Ok(())
+}
+
+/// Standardwerte: aus, 127.0.0.1:6980, Stream `crosspointbusA1`, Empfang aus.
+pub fn setze_standard(send: &VbanControl, recv: &VbanRecvControl) {
+    send.set_enabled(false);
+    let _ = send.set(
+        &VbanKonfig::default().host,
+        u32::from(VbanKonfig::default().port),
+        &VbanKonfig::default().stream,
+    );
+    recv.set_enabled(false);
+    let _ = recv.set_stream("");
+    let _ = recv.set_port(u32::from(RECV_PORT_STANDARD));
+}
+
+/// Konfigurationsdatei des Dialogs (`~/.config/crosspoint/vban.json`).
+pub fn konfig_pfad() -> std::path::PathBuf {
+    crate::pfade::datei("vban.json")
+}
+
+/// Sende- und Empfangsweg sichern.
+pub fn speichere_konfig(send: &VbanControl, recv: &VbanRecvControl) -> Result<(), String> {
+    speichere_konfig_nach(send, recv, &konfig_pfad())
+}
+
+/// Wie [`speichere_konfig`], aber an einem beliebigen Pfad (Tests).
+pub fn speichere_konfig_nach(
+    send: &VbanControl,
+    recv: &VbanRecvControl,
+    pfad: &std::path::Path,
+) -> Result<(), String> {
+    if let Some(dir) = pfad.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("{} nicht anlegbar: {e}", dir.display()))?;
+    }
+    let k = send.konfig();
+    let datei = Value::obj(vec![
+        (
+            "senden",
+            Value::obj(vec![
+                ("an", Value::Bool(send.enabled())),
+                ("host", Value::Str(k.host)),
+                ("port", Value::Num(f64::from(k.port))),
+                ("stream", Value::Str(k.stream)),
+            ]),
+        ),
+        (
+            "empfangen",
+            Value::obj(vec![
+                ("an", Value::Bool(recv.enabled())),
+                ("port", Value::Num(f64::from(recv.port()))),
+                ("stream", Value::Str(recv.stream())),
+            ]),
+        ),
+    ]);
+    std::fs::write(pfad, datei.to_json())
+        .map_err(|e| format!("{} nicht schreibbar: {e}", pfad.display()))
+}
+
+/// Gesicherte Konfiguration laden und anwenden.
+pub fn lade_konfig(send: &VbanControl, recv: &VbanRecvControl) -> Result<(), String> {
+    lade_konfig_von(send, recv, &konfig_pfad())
+}
+
+/// Wie [`lade_konfig`], aber von einem beliebigen Pfad (Tests).
+pub fn lade_konfig_von(
+    send: &VbanControl,
+    recv: &VbanRecvControl,
+    pfad: &std::path::Path,
+) -> Result<(), String> {
+    let text = std::fs::read_to_string(pfad)
+        .map_err(|e| format!("{} nicht lesbar: {e}", pfad.display()))?;
+    let v =
+        crate::json::parse(&text).map_err(|e| format!("{} ist kein JSON: {e}", pfad.display()))?;
+    wende_konfig_an(send, recv, &v)
 }
 
 #[cfg(test)]
@@ -1610,5 +1947,163 @@ mod tests {
         }
         thread::sleep(Duration::from_millis(100));
         assert_eq!(c.packets(), stand, "ausgeschaltet zählt nichts mehr");
+    }
+
+    /* ---------- Dialog-Konfiguration ---------- */
+
+    fn testpfad(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("crosspoint-vban-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d.join("vban.json")
+    }
+
+    #[test]
+    fn konfig_json_hat_beide_tabellen_und_alle_spalten() {
+        let send = VbanControl::new();
+        let recv = VbanRecvControl::new();
+        let j = konfig_json(&send, &recv, 48_000);
+        let v = crate::json::parse(&j).expect("JSON");
+        assert!(v.get("senden").is_some(), "senden fehlt");
+        assert!(v.get("empfangen").is_some(), "empfangen fehlt");
+        assert_eq!(v.get("samplerate").and_then(|x| x.as_f64()), Some(48_000.0));
+
+        // Ausgangszeile: alle Spalten der Original-Tabelle.
+        let out = v
+            .get("outgoing")
+            .and_then(|x| x.as_arr())
+            .expect("outgoing");
+        assert_eq!(out.len(), 1);
+        for key in [
+            "source", "stream", "ip", "sr", "ch", "format", "quality", "errors",
+        ] {
+            assert!(out[0].get(key).is_some(), "Spalte {key} fehlt: {j}");
+        }
+        assert_eq!(
+            out[0].get("source").and_then(|x| match x {
+                Value::Str(s) => Some(s.as_str()),
+                _ => None,
+            }),
+            Some("Bus A1")
+        );
+        assert_eq!(out[0].get("sr").and_then(|x| x.as_f64()), Some(48_000.0));
+
+        // Ohne Empfang ist die Eingangstabelle leer, nicht erfunden.
+        assert_eq!(v.get("incoming").and_then(|x| x.as_arr()).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn konfig_rundlauf_setzen_und_lesen() {
+        let send = VbanControl::new();
+        let recv = VbanRecvControl::new();
+        let v = crate::json::parse(
+            r#"{"senden":{"an":true,"host":"192.168.1.255","port":6981,"stream":"TESTSTREAM"},
+                "empfangen":{"an":true,"port":6982,"stream":"INCOMING"}}"#,
+        )
+        .unwrap();
+        wende_konfig_an(&send, &recv, &v).expect("gültig");
+        assert!(send.enabled() && recv.enabled());
+        assert_eq!(send.konfig().host, "192.168.1.255");
+        assert_eq!(send.konfig().port, 6981);
+        assert_eq!(send.konfig().stream, "TESTSTREAM");
+        assert_eq!(recv.port(), 6982);
+        assert_eq!(recv.stream(), "INCOMING");
+
+        // Zurückgelesen steht alles im JSON.
+        let j = konfig_json(&send, &recv, 48_000);
+        assert!(j.contains("\"host\":\"192.168.1.255\""), "{j}");
+        assert!(j.contains("\"port\":6981"), "{j}");
+        assert!(j.contains("\"stream\":\"TESTSTREAM\""), "{j}");
+        assert!(j.contains("\"an\":true"), "{j}");
+    }
+
+    #[test]
+    fn ungueltige_konfig_wird_abgelehnt_und_aendert_nichts() {
+        let send = VbanControl::new();
+        let recv = VbanRecvControl::new();
+        let vorher = send.konfig();
+        let v = crate::json::parse(r#"{"senden":{"port":80,"stream":"X"}}"#).unwrap();
+        assert!(
+            wende_konfig_an(&send, &recv, &v).is_err(),
+            "Port 80 ist gesperrt"
+        );
+        assert_eq!(send.konfig(), vorher, "alte Konfiguration bleibt stehen");
+
+        let v = crate::json::parse(r#"{"senden":{"stream":"mit leerzeichen"}}"#).unwrap();
+        assert!(wende_konfig_an(&send, &recv, &v).is_err());
+        assert_eq!(send.konfig(), vorher);
+    }
+
+    #[test]
+    fn konfig_datei_rundlauf() {
+        let pfad = testpfad("datei");
+        let send = VbanControl::new();
+        let recv = VbanRecvControl::new();
+        wende_konfig_an(
+            &send,
+            &recv,
+            &crate::json::parse(
+                r#"{"senden":{"an":true,"host":"10.0.0.9","port":7000,"stream":"ABC"},
+                    "empfangen":{"an":true,"port":7001,"stream":"DEF"}}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        speichere_konfig_nach(&send, &recv, &pfad).unwrap();
+
+        let send2 = VbanControl::new();
+        let recv2 = VbanRecvControl::new();
+        lade_konfig_von(&send2, &recv2, &pfad).unwrap();
+        assert_eq!(send2.konfig(), send.konfig());
+        assert!(send2.enabled() && recv2.enabled());
+        assert_eq!(recv2.port(), 7001);
+        assert_eq!(recv2.stream(), "DEF");
+        let _ = std::fs::remove_file(&pfad);
+    }
+
+    #[test]
+    fn standard_setzt_alles_zurueck() {
+        let send = VbanControl::new();
+        let recv = VbanRecvControl::new();
+        wende_konfig_an(
+            &send,
+            &recv,
+            &crate::json::parse(
+                r#"{"senden":{"an":true,"host":"10.1.1.1","port":7100,"stream":"XYZ"},
+                    "empfangen":{"an":true,"port":7101}}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        setze_standard(&send, &recv);
+        assert!(!send.enabled() && !recv.enabled());
+        assert_eq!(send.konfig(), VbanKonfig::default());
+        assert_eq!(recv.port(), RECV_PORT_STANDARD);
+        assert_eq!(recv.stream(), "");
+    }
+
+    #[test]
+    fn gegenstelle_erscheint_in_der_eingangstabelle() {
+        let c = VbanRecvControl::new();
+        let ring = Ring::new(4, RECV_BLOCK_FRAMES);
+        let mut sammler = Sammler::new(RECV_BLOCK_FRAMES);
+        let roh = paket("FUNK", 2, SampleRate::Hz48000, &[0.1, -0.1, 0.2, -0.2]);
+        c.verarbeite_von(&mut sammler, &ring, &roh, "192.168.0.7")
+            .expect("Paket");
+        c.verarbeite_von(&mut sammler, &ring, &roh, "192.168.0.7")
+            .expect("Paket");
+        let q = c.quellen();
+        assert_eq!(q.len(), 1);
+        assert_eq!(q[0].stream, "FUNK");
+        assert_eq!(q[0].ip, "192.168.0.7");
+        assert_eq!(q[0].packets, 2);
+        assert_eq!(q[0].kanaele, 2);
+        assert_eq!(q[0].sample_rate, 48_000);
+
+        // Ein kaputtes Paket derselben Gegenstelle zählt als Fehler.
+        let _ = c.verarbeite_von(&mut sammler, &ring, b"kaputt", "192.168.0.7");
+        let q = c.quellen();
+        assert_eq!(q[0].errors, 1);
+        assert!(konfig_json(&VbanControl::new(), &c, 48_000).contains("\"ip\":\"192.168.0.7\""));
     }
 }

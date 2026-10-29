@@ -4,15 +4,27 @@
 //! aber nur bei neuen Daten des Audio-Callbacks (ein eigener Thread, nie der
 //! Callback selbst); `/api/levels` bleibt als HTTP-Abfrage und als
 //! Rückfallebene erhalten.
+//!
+//! **Server:** `tiny_http` (synchron, ein Thread je Anfrage, kein tokio) und
+//! `tungstenite` für den WebSocket. Der Eigenbau davor (Kopf Zeile für Zeile
+//! lesen, `Content-Length` selbst auswerten, SHA-1/Base64 für den Handshake,
+//! Frames von Hand kodieren) ist ersetzt – der fehlerhafte Handshake (Key aus
+//! kleingeschriebenen Headern) war einer der drei schweren Fehler.
+//!
+//! Die Wege (`route`) sind eine reine Funktion aus Methode, Pfad und Rumpf auf
+//! eine [`Antwort`]; das ist der Teil, den die Tests ohne Socket prüfen.
 
 use std::fs;
-use std::io::{self, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::{self, Read};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
+use tungstenite::handshake::derive_accept_key;
+use tungstenite::protocol::{Message, Role, WebSocket};
 
 use crate::devices::{DeviceMap, RealRunner};
 use crate::engine::Params;
@@ -21,9 +33,29 @@ use crate::macros_io::MacroControl;
 use crate::restore::Ergebnis;
 use crate::tape_io::TapeControl;
 use crate::vban_io::{VbanControl, VbanRecvControl};
-use std::sync::Mutex;
 
 const INDEX_HTML: &str = include_str!("../web/index.html");
+
+/// Obergrenze für den Rumpf einer Anfrage. JSON-Kommandos sind winzig; alles
+/// darüber ist ein Fehler oder ein Angriff und wird abgeschnitten.
+const MAX_BODY: u64 = 64 * 1024;
+
+/// Wartezeit eines Pegel-Abos zwischen zwei Frames (danach: Verbindung prüfen).
+const WS_WARTEN: Duration = Duration::from_millis(50);
+
+/// Alles, was eine Anfrage braucht. Wird je Anfrage geklont (nur `Arc`s und
+/// ein Pfad), damit der Handler-Thread sie besitzen kann.
+#[derive(Clone)]
+struct Zustand {
+    params: Arc<Params>,
+    preset: PathBuf,
+    tape: Arc<TapeControl>,
+    vban: Arc<VbanControl>,
+    vban_recv: Arc<VbanRecvControl>,
+    macros: Arc<MacroControl>,
+    devices: Arc<Mutex<DeviceMap>>,
+    restore: Arc<Mutex<Ergebnis>>,
+}
 
 pub fn serve(
     listen: String,
@@ -36,107 +68,123 @@ pub fn serve(
     devices: Arc<Mutex<DeviceMap>>,
     restore: Arc<Mutex<Ergebnis>>,
 ) -> io::Result<()> {
-    let listener = TcpListener::bind(&listen)?;
+    let server = Server::http(&listen)
+        .map_err(|e| io::Error::new(io::ErrorKind::AddrNotAvailable, e.to_string()))?;
     println!("UI: http://{listen}/  (Pegel-WebSocket: ws://{listen}/ws/levels)");
     let hub = Arc::new(WsHub::new());
     spawn_levels_broadcast(params.clone(), hub.clone());
-    for stream in listener.incoming() {
-        let mut stream = match stream {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        let params = params.clone();
-        let preset = preset.clone();
-        let tape = tape.clone();
-        let vban = vban.clone();
-        let vban_recv = vban_recv.clone();
-        let macros = macros.clone();
-        let devices = devices.clone();
-        let restore = restore.clone();
+    let zustand = Zustand {
+        params,
+        preset,
+        tape,
+        vban,
+        vban_recv,
+        macros,
+        devices,
+        restore,
+    };
+    for request in server.incoming_requests() {
+        let zustand = zustand.clone();
         let hub = hub.clone();
         thread::spawn(move || {
-            let _ = handle(
-                &params,
-                &preset,
-                &tape,
-                &vban,
-                &vban_recv,
-                &macros,
-                &devices,
-                &restore,
-                &hub,
-                &mut stream,
-            );
+            let _ = behandle(request, &zustand, &hub);
         });
     }
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn handle(
-    params: &Arc<Params>,
-    preset: &PathBuf,
-    tape: &Arc<TapeControl>,
-    vban: &Arc<VbanControl>,
-    vban_recv: &Arc<VbanRecvControl>,
-    macros: &Arc<MacroControl>,
-    devices: &Arc<Mutex<DeviceMap>>,
-    restore: &Arc<Mutex<Ergebnis>>,
-    hub: &Arc<WsHub>,
-    stream: &mut TcpStream,
-) -> io::Result<()> {
-    stream.set_nodelay(true).ok();
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-        .ok();
+/// Eine fertige Antwort: Status, Content-Type, Rumpf.
+struct Antwort {
+    status: u16,
+    ctype: &'static str,
+    body: Vec<u8>,
+}
 
-    let mut head = Vec::new();
-    let mut b = [0u8; 1];
-    while !head.ends_with(b"\r\n\r\n") {
-        if head.len() > 32 * 1024 {
-            return Ok(());
-        }
-        match stream.read(&mut b) {
-            Ok(0) => return Ok(()),
-            Ok(_) => head.push(b[0]),
-            Err(_) => return Ok(()),
+impl Antwort {
+    fn neu(status: &str, ctype: &'static str, body: impl Into<Vec<u8>>) -> Antwort {
+        Antwort {
+            status: status_zahl(status),
+            ctype,
+            body: body.into(),
         }
     }
-    let text = String::from_utf8_lossy(&head).to_string();
-    let mut parts = text.lines().next().unwrap_or("").split_whitespace();
-    let method = parts.next().unwrap_or("GET").to_string();
-    let path = parts.next().unwrap_or("/").to_string();
-    let lower = text.to_lowercase();
-    let clen: usize = lower
-        .lines()
-        .find_map(|l| l.strip_prefix("content-length:"))
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0);
-    let mut body = vec![0u8; clen];
-    if clen > 0 {
-        stream.read_exact(&mut body).ok();
-    }
-    let body = String::from_utf8_lossy(&body).to_string();
+}
+
+/// "200 OK" -> 200.
+fn status_zahl(status: &str) -> u16 {
+    status
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500)
+}
+
+fn reply(status: &str, ctype: &'static str, body: &[u8]) -> Antwort {
+    Antwort::neu(status, ctype, body.to_vec())
+}
+
+/// Eine Anfrage bedienen: WebSocket abzweigen, sonst `route` und antworten.
+fn behandle(mut request: Request, zustand: &Zustand, hub: &Arc<WsHub>) -> io::Result<()> {
+    setze_anfrage();
+    let methode = match request.method() {
+        Method::Get => "GET",
+        Method::Post => "POST",
+        Method::Head => "HEAD",
+        Method::Put => "PUT",
+        Method::Delete => "DELETE",
+        _ => "ANDERE",
+    };
+    // Der Pfad enthält die Abfrage (`?strip=0`, `?monitors=1`), wie bisher.
+    let pfad = request.url().to_string();
 
     // Pegel-Abo: hier endet HTTP, ab jetzt laufen WebSocket-Frames.
-    if method == "GET" && path.split('?').next().unwrap_or("") == "/ws/levels" {
-        return ws_levels(hub, stream, &text);
+    if methode == "GET" && pfad.split('?').next().unwrap_or("") == "/ws/levels" {
+        return ws_levels(request, hub);
     }
 
-    match (method.as_str(), path.as_str()) {
-        ("GET", "/") | ("GET", "/index.html") => reply(
-            stream,
-            "200 OK",
-            "text/html; charset=utf-8",
-            INDEX_HTML.as_bytes(),
-        ),
+    let mut rumpf = Vec::new();
+    let _ = request.as_reader().take(MAX_BODY).read_to_end(&mut rumpf);
+    let rumpf = String::from_utf8_lossy(&rumpf).to_string();
+    antworte(request, route(zustand, methode, &pfad, &rumpf))
+}
+
+/// Antwort über tiny_http ausliefern (setzt `Content-Length` selbst).
+fn antworte(request: Request, a: Antwort) -> io::Result<()> {
+    let mut antwort = Response::from_data(a.body).with_status_code(StatusCode(a.status));
+    if let Ok(h) = Header::from_bytes(&b"Content-Type"[..], a.ctype.as_bytes()) {
+        antwort.add_header(h);
+    }
+    if let Ok(h) = Header::from_bytes(&b"Cache-Control"[..], &b"no-store"[..]) {
+        antwort.add_header(h);
+    }
+    request
+        .respond(antwort)
+        .map_err(|e| io::Error::other(e.to_string()))
+}
+
+/// Wege der Steuer-API. Reine Funktion: gleiche Eingabe, gleiche Antwort.
+#[allow(clippy::too_many_lines)]
+fn route(zustand: &Zustand, method: &str, path: &str, body: &str) -> Antwort {
+    let params = &zustand.params;
+    let preset = &zustand.preset;
+    let tape = &zustand.tape;
+    let vban = &zustand.vban;
+    let vban_recv = &zustand.vban_recv;
+    let macros = &zustand.macros;
+    let devices = &zustand.devices;
+    let restore = &zustand.restore;
+
+    match (method, path) {
+        ("GET", "/") | ("GET", "/index.html") => {
+            reply("200 OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes())
+        }
         ("GET", p) if p.starts_with("/api/state") => {
             let json = params.to_json().to_json();
-            reply(stream, "200 OK", "application/json", json.as_bytes())
+            reply("200 OK", "application/json", json.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/levels") => {
             let json = params.levels_json();
-            reply(stream, "200 OK", "application/json", json.as_bytes())
+            reply("200 OK", "application/json", json.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/set") => {
             let out = match json::parse(&body) {
@@ -153,6 +201,28 @@ fn handle(
                     });
                     let value = v.get("value").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
                     match (target, param) {
+                        // Anzeigename: Text statt Zahl (target strip|bus,
+                        // param label). Der leere Text löscht den Namen.
+                        (Some(t), Some(p)) if p == "label" => {
+                            let text = v.get("value").and_then(|x| match x {
+                                Value::Str(s) => Some(s.clone()),
+                                _ => None,
+                            });
+                            match text {
+                                Some(s) if params.set_text(&t, index, &p, &s) => {
+                                    crate::restore::markiere_schmutzig();
+                                    "{\"ok\":true}".to_string()
+                                }
+                                Some(_) => format!(
+                                    "{{\"error\":{}}}",
+                                    json::quote(&format!("label abgelehnt: {t}/{index}"))
+                                ),
+                                None => format!(
+                                    "{{\"error\":{}}}",
+                                    json::quote("label braucht \"value\" als Text")
+                                ),
+                            }
+                        }
                         (Some(t), Some(p)) if params.set(&t, index, &p, value) => {
                             // Nur merken, geschrieben wird im Autosave-Thread:
                             // kein Lock, keine Datei-Arbeit im Anfragepfad.
@@ -166,11 +236,50 @@ fn handle(
                     }
                 }
             };
-            reply(stream, "200 OK", "application/json", out.as_bytes())
+            reply("200 OK", "application/json", out.as_bytes())
+        }
+        // Muss vor dem allgemeinen /api/vban-Zweig stehen (Praefix-Match).
+        ("GET", p) if p.starts_with("/api/vban/config") => {
+            let sr = f32::from_bits(params.sample_rate.load(Ordering::Relaxed)) as u32;
+            let body = crate::vban_io::konfig_json(&vban, &vban_recv, sr);
+            reply("200 OK", "application/json", body.as_bytes())
+        }
+        ("POST", p) if p.starts_with("/api/vban/config") => {
+            let v = json::parse(&body).unwrap_or(Value::Null);
+            let action = v
+                .get("action")
+                .and_then(|x| match x {
+                    Value::Str(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let ergebnis = match action.as_str() {
+                // Reset setzt nur den Laufzeitzustand zurueck; die gesicherte
+                // Datei bleibt, damit "Load Config" sie danach zurueckholen
+                // kann. Save/Load arbeiten auf der Datei.
+                "reset" => {
+                    crate::vban_io::setze_standard(&vban, &vban_recv);
+                    Ok(())
+                }
+                "save" => crate::vban_io::speichere_konfig(&vban, &vban_recv),
+                "load" => crate::vban_io::lade_konfig(&vban, &vban_recv),
+                _ => crate::vban_io::wende_konfig_an(&vban, &vban_recv, &v),
+            };
+            let sr = f32::from_bits(params.sample_rate.load(Ordering::Relaxed)) as u32;
+            match ergebnis {
+                Ok(()) => {
+                    let body = crate::vban_io::konfig_json(&vban, &vban_recv, sr);
+                    reply("200 OK", "application/json", body.as_bytes())
+                }
+                Err(e) => {
+                    let body = format!("{{\"error\":{}}}", json::quote(&e));
+                    reply("200 OK", "application/json", body.as_bytes())
+                }
+            }
         }
         ("GET", p) if p.starts_with("/api/vban/recv") => {
             let body = vban_recv.status_json();
-            reply(stream, "200 OK", "application/json", body.as_bytes())
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/vban/recv") => {
             let v = json::parse(&body).unwrap_or(Value::Null);
@@ -201,11 +310,11 @@ fn handle(
                 Some(e) => format!("{{\"error\":{}}}", json::quote(&e)),
                 None => vban_recv.status_json(),
             };
-            reply(stream, "200 OK", "application/json", out.as_bytes())
+            reply("200 OK", "application/json", out.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/vban") => {
             let body = vban.status_json();
-            reply(stream, "200 OK", "application/json", body.as_bytes())
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/vban") => {
             let v = json::parse(&body).unwrap_or(Value::Null);
@@ -233,11 +342,11 @@ fn handle(
                 }
                 _ => format!("{{\"error\":{}}}", json::quote("action start|stop")),
             };
-            reply(stream, "200 OK", "application/json", out.as_bytes())
+            reply("200 OK", "application/json", out.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/macros") => {
             let body = macros.status_json();
-            reply(stream, "200 OK", "application/json", body.as_bytes())
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/macros") => {
             let v = json::parse(&body).unwrap_or(Value::Null);
@@ -259,16 +368,11 @@ fn handle(
             match res {
                 Ok(()) => {
                     let body = macros.status_json();
-                    reply(stream, "200 OK", "application/json", body.as_bytes())
+                    reply("200 OK", "application/json", body.as_bytes())
                 }
                 Err(e) => {
                     let body = format!("{{\"error\":{}}}", json::quote(&e));
-                    reply(
-                        stream,
-                        "400 Bad Request",
-                        "application/json",
-                        body.as_bytes(),
-                    )
+                    reply("400 Bad Request", "application/json", body.as_bytes())
                 }
             }
         }
@@ -282,10 +386,9 @@ fn handle(
             match params.eq_json(strip) {
                 Some(v) => {
                     let body = v.to_json();
-                    reply(stream, "200 OK", "application/json", body.as_bytes())
+                    reply("200 OK", "application/json", body.as_bytes())
                 }
                 None => reply(
-                    stream,
                     "404 Not Found",
                     "application/json",
                     b"{\"error\":\"strip\"}",
@@ -295,7 +398,7 @@ fn handle(
         ("GET", p) if p.starts_with("/api/inputs") => {
             let mit = p.contains("monitors=1");
             let body = crate::inputs::status_json(&crate::inputs::RealRunner, mit);
-            reply(stream, "200 OK", "application/json", body.as_bytes())
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/inputs") => {
             let v = json::parse(&body).unwrap_or(Value::Null);
@@ -310,7 +413,7 @@ fn handle(
                 Ok(()) => crate::inputs::status_json(&runner, mit),
                 Err(e) => format!("{{\"error\":{}}}", json::quote(&e)),
             };
-            reply(stream, "200 OK", "application/json", out.as_bytes())
+            reply("200 OK", "application/json", out.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/devices") => {
             let mit = p.contains("monitors=1");
@@ -318,7 +421,7 @@ fn handle(
                 Ok(d) => d.status_json(&RealRunner, mit),
                 Err(_) => "{\"error\":\"gesperrt\"}".to_string(),
             };
-            reply(stream, "200 OK", "application/json", body.as_bytes())
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/devices") => {
             let v = json::parse(&body).unwrap_or(Value::Null);
@@ -355,14 +458,14 @@ fn handle(
                 },
                 Err(e) => format!("{{\"error\":{}}}", json::quote(&e)),
             };
-            reply(stream, "200 OK", "application/json", body.as_bytes())
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/restore") => {
             let body = match restore.lock() {
                 Ok(e) => e.to_json(),
                 Err(_) => "{\"devices\":0,\"inputs\":0,\"preset\":false}".to_string(),
             };
-            reply(stream, "200 OK", "application/json", body.as_bytes())
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/restore") => {
             let v = json::parse(&body).unwrap_or(Value::Null);
@@ -380,16 +483,16 @@ fn handle(
             if let Ok(mut letzte) = restore.lock() {
                 *letzte = ergebnis.clone();
             }
-            reply(
-                stream,
-                "200 OK",
-                "application/json",
-                ergebnis.to_json().as_bytes(),
-            )
+            reply("200 OK", "application/json", ergebnis.to_json().as_bytes())
+        }
+        // Effekt-Host (mod-host): Ketten, Bypass und Host-Status.
+        ("GET", p) if p.starts_with("/api/fx") => {
+            let body = crate::fx::api_json().to_json();
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/autostart") => {
             let body = crate::autostart::status_json();
-            reply(stream, "200 OK", "application/json", body.as_bytes())
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/autostart") => {
             let wunsch = json::parse(&body)
@@ -405,7 +508,7 @@ fn handle(
                     json::quote("\"enabled\" fehlt (true|false)")
                 ),
             };
-            reply(stream, "200 OK", "application/json", out.as_bytes())
+            reply("200 OK", "application/json", out.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/tape") => {
             let body = format!(
@@ -413,7 +516,7 @@ fn handle(
                 tape.recording.load(std::sync::atomic::Ordering::Relaxed),
                 json::quote(&tape.status())
             );
-            reply(stream, "200 OK", "application/json", body.as_bytes())
+            reply("200 OK", "application/json", body.as_bytes())
         }
         ("POST", p) if p.starts_with("/api/tape") => {
             let action = json::parse(&body)
@@ -430,29 +533,19 @@ fn handle(
                     tape.recording
                         .store(true, std::sync::atomic::Ordering::Relaxed);
                     tape.set_status("start angefordert");
-                    reply(stream, "200 OK", "application/json", b"{\"ok\":true}")
+                    reply("200 OK", "application/json", b"{\"ok\":true}")
                 }
                 "stop" => {
                     tape.recording
                         .store(false, std::sync::atomic::Ordering::Relaxed);
-                    reply(stream, "200 OK", "application/json", b"{\"ok\":true}")
+                    reply("200 OK", "application/json", b"{\"ok\":true}")
                 }
-                _ => reply(
-                    stream,
-                    "400 Bad Request",
-                    "text/plain",
-                    b"action start|stop",
-                ),
+                _ => reply("400 Bad Request", "text/plain", b"action start|stop"),
             }
         }
         ("GET", p) if p.starts_with("/api/preset") => match fs::read_to_string(preset) {
-            Ok(s) => reply(stream, "200 OK", "application/json", s.as_bytes()),
-            Err(e) => reply(
-                stream,
-                "404 Not Found",
-                "text/plain",
-                e.to_string().as_bytes(),
-            ),
+            Ok(s) => reply("200 OK", "application/json", s.as_bytes()),
+            Err(e) => reply("404 Not Found", "text/plain", e.to_string().as_bytes()),
         },
         ("POST", p) if p.starts_with("/api/preset") => {
             let action = json::parse(&body)
@@ -471,9 +564,8 @@ fn handle(
                     }
                     let text = params.to_json().to_json();
                     match fs::write(preset, text) {
-                        Ok(()) => reply(stream, "200 OK", "application/json", b"{\"ok\":true}"),
+                        Ok(()) => reply("200 OK", "application/json", b"{\"ok\":true}"),
                         Err(e) => reply(
-                            stream,
                             "500 Internal Server Error",
                             "text/plain",
                             e.to_string().as_bytes(),
@@ -484,64 +576,17 @@ fn handle(
                     Ok(text) => match json::parse(&text) {
                         Ok(v) => {
                             apply_preset(params, &v);
-                            reply(stream, "200 OK", "application/json", b"{\"ok\":true}")
+                            reply("200 OK", "application/json", b"{\"ok\":true}")
                         }
-                        Err(e) => reply(
-                            stream,
-                            "400 Bad Request",
-                            "text/plain",
-                            e.to_string().as_bytes(),
-                        ),
+                        Err(e) => reply("400 Bad Request", "text/plain", e.to_string().as_bytes()),
                     },
-                    Err(e) => reply(
-                        stream,
-                        "404 Not Found",
-                        "text/plain",
-                        e.to_string().as_bytes(),
-                    ),
+                    Err(e) => reply("404 Not Found", "text/plain", e.to_string().as_bytes()),
                 },
-                _ => reply(stream, "400 Bad Request", "text/plain", b"action save|load"),
+                _ => reply("400 Bad Request", "text/plain", b"action save|load"),
             }
         }
-        _ => reply(stream, "404 Not Found", "text/plain", b"nicht gefunden"),
+        _ => reply("404 Not Found", "text/plain", b"nicht gefunden"),
     }
-}
-
-/// Zeitpunkt der letzten Anfrage (ms seit UNIX-Epoche) - die Engine beendet
-/// sich, wenn die Oberflaeche laenger weg ist, damit die virtuellen Geraete
-/// nicht als Leichen im System stehen bleiben.
-pub static LETZTE_ANFRAGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-pub fn setze_anfrage() {
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    LETZTE_ANFRAGE.store(ms, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Millisekunden seit der letzten Anfrage (u64::MAX, wenn noch keine kam).
-pub fn leerlauf_ms() -> u64 {
-    let jetzt = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    let letzte = LETZTE_ANFRAGE.load(std::sync::atomic::Ordering::Relaxed);
-    if letzte == 0 {
-        return u64::MAX;
-    }
-    jetzt.saturating_sub(letzte)
-}
-
-fn reply(stream: &mut TcpStream, status: &str, ctype: &str, body: &[u8]) -> io::Result<()> {
-    setze_anfrage();
-    let head = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    stream.write_all(head.as_bytes())?;
-    stream.write_all(body)?;
-    stream.flush()
 }
 
 /// Preset anwenden: alle im JSON vorhandenen Felder werden gesetzt.
@@ -587,8 +632,34 @@ pub fn apply_preset(params: &Arc<Params>, v: &Value) {
     }
 }
 
+/// Zeitpunkt der letzten Anfrage (ms seit UNIX-Epoche) - die Engine beendet
+/// sich, wenn die Oberflaeche laenger weg ist, damit die virtuellen Geraete
+/// nicht als Leichen im System stehen bleiben.
+pub static LETZTE_ANFRAGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn setze_anfrage() {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    LETZTE_ANFRAGE.store(ms, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Millisekunden seit der letzten Anfrage (u64::MAX, wenn noch keine kam).
+pub fn leerlauf_ms() -> u64 {
+    let jetzt = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let letzte = LETZTE_ANFRAGE.load(std::sync::atomic::Ordering::Relaxed);
+    if letzte == 0 {
+        return u64::MAX;
+    }
+    jetzt.saturating_sub(letzte)
+}
+
 /* ==================================================================
-WebSocket für die Pegelanzeige
+Pegel-Abo über WebSocket
 ------------------------------------------------------------------
 Der Audio-Callback schreibt nur Atome und zählt am Blockende den
 Frame-Zähler hoch. Der Sender-Thread läuft mit 60-Hz-Takt, schläft
@@ -601,9 +672,11 @@ Puffer und liegt dann als ein gemeinsamer `Arc<str>` im Hub. Jeder
 Client-Thread hängt nur per Condvar daran und schreibt denselben Text
 in seinen Socket – keine Kopie je Client, kein Puffer je Client, kein
 Verteiler, der auf einen hängenden Browser wartet.
+
+Die Frames selbst kodiert `tungstenite` (Text-Frame, FIN gesetzt,
+unmaskiert vom Server); der Rumpf ist derselbe JSON-Text wie zuvor.
 ================================================================== */
 
-/// Takt des Senders. Gesendet wird nur, wenn der Frame-Zähler sich bewegt hat.
 const SENDER_HZ: u64 = 60;
 
 struct SharedLevels {
@@ -737,266 +810,203 @@ pub fn spawn_levels_broadcast(params: Arc<Params>, hub: Arc<WsHub>) {
     });
 }
 
-fn ws_levels(hub: &Arc<WsHub>, stream: &mut TcpStream, head: &str) -> io::Result<()> {
-    let key = match header_value(head, "sec-websocket-key") {
-        Some(k) => k,
-        None => {
-            return reply(
-                stream,
-                "400 Bad Request",
-                "text/plain",
-                b"Sec-WebSocket-Key fehlt",
-            );
-        }
+/// Ein Pegel-Abo: Handshake über `tungstenite`, danach nur senden.
+///
+/// Gelesen wird bewusst nicht: die Oberfläche schickt auf diesem Socket
+/// nichts. Ein geschlossener Browser fällt dadurch auf, dass das Senden
+/// fehlschlägt (RST) – dann endet der Thread. Das hält den 60-Hz-Takt frei
+/// von blockierenden Leseversuchen.
+fn ws_levels(request: Request, hub: &Arc<WsHub>) -> io::Result<()> {
+    let schluessel = request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv("Sec-WebSocket-Key"))
+        .map(|h| h.value.as_str().to_string());
+    let Some(schluessel) = schluessel else {
+        return antworte(
+            request,
+            reply("400 Bad Request", "text/plain", b"Sec-WebSocket-Key fehlt"),
+        );
     };
-    let accept = ws_accept(&key);
-    let antwort = format!(
-        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\nCache-Control: no-store\r\n\r\n"
-    );
-    stream.write_all(antwort.as_bytes())?;
-    stream.flush()?;
-    stream.set_nodelay(true).ok();
-    // Kurzer Lese-Timeout: zwischen zwei Frames wird geprüft, ob der Client
-    // noch da ist (Close/Ping/EOF), ohne den Sendetakt zu blockieren.
-    stream.set_read_timeout(Some(Duration::from_millis(1))).ok();
+    // RFC 6455: base64(sha1(key + GUID)) – rechnet `tungstenite`.
+    let accept = derive_accept_key(schluessel.as_bytes());
+    let mut antwort = Response::empty(StatusCode(101));
+    for (name, wert) in [
+        ("Upgrade", "websocket"),
+        ("Connection", "Upgrade"),
+        ("Sec-WebSocket-Accept", accept.as_str()),
+    ] {
+        if let Ok(h) = Header::from_bytes(name.as_bytes(), wert.as_bytes()) {
+            antwort.add_header(h);
+        }
+    }
+    // Ab hier gehört die Verbindung dem WebSocket.
+    let strom = request.upgrade("websocket", antwort);
+    let mut ws = WebSocket::from_raw_socket(strom, Role::Server, None);
 
     hub.register();
     let (mut seq, mut frame) = hub.latest();
     // Erster Durchlauf schickt den aktuellen Stand sofort.
     let mut gesendet = u64::MAX;
-    let mut rb: Vec<u8> = Vec::with_capacity(1024);
-    let mut buf = [0u8; 4096];
-
     let ergebnis = (|| -> io::Result<()> {
-        loop {
+        while hub.running.load(Ordering::Relaxed) {
             if seq != gesendet {
-                ws_send(stream, 0x1, frame.as_bytes())?;
+                ws.send(Message::text(frame.to_string()))
+                    .map_err(|e| io::Error::other(e.to_string()))?;
                 gesendet = seq;
             }
-            match stream.read(&mut buf) {
-                Ok(0) => return Ok(()),
-                Ok(n) => {
-                    if !ws_consume(stream, &mut rb, &buf[..n])? {
-                        return Ok(());
-                    }
-                }
-                Err(e)
-                    if e.kind() == io::ErrorKind::WouldBlock
-                        || e.kind() == io::ErrorKind::TimedOut => {}
-                Err(_) => return Ok(()),
-            }
             // Auf den nächsten Frame warten statt zu pollen.
-            if let Some((s, f)) = hub.warten(seq, Duration::from_millis(50)) {
+            if let Some((s, f)) = hub.warten(seq, WS_WARTEN) {
                 seq = s;
                 frame = f;
             }
         }
+        Ok(())
     })();
 
     hub.unregister();
     ergebnis
 }
 
-fn header_value(head: &str, name: &str) -> Option<String> {
-    head.lines().skip(1).find_map(|l| match l.split_once(':') {
-        Some((k, v)) if k.trim().eq_ignore_ascii_case(name) => Some(v.trim().to_string()),
-        _ => None,
-    })
-}
-
-/// RFC 6455: base64(sha1(key + GUID))
-fn ws_accept(key: &str) -> String {
-    const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-    base64(&sha1(format!("{key}{GUID}").as_bytes()))
-}
-
-/// Ein Frame vom Server (unmaskiert).
-fn ws_send(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> io::Result<()> {
-    let mut head = Vec::with_capacity(10);
-    head.push(0x80 | (opcode & 0x0F));
-    let n = payload.len();
-    if n < 126 {
-        head.push(n as u8);
-    } else if n <= 0xFFFF {
-        head.push(126);
-        head.extend_from_slice(&(n as u16).to_be_bytes());
-    } else {
-        head.push(127);
-        head.extend_from_slice(&(n as u64).to_be_bytes());
-    }
-    stream.write_all(&head)?;
-    stream.write_all(payload)?;
-    stream.flush()
-}
-
-/// Frames vom Client auswerten. `false` heißt: Verbindung ist zu.
-fn ws_consume(stream: &mut TcpStream, rb: &mut Vec<u8>, chunk: &[u8]) -> io::Result<bool> {
-    rb.extend_from_slice(chunk);
-    loop {
-        if rb.len() < 2 {
-            return Ok(true);
-        }
-        let opcode = rb[0] & 0x0F;
-        let maskiert = rb[1] & 0x80 != 0;
-        let mut len = (rb[1] & 0x7F) as usize;
-        let mut off = 2;
-        if len == 126 {
-            if rb.len() < off + 2 {
-                return Ok(true);
-            }
-            len = u16::from_be_bytes([rb[off], rb[off + 1]]) as usize;
-            off += 2;
-        } else if len == 127 {
-            if rb.len() < off + 8 {
-                return Ok(true);
-            }
-            let mut a = [0u8; 8];
-            a.copy_from_slice(&rb[off..off + 8]);
-            len = u64::from_be_bytes(a) as usize;
-            off += 8;
-        }
-        let maske = if maskiert {
-            if rb.len() < off + 4 {
-                return Ok(true);
-            }
-            let m = [rb[off], rb[off + 1], rb[off + 2], rb[off + 3]];
-            off += 4;
-            Some(m)
-        } else {
-            None
-        };
-        if len > 64 * 1024 {
-            return Ok(false); // unplausibel groß – Verbindung aufgeben
-        }
-        if rb.len() < off + len {
-            return Ok(true);
-        }
-        let mut payload: Vec<u8> = rb[off..off + len].to_vec();
-        if let Some(m) = maske {
-            for (i, b) in payload.iter_mut().enumerate() {
-                *b ^= m[i % 4];
-            }
-        }
-        rb.drain(..off + len);
-        match opcode {
-            0x8 => return Ok(false),                // Close
-            0x9 => ws_send(stream, 0xA, &payload)?, // Ping -> Pong
-            _ => {}                                 // Text/Pong: egal
-        }
-    }
-}
-
-/// SHA-1 (FIPS 180-4), reicht für den Handshake.
-fn sha1(data: &[u8]) -> [u8; 20] {
-    let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
-    let mut msg = data.to_vec();
-    let bits = (data.len() as u64).wrapping_mul(8);
-    msg.push(0x80);
-    while msg.len() % 64 != 56 {
-        msg.push(0);
-    }
-    msg.extend_from_slice(&bits.to_be_bytes());
-
-    for chunk in msg.chunks(64) {
-        let mut w = [0u32; 80];
-        for i in 0..16 {
-            w[i] = u32::from_be_bytes([
-                chunk[4 * i],
-                chunk[4 * i + 1],
-                chunk[4 * i + 2],
-                chunk[4 * i + 3],
-            ]);
-        }
-        for i in 16..80 {
-            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
-        }
-        let (mut a, mut b, mut c, mut d, mut e) = (h[0], h[1], h[2], h[3], h[4]);
-        for i in 0..80 {
-            let (f, k) = match i {
-                0..=19 => ((b & c) | ((!b) & d), 0x5A827999u32),
-                20..=39 => (b ^ c ^ d, 0x6ED9EBA1),
-                40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1BBCDC),
-                _ => (b ^ c ^ d, 0xCA62C1D6),
-            };
-            let tmp = a
-                .rotate_left(5)
-                .wrapping_add(f)
-                .wrapping_add(e)
-                .wrapping_add(k)
-                .wrapping_add(w[i]);
-            e = d;
-            d = c;
-            c = b.rotate_left(30);
-            b = a;
-            a = tmp;
-        }
-        h[0] = h[0].wrapping_add(a);
-        h[1] = h[1].wrapping_add(b);
-        h[2] = h[2].wrapping_add(c);
-        h[3] = h[3].wrapping_add(d);
-        h[4] = h[4].wrapping_add(e);
-    }
-
-    let mut out = [0u8; 20];
-    for (i, v) in h.iter().enumerate() {
-        out[4 * i..4 * i + 4].copy_from_slice(&v.to_be_bytes());
-    }
-    out
-}
-
-fn base64(data: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
-    for c in data.chunks(3) {
-        let b1 = *c.get(1).unwrap_or(&0);
-        let b2 = *c.get(2).unwrap_or(&0);
-        let n = ((c[0] as u32) << 16) | ((b1 as u32) << 8) | b2 as u32;
-        out.push(T[((n >> 18) & 63) as usize] as char);
-        out.push(T[((n >> 12) & 63) as usize] as char);
-        out.push(if c.len() > 1 {
-            T[((n >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if c.len() > 2 {
-            T[(n & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
 
-    #[test]
-    fn sha1_bekannte_werte() {
-        let hex = |d: [u8; 20]| d.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        assert_eq!(hex(sha1(b"")), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-        assert_eq!(
-            hex(sha1(b"abc")),
-            "a9993e364706816aba3e25717850c26c9cd0d89d"
-        );
-        assert_eq!(
-            hex(sha1(b"The quick brown fox jumps over the lazy dog")),
-            "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12"
-        );
-        // Länge genau an der Padding-Grenze
-        let lang = vec![b'a'; 64];
-        assert_eq!(hex(sha1(&lang)), "0098ba824b5c16427bd7a1122a5a442a25ec644d");
+    fn zustand() -> Zustand {
+        let ctl = Arc::new(TapeControl::new(
+            Arc::new(crate::tape_io::Ring::new(2, 64)),
+            64,
+        ));
+        Zustand {
+            params: Arc::new(Params::new(48_000.0, 512)),
+            preset: std::env::temp_dir().join("crosspoint-test-preset.json"),
+            tape: ctl,
+            vban: Arc::new(VbanControl::new()),
+            vban_recv: Arc::new(VbanRecvControl::new()),
+            macros: Arc::new(MacroControl::new()),
+            devices: Arc::new(Mutex::new(DeviceMap::new(
+                std::env::temp_dir().join("crosspoint-test-devices.json"),
+            ))),
+            restore: Arc::new(Mutex::new(Ergebnis::default())),
+        }
+    }
+
+    fn text(a: &Antwort) -> String {
+        String::from_utf8_lossy(&a.body).to_string()
     }
 
     #[test]
-    fn base64_bekannte_werte() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"foob"), "Zm9vYg==");
-        assert_eq!(base64(b"fooba"), "Zm9vYmE=");
-        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    fn zustand_wird_byte_gleich_ausgeliefert() {
+        let z = zustand();
+        let a = route(&z, "GET", "/api/state", "");
+        assert_eq!(a.status, 200);
+        assert_eq!(a.ctype, "application/json");
+        assert_eq!(text(&a), z.params.to_json().to_json());
+        assert!(text(&a).starts_with(r#"{"strips":["#));
+    }
+
+    #[test]
+    fn pegel_und_eq_wege() {
+        let z = zustand();
+        let a = route(&z, "GET", "/api/levels", "");
+        assert_eq!(text(&a), z.params.levels_json());
+        let a = route(&z, "GET", "/api/eq?strip=0", "");
+        assert!(text(&a).contains(r#""cells""#));
+        let a = route(&z, "GET", "/api/eq?strip=99", "");
+        assert_eq!(a.status, 404);
+        assert_eq!(text(&a), r#"{"error":"strip"}"#);
+    }
+
+    #[test]
+    fn setzen_pruefen_melden() {
+        let z = zustand();
+        let a = route(
+            &z,
+            "POST",
+            "/api/set",
+            r#"{"target":"strip","index":0,"param":"gain","value":-6}"#,
+        );
+        assert_eq!(a.status, 200);
+        assert_eq!(text(&a), r#"{"ok":true}"#);
+        assert_eq!(
+            z.params.to_json().get("strips").unwrap().as_arr().unwrap()[0]
+                .get("gain")
+                .unwrap()
+                .as_f64(),
+            Some(-6.0)
+        );
+
+        let a = route(&z, "POST", "/api/set", r#"{"target":"strip","index":0}"#);
+        assert!(text(&a).contains("unbekannt"), "{}", text(&a));
+
+        let a = route(&z, "POST", "/api/set", "{\"target\":");
+        assert_eq!(a.status, 200);
+        assert!(text(&a).starts_with(r#"{"error":"#));
+    }
+
+    #[test]
+    fn anzeigename_als_text() {
+        let z = zustand();
+        let a = route(
+            &z,
+            "POST",
+            "/api/set",
+            r#"{"target":"strip","index":1,"param":"label","value":"Gesang"}"#,
+        );
+        assert_eq!(text(&a), r#"{"ok":true}"#);
+        assert_eq!(z.params.label("strip", 1).as_deref(), Some("Gesang"));
+    }
+
+    #[test]
+    fn tape_und_vban_wege() {
+        let z = zustand();
+        assert_eq!(
+            text(&route(&z, "GET", "/api/tape", "")),
+            r#"{"recording":false,"status":"idle"}"#
+        );
+        assert_eq!(
+            text(&route(&z, "POST", "/api/tape", r#"{"action":"start"}"#)),
+            r#"{"ok":true}"#
+        );
+        assert_eq!(
+            text(&route(&z, "GET", "/api/tape", "")),
+            r#"{"recording":true,"status":"start angefordert"}"#
+        );
+        let a = route(&z, "POST", "/api/tape", r#"{"action":"quatsch"}"#);
+        assert_eq!(a.status, 400);
+        assert_eq!(text(&a), "action start|stop");
+
+        let a = route(&z, "GET", "/api/vban", "");
+        assert_eq!(a.status, 200);
+        assert!(text(&a).starts_with(r#"{"enabled":false"#));
+        let a = route(&z, "POST", "/api/vban", r#"{"action":"nope"}"#);
+        assert_eq!(text(&a), r#"{"error":"action start|stop"}"#);
+    }
+
+    #[test]
+    fn startseite_und_unbekannter_pfad() {
+        let z = zustand();
+        let a = route(&z, "GET", "/", "");
+        assert_eq!(a.status, 200);
+        assert_eq!(a.ctype, "text/html; charset=utf-8");
+        assert_eq!(a.body.len(), INDEX_HTML.len());
+        let a = route(&z, "GET", "/gibtsnicht", "");
+        assert_eq!(a.status, 404);
+        assert_eq!(text(&a), "nicht gefunden");
+    }
+
+    #[test]
+    fn status_und_accept_schluessel() {
+        assert_eq!(status_zahl("200 OK"), 200);
+        assert_eq!(status_zahl("404 Not Found"), 404);
+        assert_eq!(status_zahl("kaputt"), 500);
+        // Beispiel aus RFC 6455, Abschnitt 1.3
+        assert_eq!(
+            derive_accept_key(b"dGhlIHNhbXBsZSBub25jZQ=="),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        );
     }
 
     #[test]
@@ -1061,22 +1071,106 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handshake_accept_wie_rfc6455() {
-        // Beispiel aus RFC 6455, Abschnitt 1.3
-        assert_eq!(
-            ws_accept("dGhlIHNhbXBsZSBub25jZQ=="),
-            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
-        );
+    // ---- echter Socket: HTTP-Antwort und WebSocket-Frame -------------------
+
+    /// Startet den Server auf einem freien Port und liefert (Adresse, Hub).
+    fn server() -> (String, Arc<WsHub>) {
+        let server = Server::http("127.0.0.1:0").expect("Port");
+        let addr = match server.server_addr() {
+            tiny_http::ListenAddr::IP(a) => a,
+            _ => panic!("kein TCP-Port"),
+        };
+        let hub = Arc::new(WsHub::new());
+        let zustand = zustand();
+        let h = hub.clone();
+        thread::spawn(move || {
+            for request in server.incoming_requests() {
+                let z = zustand.clone();
+                let hh = h.clone();
+                thread::spawn(move || {
+                    let _ = behandle(request, &z, &hh);
+                });
+            }
+        });
+        (format!("127.0.0.1:{}", addr.port()), hub)
+    }
+
+    fn anfrage(addr: &str, roh: &str) -> String {
+        let mut s = TcpStream::connect(addr).expect("connect");
+        s.set_read_timeout(Some(Duration::from_secs(5))).ok();
+        s.write_all(roh.as_bytes()).expect("schreiben");
+        let mut out = Vec::new();
+        let _ = s.read_to_end(&mut out);
+        String::from_utf8_lossy(&out).to_string()
     }
 
     #[test]
-    fn header_werden_erkannt() {
-        let head = "GET /ws/levels HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: ABC\r\n\r\n";
-        assert_eq!(
-            header_value(head, "sec-websocket-key").as_deref(),
-            Some("ABC")
+    fn http_ueber_echten_socket() {
+        let (addr, _hub) = server();
+        let roh = format!("GET /api/state HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+        let antwort = anfrage(&addr, &roh);
+        assert!(antwort.starts_with("HTTP/1.1 200 OK"), "{antwort}");
+        assert!(
+            antwort
+                .to_lowercase()
+                .contains("content-type: application/json"),
+            "{antwort}"
         );
-        assert_eq!(header_value(head, "fehlt"), None);
+        let (_, rumpf) = antwort.split_once("\r\n\r\n").expect("Kopf/Rumpf");
+        let wert = crate::json::parse(rumpf).expect("JSON");
+        assert!(wert.get("strips").is_some());
+    }
+
+    #[test]
+    fn websocket_handshake_und_text_frame() {
+        let (addr, hub) = server();
+        let mut s = TcpStream::connect(&addr).expect("connect");
+        s.set_read_timeout(Some(Duration::from_secs(5))).ok();
+        s.write_all(
+            format!(
+                "GET /ws/levels HTTP/1.1\r\nHost: {addr}\r\nUpgrade: websocket\r\n\
+                 Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+                 Sec-WebSocket-Version: 13\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .expect("handshake");
+
+        let mut puffer = Vec::new();
+        let mut b = [0u8; 4096];
+        while !puffer.windows(4).any(|w| w == b"\r\n\r\n") {
+            let n = s.read(&mut b).expect("kopf");
+            assert!(n > 0, "Verbindung zu frueh zu");
+            puffer.extend_from_slice(&b[..n]);
+        }
+        let kopf = String::from_utf8_lossy(&puffer).to_string();
+        assert!(kopf.starts_with("HTTP/1.1 101"), "{kopf}");
+        assert!(
+            kopf.to_lowercase()
+                .contains("sec-websocket-accept: s3pplmbitxaq9kygzzhzrbk+xoo="),
+            "{kopf}"
+        );
+
+        // Ein neuer Stand muss als Text-Frame ankommen.
+        hub.register(); // zaehlt fuer `publish` als Client
+        hub.publish(Arc::from("{\"strips\":[],\"buses\":[],\"f\":1}"));
+
+        // Frame lesen (FIN+Text = 0x81, Laenge, Rumpf) - vom Server unmaskiert.
+        let mut kopf2 = [0u8; 2];
+        s.read_exact(&mut kopf2).expect("frame-kopf");
+        assert_eq!(kopf2[0], 0x81, "Text-Frame mit FIN erwartet");
+        let mut laenge = (kopf2[1] & 0x7F) as usize;
+        assert_eq!(kopf2[1] & 0x80, 0, "Server darf nicht maskieren");
+        if laenge == 126 {
+            let mut ext = [0u8; 2];
+            s.read_exact(&mut ext).expect("laenge");
+            laenge = u16::from_be_bytes(ext) as usize;
+        }
+        let mut rumpf = vec![0u8; laenge];
+        s.read_exact(&mut rumpf).expect("rumpf");
+        assert_eq!(
+            String::from_utf8_lossy(&rumpf),
+            "{\"strips\":[],\"buses\":[],\"f\":1}"
+        );
     }
 }

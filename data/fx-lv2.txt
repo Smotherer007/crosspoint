@@ -1,0 +1,70 @@
+# Beispiel-Insertkette fuer Crosspoint (LV2 ueber mod-host)
+# ---------------------------------------------------------------------------
+# Crosspoint hostet keine Plugins selbst: diese Datei beschreibt nur, WAS auf
+# einem Kanal liegen soll. Abgelegt wird sie als ~/.config/crosspoint/fx.json;
+# die Engine schickt die Befehle an mod-host (Port 5556, s. CROSSPOINT_MODHOST_PORT).
+#
+# Aufbau: eine URI pro Zeile, optional dahinter Parameter als symbol=wert,
+# mehrere durch Leerzeichen getrennt. Mit "bypass" wird der Insert sofort
+# umgangen. Zeilen mit # sind Kommentar.
+#
+#   <uri> [bypass] [symbol=wert ...]
+#
+# Eine Kette fuer Streifen 1 (HW In 1) - typischer Sprechkanal:
+#
+#   http://calf.sourceforge.net/plugins/Compressor threshold=-18 ratio=3 attack=15 release=180 makeup=3
+#   http://plugin.org.uk/swh-plugins/plate wet_level=12 dry_level=88 width=1
+#
+# Kette fuer Bus A1 (Summe) - sanfte Begrenzung vor dem Ausgang:
+#
+#   http://calf.sourceforge.net/plugins/Compressor threshold=-6 ratio=2 attack=30 release=250 knee=6
+#   bypass http://plugin.org.uk/swh-plugins/plate
+#
+# ---------------------------------------------------------------------------
+# URIs finden
+# ---------------------------------------------------------------------------
+# Alle installierten LV2-Plugins mit URI auflisten (Paket lilv-utils):
+#
+#   lv2ls                      # alle URIs
+#   lv2ls | grep -i calf       # nur Calf
+#   lv2ls | grep -i swh        # Steve Harris (plugin.org.uk)
+#   lv2ls | grep -i -E 'lsp|zamaudio|invada'
+#
+# Ohne lv2ls geht es ueber die Bundle-Verzeichnisse:
+#
+#   ls /usr/lib/lv2 /usr/lib64/lv2 ~/.lv2 2>/dev/null
+#   grep -h '^ *a *lv2:Plugin' -r /usr/lib64/lv2/*/manifest.ttl
+#
+# Welche Steuerports ein Plugin hat (die Namen fuer symbol=wert), zeigt:
+#
+#   lv2info http://calf.sourceforge.net/plugins/Compressor | grep -A4 ':control'
+#
+# ACHTUNG: die Parameternamen oben sind gaengige Calf-/SWH-Symbole, aber je
+# nach Plugin-Version verschieden. Ein falsches Symbol kostet nur eine
+# Fehlerzeile im Log (mod-host antwortet "resp -1"), nichts weiter - aber der
+# Parameter bleibt dann auf seinem Vorgabewert.
+#
+# ---------------------------------------------------------------------------
+# VST2/VST3
+# ---------------------------------------------------------------------------
+# mod-host kann nur LV2. Fuer VST gibt es Carla als Bruecke, aber Crosspoint
+# startet Carla NICHT selbst - /api/fx meldet nur, ob es installiert ist:
+#
+#   flatpak run studio.kx.carla        # oder: carla-jack-multi -J JACK
+#
+# Danach das VST-Rack in Carla auf die Crosspoint-Ports legen
+# (crosspoint:strip1_L/R, crosspoint:busA1_L/R).
+#
+# ---------------------------------------------------------------------------
+# Verdrahtung
+# ---------------------------------------------------------------------------
+# mod-host legt je Instanz einen JACK-Client effect_<nummer> an; die Portnamen
+# sind die Symbole des Plugins (z. B. in_l/out_l bei Calf). Eine Kette in den
+# Signalweg haengen heisst deshalb verbinden:
+#
+#   crosspoint:strip1_L -> effect_100:in_l
+#   effect_100:out_l    -> effect_101:in_l
+#   effect_101:out_l    -> crosspoint:strip1_L
+#
+# Instanznummern: Streifen ab 100, Busse ab 500, je Kanal 16 Plaetze
+# (Streifen 1 Platz 0 = 100, Streifen 1 Platz 1 = 101, Bus A1 Platz 0 = 500).

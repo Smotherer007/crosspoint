@@ -10,6 +10,7 @@
 //! Callback liest sie mit `Relaxed`.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, Ordering::Relaxed};
+use std::sync::Mutex;
 
 use crate::dsp::*;
 use crate::json::Value;
@@ -106,6 +107,8 @@ pub struct StripParam {
     pub dn_floor: AtomicU32,
     pub dn_threshold: AtomicU32,
     pub level: AtomicU32,
+    /// Frei wählbarer Name (`/api/set` mit `param:label`); leer = Vorgabename.
+    pub label: Mutex<String>,
 }
 
 impl StripParam {
@@ -128,6 +131,15 @@ impl StripParam {
             dn_floor: AtomicU32::new((-30.0f32).to_bits()),
             dn_threshold: AtomicU32::new((-55.0f32).to_bits()),
             level: AtomicU32::new(0f32.to_bits()),
+            label: Mutex::new(String::new()),
+        }
+    }
+
+    /// Anzeigename (leer = Vorgabename aus `STRIP_NAMES`).
+    pub fn label(&self) -> String {
+        match self.label.lock() {
+            Ok(g) => g.clone(),
+            Err(e) => e.into_inner().clone(),
         }
     }
 }
@@ -166,6 +178,8 @@ pub struct BusParam {
     pub c5_threshold: AtomicU32,
     pub c5_ceiling: AtomicU32,
     pub level: AtomicU32,
+    /// Frei wählbarer Name (`/api/set` mit `param:label`); leer = Vorgabename.
+    pub label: Mutex<String>,
 }
 
 impl BusParam {
@@ -186,9 +200,21 @@ impl BusParam {
             c5_threshold: AtomicU32::new((-18.0f32).to_bits()),
             c5_ceiling: AtomicU32::new((-0.3f32).to_bits()),
             level: AtomicU32::new(0f32.to_bits()),
+            label: Mutex::new(String::new()),
+        }
+    }
+
+    /// Anzeigename (leer = Vorgabename aus `BUS_NAMES`).
+    pub fn label(&self) -> String {
+        match self.label.lock() {
+            Ok(g) => g.clone(),
+            Err(e) => e.into_inner().clone(),
         }
     }
 }
+
+/// Längste erlaubte Anzeigenamen für Streifen und Busse (Zeichen).
+pub const MAX_LABEL: usize = 24;
 
 pub struct Params {
     pub strips: [StripParam; STRIPS],
@@ -233,6 +259,47 @@ impl Params {
             },
             _ => false,
         }
+    }
+
+    /// Textparameter setzen – derzeit nur `label` (Anzeigename) je Streifen
+    /// und Bus. Der Name steht im Kanalzug anstelle von „HW In 1“/„A1“.
+    ///
+    /// Leere Eingabe löscht den Namen; Steuerzeichen und übermäßig lange
+    /// Namen werden abgelehnt, damit die Kopfzeile nicht zerbricht.
+    pub fn set_text(&self, target: &str, index: usize, param: &str, text: &str) -> bool {
+        let ziel: &Mutex<String> = match (target, param) {
+            ("strip", "label") => match self.strips.get(index) {
+                Some(s) => &s.label,
+                None => return false,
+            },
+            ("bus", "label") => match self.buses.get(index) {
+                Some(b) => &b.label,
+                None => return false,
+            },
+            _ => return false,
+        };
+        let sauber = text.trim();
+        if sauber.chars().count() > MAX_LABEL || sauber.chars().any(|c| c.is_control()) {
+            return false;
+        }
+        match ziel.lock() {
+            Ok(mut g) => *g = sauber.to_string(),
+            Err(e) => *e.into_inner() = sauber.to_string(),
+        }
+        true
+    }
+
+    /// Anzeigename eines Streifens oder Busses (leer = Vorgabename).
+    pub fn label(&self, target: &str, index: usize) -> Option<String> {
+        let ziel = match target {
+            "strip" => &self.strips.get(index)?.label,
+            "bus" => &self.buses.get(index)?.label,
+            _ => return None,
+        };
+        Some(match ziel.lock() {
+            Ok(g) => g.clone(),
+            Err(e) => e.into_inner().clone(),
+        })
     }
 
     /// EQ-Zellen eines Streifens als JSON (Kanal 0; die Zellen sind fuer beide
@@ -283,6 +350,7 @@ impl Params {
                                 s.sends.iter().map(|a| Value::num(fget(a) as f64)).collect();
                             Value::obj(vec![
                                 ("name", Value::str(STRIP_NAMES[i])),
+                                ("label", Value::Str(s.label())),
                                 ("gain", Value::num(fget(&s.gain) as f64)),
                                 ("pan", Value::num(fget(&s.pan) as f64)),
                                 ("mute", Value::Bool(s.mute.load(Relaxed))),
@@ -307,6 +375,7 @@ impl Params {
                         .map(|(i, b)| {
                             Value::obj(vec![
                                 ("name", Value::str(BUS_NAMES[i])),
+                                ("label", Value::Str(b.label())),
                                 ("gain", Value::num(fget(&b.gain) as f64)),
                                 ("mute", Value::Bool(b.mute.load(Relaxed))),
                                 ("mono", Value::Bool(b.mono.load(Relaxed))),
@@ -1162,5 +1231,32 @@ mod tests {
         let js = p.to_json().to_json();
         assert!(js.contains("\"mode\""), "to_json ohne mode: {js}");
         assert!(js.contains("\"cross\""), "to_json ohne cross: {js}");
+    }
+
+    #[test]
+    fn anzeigename_wird_gesetzt_getrimmt_und_geleert() {
+        let p = params();
+        assert!(p.set_text("strip", 0, "label", "  Gesang  "));
+        assert_eq!(p.label("strip", 0).as_deref(), Some("Gesang"), "getrimmt");
+        assert!(p.set_text("bus", 7, "label", "Monitor"));
+        assert_eq!(p.label("bus", 7).as_deref(), Some("Monitor"));
+
+        // Unbekanntes Ziel, unbekannter Parameter, unbekannter Index.
+        assert!(!p.set_text("strip", 99, "label", "x"));
+        assert!(!p.set_text("strip", 0, "gain", "x"));
+        assert!(!p.set_text("master", 0, "label", "x"));
+
+        // Steuerzeichen und Ueberlaenge werden abgelehnt.
+        assert!(!p.set_text("strip", 0, "label", "a\tb"));
+        assert!(!p.set_text("strip", 0, "label", &"x".repeat(MAX_LABEL + 1)));
+
+        // Der Name steht im Zustand (und damit im Preset).
+        let js = p.to_json().to_json();
+        assert!(js.contains("\"label\":\"Gesang\""), "{js}");
+        assert!(js.contains("\"label\":\"Monitor\""), "{js}");
+
+        // Leerer Text setzt wieder den Vorgabenamen.
+        assert!(p.set_text("strip", 0, "label", ""));
+        assert_eq!(p.label("strip", 0).as_deref(), Some(""));
     }
 }

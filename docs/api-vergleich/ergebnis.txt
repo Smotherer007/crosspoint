@@ -1,0 +1,6 @@
+  ABWEICHEND  post_set_bad  (25 -> 57 Byte)
+      erste Abweichung bei Byte 10
+      vorher : …b'{"error":"\'\\"\' erwartet"}'
+      nachher: …b'{"error":"EOF while parsing a value at line 1 column 18"}'
+
+29 Endpunkte gleich, 1 abweichend, 0 fehlend, 0 neu

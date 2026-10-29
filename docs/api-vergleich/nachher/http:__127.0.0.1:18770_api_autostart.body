@@ -1,0 +1,1 @@
+{"enabled":false,"path":"/tmp/crosspoint-api-lauf/autostart/de.weppelmann.Crosspoint.desktop","exec":"/var/home/patrickweppelmann/Dokumente/Workspaces/VoicemeeterForLinux/scripts/crosspoint-launch.sh --minimized","flatpak":false}

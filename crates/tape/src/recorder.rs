@@ -1,16 +1,16 @@
-//! Der eigentliche Recorder: Zustandsmaschine, Puffer, Rotation, Finalisierung.
+//! Der eigentliche Recorder: Zustandsmaschine, Rotation, Finalisierung.
 //!
 //! Entwurf:
-//! * Nutzdaten laufen durch einen vorallokierten Byte-Puffer (`scratch`) fester
-//!   Groesse und werden von dort in einen `BufWriter` kopiert. Im Schreib-Hotpath
-//!   (`write_block`) wird nichts allokiert, kein `format!`, kein `Vec::push`.
+//! * Geschrieben wird über [`hound::WavWriter`] in einen `BufWriter`. `hound`
+//!   legt den RIFF-Kopf an und patcht beim `finalize` die Größen – der
+//!   Eigenbau-Kopf (44 Byte, `seek(0)` + `write_all`) ist damit entfallen.
 //! * Bytes pro Datei werden mitgezaehlt; sobald `Config::max_file_bytes` erreicht
-//!   ist, wird die Datei finalisiert (Kopf gepatcht) und die naechste geoeffnet.
-//! * Der RIFF-Kopf wird beim Oeffnen mit Groesse 0 geschrieben und beim
-//!   Finalisieren per `seek(0)` + `write_all` ersetzt.
+//!   ist, wird die Datei finalisiert und die naechste geoeffnet.
+//! * Im Hotpath (`write_block`) wird weiterhin nichts allokiert: Samples gehen
+//!   direkt aus dem Eingabepuffer in den gepufferten Schreiber.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, Seek, SeekFrom, Write};
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use crate::meta::{self, FileMeta, RecordingMeta};
@@ -24,7 +24,7 @@ pub const MAX_CHANNELS: usize = 32;
 /// Ein Segment der Aufnahme: eine WAV-Datei in Arbeit.
 struct Active {
     path: PathBuf,
-    writer: BufWriter<File>,
+    writer: hound::WavWriter<BufWriter<File>>,
     /// Fertige Frames (ohne angefangenes Restframe in `Tape::carry`).
     frames: u64,
     /// Nutzlast im data-Chunk.
@@ -39,8 +39,6 @@ pub struct Tape {
     sample_rate: u32,
     channels: u16,
     format: Format,
-    /// Zielformat-Kodierung, vorallokiert auf `buffer_frames * bytes_per_frame`.
-    scratch: Vec<u8>,
     /// Angefangenes Frame, wenn ein Block nicht frame-aligned endet.
     carry: [f32; MAX_CHANNELS],
     carry_len: usize,
@@ -92,7 +90,6 @@ impl Tape {
             sample_rate: 0,
             channels: 0,
             format: Format::Pcm24,
-            scratch: Vec::new(),
             carry: [0.0; MAX_CHANNELS],
             carry_len: 0,
             active: None,
@@ -167,29 +164,17 @@ impl Tape {
                 "Kanaele {channels} unzulaessig (1..={MAX_CHANNELS})"
             )));
         }
-        if self.cfg.buffer_frames == 0 || self.cfg.buffer_frames > 1 << 20 {
-            return Err(TapeError::UngueltigeKonfiguration(format!(
-                "buffer_frames {} unzulaessig (1..=1048576)",
-                self.cfg.buffer_frames
-            )));
-        }
         let bytes_per_frame = channels as usize * format.bytes_per_sample();
         if bytes_per_frame == 0 {
             return Err(TapeError::UngueltigeKonfiguration(
                 "Bytes pro Frame sind 0".to_string(),
             ));
         }
-        if self.cfg.max_file_bytes < 4096 || !wav::data_len_fits(self.cfg.max_file_bytes, true) {
+        if self.cfg.max_file_bytes < 4096 || !wav::data_len_fits(self.cfg.max_file_bytes) {
             return Err(TapeError::UngueltigeKonfiguration(format!(
                 "max_file_bytes {} unzulaessig (4096..={})",
                 self.cfg.max_file_bytes,
                 u32::MAX as u64 - 36
-            )));
-        }
-        let scratch_len = self.cfg.buffer_frames * bytes_per_frame;
-        if scratch_len > 32 << 20 {
-            return Err(TapeError::UngueltigeKonfiguration(format!(
-                "Schreibpuffer {scratch_len} Byte zu gross (max. 32 MiB)"
             )));
         }
 
@@ -200,7 +185,6 @@ impl Tape {
         self.sample_rate = sample_rate;
         self.channels = channels;
         self.format = format;
-        self.scratch = vec![0u8; scratch_len];
         self.carry = [0.0; MAX_CHANNELS];
         self.carry_len = 0;
         self.active = None;
@@ -222,9 +206,8 @@ impl Tape {
     /// Kanalzahl sein: ein angefangenes Frame wird bis zum naechsten Aufruf
     /// gehalten.
     ///
-    /// Im Hotpath wird nicht allokiert; geschrieben wird in einen vorallokierten
-    /// Byte-Puffer, der in den `BufWriter` laeuft. Rotation passiert hoechstens
-    /// einmal pro `max_file_bytes`.
+    /// Im Hotpath wird nicht allokiert; rotiert wird hoechstens einmal pro
+    /// `max_file_bytes`.
     pub fn write_block(&mut self, block: &[f32]) -> Result<(), TapeError> {
         if self.state != State::Recording {
             return Err(TapeError::WrongState {
@@ -327,20 +310,37 @@ impl Tape {
                 continue;
             }
 
-            let cap_frames = (self.scratch.len() / bytes_per_frame).max(1);
             let fit_frames = (frei / bytes_per_frame as u64) as usize;
-            let n = cap_frames.min(fit_frames).min(total - done).max(1);
-
-            let src = &frames[done * ch..(done + n) * ch];
-            let (bytes, peak) = wav::encode(self.format, src, &mut self.scratch);
+            let n = fit_frames.min(total - done).max(1);
 
             let a = self.active.as_mut().ok_or(TapeError::KeinZielpfad)?;
-            a.writer.write_all(&self.scratch[..bytes])?;
-            a.data_bytes += bytes as u64;
-            a.frames += n as u64;
-            if peak > a.peak {
-                a.peak = peak;
+            let src = &frames[done * ch..(done + n) * ch];
+            // Peak vor der Quantisierung messen: Werte ueber 1.0 zeigen
+            // Uebersteuerung an.
+            let mut peak = a.peak;
+            for &s in src {
+                if s.is_finite() {
+                    let betrag = s.abs();
+                    if betrag > peak {
+                        peak = betrag;
+                    }
+                }
             }
+            match self.format {
+                Format::Pcm24 => {
+                    for &s in src {
+                        a.writer.write_sample(wav::pcm24(s))?;
+                    }
+                }
+                Format::Float32 => {
+                    for &s in src {
+                        a.writer.write_sample(wav::float32(s))?;
+                    }
+                }
+            }
+            a.data_bytes += (n * bytes_per_frame) as u64;
+            a.frames += n as u64;
+            a.peak = peak;
             if peak > self.peak {
                 self.peak = peak;
             }
@@ -349,30 +349,12 @@ impl Tape {
         Ok(())
     }
 
-    /// Finalisiert die aktuelle Datei: Kopf mit echten Groessen neu schreiben.
+    /// Finalisiert die aktuelle Datei: `hound` schreibt die echten Groessen.
     fn finalize_active(&mut self) -> Result<(), TapeError> {
-        let Some(mut a) = self.active.take() else {
+        let Some(a) = self.active.take() else {
             return Ok(());
         };
-        // RIFF-Chunks sind wortausgerichtet: ungerade Nutzlast bekommt ein Pad-Byte.
-        let pad = a.data_bytes % 2 == 1;
-        if pad {
-            a.writer.write_all(&[0u8])?;
-        }
-        a.writer.flush()?;
-
-        let header = wav::build_header(
-            self.format,
-            self.sample_rate,
-            self.channels,
-            a.data_bytes as u32,
-            pad,
-        );
-        let file = a.writer.get_mut();
-        file.seek(SeekFrom::Start(0))?;
-        file.write_all(&header)?;
-        file.sync_data()?;
-
+        a.writer.finalize()?;
         self.dateien.push(FileMeta {
             pfad: a.path,
             frames: a.frames,
@@ -389,7 +371,7 @@ impl Tape {
         self.open_next()
     }
 
-    /// Oeffnet die naechste Segmentdatei und schreibt den Platzhalter-Kopf.
+    /// Oeffnet die naechste Segmentdatei; `hound` legt den Kopf an.
     fn open_next(&mut self) -> Result<(), TapeError> {
         let name = format!("{}-{}-{:03}.wav", self.stem, self.stamp, self.next_index);
         let path = self.base_dir.join(name);
@@ -398,14 +380,9 @@ impl Tape {
             .create(true)
             .truncate(true)
             .open(&path)?;
-        let mut writer = BufWriter::with_capacity(self.cfg.writer_bytes, file);
-        writer.write_all(&wav::build_header(
-            self.format,
-            self.sample_rate,
-            self.channels,
-            0,
-            false,
-        ))?;
+        let buf = BufWriter::with_capacity(self.cfg.writer_bytes, file);
+        let writer =
+            hound::WavWriter::new(buf, wav::spec(self.format, self.sample_rate, self.channels))?;
         self.active = Some(Active {
             path,
             writer,

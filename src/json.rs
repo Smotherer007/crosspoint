@@ -1,5 +1,24 @@
-//! Minimaler JSON-Bauer/-Leser (keine externen Crates, damit der Build offline läuft).
+//! JSON-Werte der Steuer-API.
+//!
+//! Bis v0.2.0 stand hier ein eigener Parser und Serialisierer (~270 Zeilen).
+//! Der ist ersetzt: **gelesen und geschrieben wird mit `serde_json`**. Die
+//! Fehler der letzten Tage (Feldfehler in `pw-dump`, Escape-Sonderfälle) lagen
+//! genau dort – ein JSON-Parser ist gelöste Arbeit.
+//!
+//! Was bleibt, ist die Form der Werte: [`Value`] hält Objekte als geordnete
+//! Liste von Schlüssel/Wert-Paaren, nicht als `serde_json::Map`. Das ist
+//! Absicht – die Reihenfolge der Felder ist Teil der öffentlichen API-Form
+//! (`/api/state`, `/api/eq`, …) und `serde_json::Map` sortiert ohne das Feature
+//! `preserve_order` alphabetisch. Geschrieben wird deshalb über
+//! [`Serialize`] auf dem geordneten Wert, gelesen über `serde_json::Value` und
+//! danach umgesetzt ([`Value::von_serde`]).
 
+use std::fmt;
+use std::io;
+
+use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+
+/// Ein JSON-Wert mit erhaltener Feldreihenfolge.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null,
@@ -7,6 +26,7 @@ pub enum Value {
     Num(f64),
     Str(String),
     Arr(Vec<Value>),
+    /// Objekt als geordnete Paarliste (Reihenfolge = Ausgabereihenfolge).
     Obj(Vec<(String, Value)>),
 }
 
@@ -20,12 +40,15 @@ impl Value {
     pub fn str(s: impl Into<String>) -> Value {
         Value::Str(s.into())
     }
+
+    /// Feld eines Objekts (erster Treffer, wie bisher).
     pub fn get(&self, key: &str) -> Option<&Value> {
         match self {
             Value::Obj(p) => p.iter().find(|(k, _)| k == key).map(|(_, v)| v),
             _ => None,
         }
     }
+
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Num(n) => Some(*n),
@@ -34,6 +57,7 @@ impl Value {
             _ => None,
         }
     }
+
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),
@@ -41,6 +65,7 @@ impl Value {
             _ => None,
         }
     }
+
     pub fn as_arr(&self) -> Option<&Vec<Value>> {
         match self {
             Value::Arr(a) => Some(a),
@@ -48,204 +73,110 @@ impl Value {
         }
     }
 
+    /// Ausgabe als kompakter JSON-Text (keine Leerzeichen, Feldreihenfolge
+    /// erhalten, Zahlen wie bisher formatiert).
     pub fn to_json(&self) -> String {
-        let mut out = String::new();
-        self.write(&mut out);
-        out
+        let mut buf = Vec::with_capacity(512);
+        let mut ser = serde_json::Serializer::with_formatter(&mut buf, Zahlform);
+        match self.serialize(&mut ser) {
+            Ok(()) => String::from_utf8(buf).unwrap_or_else(|_| "null".to_string()),
+            // Vec<u8> kann nicht fehlschlagen; trotzdem kein panic im API-Pfad.
+            Err(_) => "null".to_string(),
+        }
     }
 
-    fn write(&self, out: &mut String) {
+    /// Setzt einen `serde_json`-Wert in die geordnete Form um.
+    ///
+    /// Objekte kommen dabei in der Reihenfolge an, die `serde_json` liefert
+    /// (alphabetisch, solange `preserve_order` nicht aktiv ist). Für gelesene
+    /// Daten ist das ohne Belang: zugegriffen wird über [`Value::get`].
+    pub fn von_serde(v: serde_json::Value) -> Value {
+        use serde_json::Value as J;
+        match v {
+            J::Null => Value::Null,
+            J::Bool(b) => Value::Bool(b),
+            J::Number(n) => Value::Num(n.as_f64().unwrap_or(0.0)),
+            J::String(s) => Value::Str(s),
+            J::Array(a) => Value::Arr(a.into_iter().map(Value::von_serde).collect()),
+            J::Object(m) => Value::Obj(
+                m.into_iter()
+                    .map(|(k, v)| (k, Value::von_serde(v)))
+                    .collect(),
+            ),
+        }
+    }
+}
+
+impl Serialize for Value {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         match self {
-            Value::Null => out.push_str("null"),
-            Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-            Value::Num(n) => {
-                if !n.is_finite() {
-                    out.push('0');
-                } else if n.fract() == 0.0 && n.abs() < 1e15 {
-                    out.push_str(&format!("{}", *n as i64));
-                } else {
-                    out.push_str(&format!("{n:.3}"));
-                }
-            }
-            Value::Str(s) => out.push_str(&quote(s)),
+            Value::Null => s.serialize_unit(),
+            Value::Bool(b) => s.serialize_bool(*b),
+            // `serde_json` schreibt NaN/Inf als `null`. Die API hat dafür
+            // seit jeher `0` geliefert (eine Pegelanzeige soll nicht in null
+            // laufen); das bleibt so.
+            Value::Num(n) if !n.is_finite() => s.serialize_f64(0.0),
+            Value::Num(n) => s.serialize_f64(*n),
+            Value::Str(t) => s.serialize_str(t),
             Value::Arr(a) => {
-                out.push('[');
-                for (i, v) in a.iter().enumerate() {
-                    if i > 0 {
-                        out.push(',');
-                    }
-                    v.write(out);
+                let mut seq = s.serialize_seq(Some(a.len()))?;
+                for v in a {
+                    seq.serialize_element(v)?;
                 }
-                out.push(']');
+                seq.end()
             }
             Value::Obj(p) => {
-                out.push('{');
-                for (i, (k, v)) in p.iter().enumerate() {
-                    if i > 0 {
-                        out.push(',');
-                    }
-                    out.push_str(&quote(k));
-                    out.push(':');
-                    v.write(out);
+                let mut map = s.serialize_map(Some(p.len()))?;
+                for (k, v) in p {
+                    map.serialize_entry(k, v)?;
                 }
-                out.push('}');
+                map.end()
             }
         }
     }
 }
 
+/// Zahlenformat der API: ganze Werte ohne Nachkommastellen, sonst drei.
+///
+/// Das ist die Form, die die Oberfläche seit v0.1 liest (`-140`, `0.700`,
+/// `1000`). `serde_json` würde `0.700` als `0.7` und `1000` als `1000.0`
+/// schreiben – deshalb eigener `Formatter` statt Nachbearbeitung am Text.
+struct Zahlform;
+
+impl serde_json::ser::Formatter for Zahlform {
+    fn write_f64<W>(&mut self, w: &mut W, value: f64) -> io::Result<()>
+    where
+        W: ?Sized + io::Write,
+    {
+        if !value.is_finite() {
+            return w.write_all(b"0");
+        }
+        if value.fract() == 0.0 && value.abs() < 1e15 {
+            write!(w, "{}", value as i64)
+        } else {
+            write!(w, "{value:.3}")
+        }
+    }
+}
+
+/// Zeichenkette als JSON-Literal (für handgebaute Antworten wie
+/// `{"error":…}`).
 pub fn quote(s: &str) -> String {
-    let mut out = String::from("\"");
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string())
 }
 
+/// JSON lesen. Fehlertexte kommen von `serde_json` und nennen Zeile und Spalte.
 pub fn parse(s: &str) -> Result<Value, String> {
-    let b: Vec<char> = s.chars().collect();
-    let mut i = 0;
-    let v = value(&b, &mut i)?;
-    ws(&b, &mut i);
-    if i != b.len() {
-        return Err(format!("Rest ab {i}"));
-    }
-    Ok(v)
-}
-
-fn ws(b: &[char], i: &mut usize) {
-    while *i < b.len() && b[*i].is_whitespace() {
-        *i += 1;
+    match serde_json::from_str::<serde_json::Value>(s) {
+        Ok(v) => Ok(Value::von_serde(v)),
+        Err(e) => Err(e.to_string()),
     }
 }
 
-fn value(b: &[char], i: &mut usize) -> Result<Value, String> {
-    ws(b, i);
-    match b.get(*i) {
-        None => Err("Ende".into()),
-        Some('{') => {
-            *i += 1;
-            let mut pairs = Vec::new();
-            ws(b, i);
-            if b.get(*i) == Some(&'}') {
-                *i += 1;
-                return Ok(Value::Obj(pairs));
-            }
-            loop {
-                ws(b, i);
-                let k = string(b, i)?;
-                ws(b, i);
-                if b.get(*i) != Some(&':') {
-                    return Err("':' erwartet".into());
-                }
-                *i += 1;
-                pairs.push((k, value(b, i)?));
-                ws(b, i);
-                match b.get(*i) {
-                    Some(',') => *i += 1,
-                    Some('}') => {
-                        *i += 1;
-                        return Ok(Value::Obj(pairs));
-                    }
-                    _ => return Err("',' oder '}' erwartet".into()),
-                }
-            }
-        }
-        Some('[') => {
-            *i += 1;
-            let mut items = Vec::new();
-            ws(b, i);
-            if b.get(*i) == Some(&']') {
-                *i += 1;
-                return Ok(Value::Arr(items));
-            }
-            loop {
-                items.push(value(b, i)?);
-                ws(b, i);
-                match b.get(*i) {
-                    Some(',') => *i += 1,
-                    Some(']') => {
-                        *i += 1;
-                        return Ok(Value::Arr(items));
-                    }
-                    _ => return Err("',' oder ']' erwartet".into()),
-                }
-            }
-        }
-        Some('"') => Ok(Value::Str(string(b, i)?)),
-        Some('t') => lit(b, i, "true", Value::Bool(true)),
-        Some('f') => lit(b, i, "false", Value::Bool(false)),
-        Some('n') => lit(b, i, "null", Value::Null),
-        Some(_) => {
-            let start = *i;
-            while *i < b.len() && (b[*i].is_ascii_digit() || "+-.eE".contains(b[*i])) {
-                *i += 1;
-            }
-            let s: String = b[start..*i].iter().collect();
-            s.parse::<f64>()
-                .map(Value::Num)
-                .map_err(|_| format!("Zahl: {s}"))
-        }
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.to_json())
     }
-}
-
-fn lit(b: &[char], i: &mut usize, word: &str, v: Value) -> Result<Value, String> {
-    let w: Vec<char> = word.chars().collect();
-    if b.len() >= *i + w.len() && b[*i..*i + w.len()] == w[..] {
-        *i += w.len();
-        Ok(v)
-    } else {
-        Err(format!("{word} erwartet"))
-    }
-}
-
-fn string(b: &[char], i: &mut usize) -> Result<String, String> {
-    if b.get(*i) != Some(&'"') {
-        return Err("'\"' erwartet".into());
-    }
-    *i += 1;
-    let mut out = String::new();
-    while *i < b.len() {
-        match b[*i] {
-            '"' => {
-                *i += 1;
-                return Ok(out);
-            }
-            '\\' => {
-                *i += 1;
-                match b.get(*i) {
-                    Some('n') => out.push('\n'),
-                    Some('r') => out.push('\r'),
-                    Some('t') => out.push('\t'),
-                    Some('u') => {
-                        let hex: String = b.get(*i + 1..*i + 5).unwrap_or(&[]).iter().collect();
-                        if let Some(c) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32)
-                        {
-                            out.push(c);
-                        }
-                        *i += 4;
-                    }
-                    Some(c) => out.push(*c),
-                    None => return Err("Escape".into()),
-                }
-                *i += 1;
-            }
-            c => {
-                out.push(c);
-                *i += 1;
-            }
-        }
-    }
-    Err("String offen".into())
 }
 
 #[cfg(test)]
@@ -259,6 +190,7 @@ mod tests {
             ("b", Value::Arr(vec![Value::Bool(true), Value::str("x")])),
         ]);
         let text = v.to_json();
+        assert_eq!(text, r#"{"a":1.500,"b":[true,"x"]}"#);
         let back = parse(&text).unwrap();
         assert_eq!(back.get("a").unwrap().as_f64(), Some(1.5));
         assert_eq!(back.get("b").unwrap().as_arr().unwrap().len(), 2);
@@ -269,5 +201,91 @@ mod tests {
         let v = parse(r#"{"gain":-12.5,"mute":true}"#).unwrap();
         assert_eq!(v.get("gain").unwrap().as_f64(), Some(-12.5));
         assert_eq!(v.get("mute").unwrap().as_bool(), Some(true));
+    }
+
+    #[test]
+    fn feldreihenfolge_bleibt_wie_gebaut() {
+        // Die API-Form haengt an dieser Reihenfolge (zustand -> Oberflaeche).
+        let v = Value::obj(vec![
+            ("name", Value::str("HW In 1")),
+            ("gain", Value::num(0.0)),
+            ("mute", Value::Bool(false)),
+        ]);
+        assert_eq!(v.to_json(), r#"{"name":"HW In 1","gain":0,"mute":false}"#);
+    }
+
+    #[test]
+    fn zahlenform_wie_bisher() {
+        // Werte aus echten Antworten: /api/levels (-140), /api/eq (0.700, 1000)
+        let f = |n: f64| Value::num(n).to_json();
+        assert_eq!(f(-140.0), "-140");
+        assert_eq!(f(0.0), "0");
+        assert_eq!(f(0.7), "0.700");
+        assert_eq!(f(1000.0), "1000");
+        assert_eq!(f(-6.5), "-6.500");
+        assert_eq!(f(1.0 / 3.0), "0.333");
+        assert_eq!(f(-0.0001), "-0.000");
+        assert_eq!(f(f64::NAN), "0", "nicht-endliche Zahlen wie bisher 0");
+        assert_eq!(f(1e20), "100000000000000000000.000");
+    }
+
+    #[test]
+    fn texte_werden_wie_bisher_maskiert() {
+        assert_eq!(quote("a\"b\\c\nd\te"), r#""a\"b\\c\nd\te""#);
+        assert_eq!(quote("äöü"), "\"äöü\"", "UTF-8 bleibt UTF-8");
+        assert_eq!(quote("\u{1}"), r#""\u0001""#);
+    }
+
+    #[test]
+    fn fremde_daten_lesen() {
+        // Ausschnitt aus pw-dump: verschachtelt, Zahlen, null, Unicode
+        let text = r#"{"id":287,"info":{"props":{"node.description":"Ryzen HD Audio – Digitales Stereo","monitor":null}},"rates":[44100,48000]}"#;
+        let v = parse(text).unwrap();
+        assert_eq!(v.get("id").unwrap().as_f64(), Some(287.0));
+        let desc = v
+            .get("info")
+            .and_then(|i| i.get("props"))
+            .and_then(|p| p.get("node.description"))
+            .and_then(|d| match d {
+                Value::Str(s) => Some(s.clone()),
+                _ => None,
+            });
+        assert_eq!(desc.as_deref(), Some("Ryzen HD Audio – Digitales Stereo"));
+        assert_eq!(v.get("rates").unwrap().as_arr().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn fehler_nennt_stelle() {
+        let e = parse("{\"target\":\"strip\",").unwrap_err();
+        assert!(e.contains("line 1"), "serde_json-Fehler erwartet: {e}");
+        assert!(parse("").is_err());
+        assert!(parse("[1,2,]").is_err());
+    }
+
+    #[test]
+    fn grosszahlen_bleiben_lesbar() {
+        let v = parse(r#"{"frame":9007199254740993}"#).unwrap();
+        assert!(v.get("frame").unwrap().as_f64().is_some());
+    }
+
+    /// Das Feature `derive` ist aktiv und wird auch gebraucht (Tape-Metadaten,
+    /// spaetere Konfigurationsdateien lesen strukturiert statt feldweise).
+    #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+    struct Beispiel {
+        gain: f32,
+        mute: bool,
+        name: String,
+    }
+
+    #[test]
+    fn derive_steht_bereit() {
+        let b = Beispiel {
+            gain: -6.0,
+            mute: true,
+            name: "HW In 1".into(),
+        };
+        let text = serde_json::to_string(&b).unwrap();
+        assert_eq!(text, r#"{"gain":-6.0,"mute":true,"name":"HW In 1"}"#);
+        assert_eq!(serde_json::from_str::<Beispiel>(&text).unwrap(), b);
     }
 }

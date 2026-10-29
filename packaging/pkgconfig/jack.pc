@@ -1,0 +1,14 @@
+# Ersatz fuer jack.pc auf Systemen mit PipeWire (Bazzite, Flatpak-Runtime).
+#
+# `jack-sys` fragt beim Bauen `pkg-config --libs jack`. JACK selbst ist hier
+# nicht installiert; die ABI kommt von PipeWire (`libjack.so.0`). Gelinkt wird
+# nichts - die Crate `jack` laedt die Bibliothek zur Laufzeit -, deshalb nennt
+# dieser Eintrag nur das Verzeichnis der Bibliothek und keine `-l`-Option.
+prefix=/usr
+libdir=/usr/lib64/pipewire-0.3/jack
+
+Name: jack
+Description: JACK Audio Connection Kit (ABI von PipeWire bereitgestellt)
+Version: 1.9.21
+Libs: -L${libdir}
+Cflags:

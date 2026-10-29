@@ -1,0 +1,1 @@
+{"sources":[{"id":51,"name":"alsa_input.pci-0000_0f_00.6.analog-stereo","desc":"Ryzen HD Audio Controller Analoges Stereo","monitor":false,"ports":["alsa_input.pci-0000_0f_00.6.analog-stereo:capture_FL","alsa_input.pci-0000_0f_00.6.analog-stereo:capture_FR"]}],"assigned":[],"links":[],"strips":5,"error":null}
