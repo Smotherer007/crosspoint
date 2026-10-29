@@ -3,6 +3,12 @@ name: Release
 # Ablauf wie im Nachbarprojekt: Conventional Commits auf main, release-please
 # haelt einen Release-PR aktuell; dessen Merge erzeugt Tag und Release, dieser
 # Workflow baut die Pakete und haengt sie an.
+#
+# Zwei getrennte Paket-Jobs, weil die Umgebungen sich ausschliessen:
+#   flatpak    braucht den GNOME-Container (flatpak-builder, Runtime, WebKit)
+#   tarball    braucht apt und libjack auf einem normalen Ubuntu-Runner
+# In einem Job scheitert beides: im Container gibt es kein apt, auf dem Runner
+# kein vorinstalliertes flatpak-builder.
 
 on:
   push:
@@ -11,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Vorhandener Tag, z. B. v0.1.0
+        description: Vorhandener Tag, z. B. v0.1.1
         required: true
 
 permissions:
@@ -66,19 +72,32 @@ jobs:
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
 
-  linux:
+  flatpak:
     needs: prepare
-    # `prepare` haengt an release-please, das bei einem Tag-Push uebersprungen
-    # wird. Ohne diese Bedingung ueberspringt GitHub die abhaengigen Jobs gleich
-    # mit - dann entsteht ein Release ohne Pakete.
     if: always() && needs.prepare.result == 'success'
-    name: Linux-Pakete
-    # 24.04 statt 22.04: das Flatpak in 22.04 ist zu alt fuer Runtimes wie
-    # org.gnome.Platform//51 - der Bundle-Schritt scheiterte dort.
+    name: Flatpak-Bundle
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
       options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: flatpak/de.weppelmann.Crosspoint.yml
+          bundle: crosspoint-${{ needs.prepare.outputs.version }}-x86_64.flatpak
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: crosspoint-*.flatpak
+
+  tarball:
+    needs: prepare
+    if: always() && needs.prepare.result == 'success'
+    name: Tarball
+    runs-on: ubuntu-24.04
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
@@ -87,46 +106,28 @@ jobs:
           ref: ${{ needs.prepare.outputs.tag }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # cargo-deb/cargo-generate-rpm werden (noch) nicht gebraucht; die
-      # Install-Action scheitert ausserdem im GNOME-Container.
-
       - name: JACK-Bibliothek
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq libjack-jackd2-dev
-
       - name: Bauen
         run: cargo build --release --locked
-
-      # Der eigene apt-Weg war auf dem Runner nicht reproduzierbar (SDK/Runtime
-      # fehlten trotz Installation, Logs ohne Token nicht lesbar). Die offizielle
-      # Action bringt flatpak-builder im Container mit und holt Runtime und SDK
-      # selbst aus dem Flathub-Repo.
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          manifest-path: flatpak/de.weppelmann.Crosspoint.yml
-          bundle: crosspoint-${{ env.VERSION }}-x86_64.flatpak
-
-      - name: Tarball
+      - name: Paket schnueren
         run: |
           mkdir -p dist
           cp target/release/crosspoint-engine dist/
-          cp scripts/crosspoint-launch.sh dist/
-          cp scripts/crosspoint-wire.sh dist/
+          cp scripts/crosspoint-launch.sh scripts/crosspoint-start.sh scripts/crosspoint-wire.sh dist/
           cp packaging/linux/de.weppelmann.Crosspoint.desktop dist/
           cp docs/brand/crosspoint-icon-1024.png dist/crosspoint.png
           tar -C dist -czf "crosspoint-${VERSION}-linux-x86_64.tar.gz" .
-
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-pakete
-          path: |
-            crosspoint-*-x86_64.flatpak
-            crosspoint-*-linux-x86_64.tar.gz
+          name: tarball
+          path: crosspoint-*.tar.gz
 
   attach:
-    needs: [prepare, linux]
-    if: always() && needs.linux.result == 'success'
+    needs: [prepare, flatpak, tarball]
+    if: always() && needs.prepare.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -139,13 +140,13 @@ jobs:
           if ! ls pakete/*.flatpak pakete/*.tar.gz >/dev/null 2>&1; then
             echo "Keine Pakete im Artefakt - Abbruch statt stillem Erfolg"; exit 1
           fi
-      - name: Release sicherstellen und Pakete anhaengen
+      - name: Release sicherstellen, veroeffentlichen, Pakete anhaengen
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          # Ein vorhandener Draft ist ueber die API unsichtbar, `view` findet ihn
-          # aber. Fehlt er ganz, wird er veroeffentlicht angelegt.
+          # Ein vorhandener Draft ist ueber die anonyme API unsichtbar, `view`
+          # findet ihn aber. Fehlt er ganz, wird er veroeffentlicht angelegt.
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
           gh release upload "$TAG" pakete/* -R "$GITHUB_REPOSITORY" --clobber
