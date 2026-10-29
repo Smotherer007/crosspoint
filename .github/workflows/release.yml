@@ -78,7 +78,10 @@ jobs:
     name: Flatpak-Bundle
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      # Dieses Image nutzt auch das Ambilight-Projekt; es bringt flatpak-builder.
+      # Das Image muss nicht zur Runtime passen - die Action holt org.gnome.Platform//51
+      # selbst aus dem Flathub-Repo.
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
       options: --privileged
     steps:
       - uses: actions/checkout@v4
@@ -88,10 +91,8 @@ jobs:
         with:
           manifest-path: flatpak/de.weppelmann.Crosspoint.yml
           bundle: crosspoint-${{ needs.prepare.outputs.version }}-x86_64.flatpak
-      - uses: actions/upload-artifact@v4
-        with:
-          name: flatpak
-          path: crosspoint-*.flatpak
+          cache-key: flatpak-builder-${{ github.sha }}
+          upload-artifact: true
 
   tarball:
     needs: prepare
