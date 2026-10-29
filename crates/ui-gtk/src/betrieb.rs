@@ -37,6 +37,11 @@ pub struct Args {
     pub client: String,
     /// Adresse des HTTP-Adapters (bleibt Rand, nicht Bedienweg).
     pub listen: String,
+    /// Selbsttest: Fenster nach so vielen Sekunden schliessen. Nimmt denselben
+    /// Weg wie der Schliessen-Knopf (`GtkWindow::close` -> `close_request` ->
+    /// `Lauf::abschalten`), damit sich das Aufraeumen ohne Fenstermanager
+    /// belegen laesst (ein gesendetes WM_DELETE_WINDOW verwirft GDK).
+    pub schliessen_nach: Option<f64>,
 }
 
 impl Default for Args {
@@ -49,12 +54,14 @@ impl Default for Args {
             hoehe: 920,
             client: "crosspoint".to_string(),
             listen: "127.0.0.1:8770".to_string(),
+            schliessen_nach: None,
         }
     }
 }
 
 pub const HILFE: &str = "crosspoint [--theme NAME] [--layout NAME] \
-[--dialog vban|midi|darstellung] [--size 1600x920] [--client NAME] [--listen ADDR]";
+[--dialog vban|midi|darstellung] [--size 1600x920] [--client NAME] [--listen ADDR] \
+[--schliessen-nach SEKUNDEN (Selbsttest)]";
 
 pub fn args_lesen() -> Args {
     let mut a = Args::default();
@@ -81,6 +88,9 @@ pub fn args_lesen() -> Args {
                         a.hoehe = h.parse().unwrap_or(a.hoehe);
                     }
                 }
+            }
+            "--schliessen-nach" => {
+                a.schliessen_nach = it.next().and_then(|v| v.parse::<f64>().ok());
             }
             "--help" | "-h" => {
                 println!("{HILFE}");
@@ -144,11 +154,25 @@ pub fn starten(app_id: &str, args: Args) {
             // 3. Fenster auf denselben Handles.
             let s = shell::Shell::neu(app, konfig, Anbindung::aus_lauf(&lauf));
             s.fenster.set_default_size(a.breite, a.hoehe);
-            // Mindestgroesse: acht Streifen plus Busspalte duerfen nicht
-            // abgeschnitten werden (sonst scrollt die Oberflaeche).
-            s.fenster
-                .set_size_request(a.breite.min(1400), a.hoehe.min(820));
+            // Mindestgroesse bewusst klein: wird das Fenster schmaler als das
+            // Pult (Mindestbreite siehe layout::spaltenbreiten), scrollt die
+            // Oberflaeche, statt Zuege abzuschneiden. Eine hohe Untergrenze
+            // hier wuerde genau das verhindern.
+            s.fenster.set_size_request(720, 480);
             s.fenster.present();
+
+            // Selbsttest (Belege): Fenster nach N Sekunden schliessen - derselbe
+            // Weg wie der Schliessen-Knopf, inklusive Aufraeumen.
+            if let Some(nach) = a.schliessen_nach.filter(|s| *s > 0.0) {
+                let f = s.fenster.clone();
+                gtk::glib::timeout_add_local_once(
+                    Duration::from_millis((nach * 1000.0) as u64),
+                    move || {
+                        eprintln!("Selbsttest: Fenster schliessen nach {nach} s");
+                        f.close();
+                    },
+                );
+            }
 
             // Fenster zu -> Engine und Geraete weg.
             {

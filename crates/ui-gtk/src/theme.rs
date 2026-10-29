@@ -344,7 +344,9 @@ pub fn css(t: &Tokens) -> String {
     let (basis, klein, gross) = (t.schrift_basis, t.schrift_klein, t.schrift_gross);
     let fam = &t.font_family;
     let r = (t.abstand * 0.45).clamp(1.0, 6.0);
-    let map_fs = (t.schrift_klein * 0.92).max(12.0);
+    // Buskuerzel A1..B3: 13 px Untergrenze, damit sie lesbar bleiben; die
+    // Knopfreihe im Zug bleibt trotzdem unter 88 px (vier Spalten).
+    let map_fs = (t.schrift_klein * 0.92).max(13.0);
     let klitzeklein = t.schrift_klein;
     let zeile_hoehe = (t.schrift_klein * 1.6).round();
     let warnung_c = &t.warnung;
@@ -571,7 +573,7 @@ button.makro:hover {{ border-color: {akzent}; color: {schrift}; background-color
    Die Groessen sind fest, nicht aus dem Token-Satz: die Lesbarkeit der
    Beschriftung darf nicht an der Dichte haengen. */
 .makro-name {{ font-size: 14px; font-weight: 700; color: {schrift}; }}
-.makro-unter {{ font-size: 12px; color: {dim}; }}
+.makro-unter {{ font-size: 13px; color: {dim}; }}
 button.makro.an .makro-name {{ color: {auf_akzent}; }}
 button.makro.an .makro-unter {{ color: {auf_akzent}; }}
 

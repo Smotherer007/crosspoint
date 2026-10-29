@@ -57,6 +57,17 @@ als `null-sink` an; die Hardware-Busse A1..A5 kommen über `CROSSPOINT_A1` …
 `CROSSPOINT_A5`. Die Engine ruft das Skript beim Start selbst auf
 (`CROSSPOINT_NO_WIRE=1` schaltet das ab).
 
+**Aufräumen hängt an keiner Uhr.** Beim Schließen des Fensters läuft
+`wire down` (Skript, Merkliste) und danach ein ausdrücklicher Sweep, der ohne
+Merkliste **jedes** `crosspoint_*`-Modul entlädt und jeden übrig gebliebenen
+Knoten zerstört (`pw-cli destroy`). Fehler werden gemeldet, der Sweep läuft
+trotzdem durch, und am Ende wird der Rest nachgezählt
+(`Aufraeumen (Fenster zu): N Module, M Knoten entfernt, 0 Fehler; Rest: 0/0`).
+Beim Start räumt derselbe Sweep Reste einer abgestürzten Instanz weg, bevor
+neue Geräte entstehen. Ein Leerlauf-Wächter beendet im Fensterbetrieb nichts:
+die Oberfläche läuft im selben Prozess und fragt den HTTP-Adapter nicht.
+`./scripts/crosspoint-wire.sh sweep` macht dasselbe von der Kommandozeile.
+
 Der JACK-Client heißt `crosspoint`, seine Ports sind `crosspoint:strip1_L` …
 `crosspoint:busB3_R` sowie `crosspoint:vban_L/_R`.
 

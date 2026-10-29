@@ -1,0 +1,94 @@
+=== 1. Fenster schliessen (close_request, wie WM_DELETE_WINDOW) ===
+-- 6 s nach dem Start (erwartet: Geraete da)
+   Prozesse: 1
+   pactl list short modules | grep -i crosspoint: 12
+   pw-cli list-objects Node | grep -c crosspoint_: 12
+-- 0,3 s nach dem Schliessen (erwartet: 0/0/0)
+   Prozesse: 0
+   pactl list short modules | grep -i crosspoint: 0
+   pw-cli list-objects Node | grep -c crosspoint_: 0
+-- 1,3 s nach dem Schliessen
+   Prozesse: 0
+   pactl list short modules | grep -i crosspoint: 0
+   pw-cli list-objects Node | grep -c crosspoint_: 0
+-- 3,3 s nach dem Schliessen (erwartet: 0/0/0, nichts kommt zurueck)
+   Prozesse: 0
+   pactl list short modules | grep -i crosspoint: 0
+   pw-cli list-objects Node | grep -c crosspoint_: 0
+
+=== 2. kill -9 und Neustart (Selbstheilung) ===
+-- zweiter Lauf, 6 s (erwartet: Geraete da)
+   Prozesse: 1
+   pactl list short modules | grep -i crosspoint: 12
+   pw-cli list-objects Node | grep -c crosspoint_: 12
+-- 1 s nach kill -9 (Reste erwartet, kein Aufraeumen moeglich)
+   Prozesse: 0
+   pactl list short modules | grep -i crosspoint: 12
+   pw-cli list-objects Node | grep -c crosspoint_: 12
+-- nach Neustart (erwartet: Geraete da, keine Dubletten)
+   Prozesse: 1
+   pactl list short modules | grep -i crosspoint: 12
+   pw-cli list-objects Node | grep -c crosspoint_: 12
+   Module im Detail:
+     536870916	module-remap-source	master=crosspoint_out_B3.monitor source_name=crosspoint_mic_B3 source_properties=device.description=CROSSPOINT-Output-B3	
+     536870917	module-remap-source	master=crosspoint_out_B2.monitor source_name=crosspoint_mic_B2 source_properties=device.description=CROSSPOINT-Output-B2	
+     536870918	module-remap-source	master=crosspoint_out_B1.monitor source_name=crosspoint_mic_B1 source_properties=device.description=CROSSPOINT-Output-B1	
+     536870919	module-remap-source	master=crosspoint_in_3.monitor source_name=crosspoint_mic_in_3 source_properties=device.description=CROSSPOINT-Input-3	
+     536870920	module-remap-source	master=crosspoint_in_2.monitor source_name=crosspoint_mic_in_2 source_properties=device.description=CROSSPOINT-Input-2	
+     536870921	module-remap-source	master=crosspoint_in_1.monitor source_name=crosspoint_mic_in_1 source_properties=device.description=CROSSPOINT-Input-1	
+     536870922	module-null-sink	sink_name=crosspoint_out_B3 sink_properties=device.description="CROSSPOINT-Output-B3"	
+     536870923	module-null-sink	sink_name=crosspoint_out_B2 sink_properties=device.description="CROSSPOINT-Output-B2"	
+     536870924	module-null-sink	sink_name=crosspoint_out_B1 sink_properties=device.description="CROSSPOINT-Output-B1"	
+     536870925	module-null-sink	sink_name=crosspoint_in_3 sink_properties=device.description="CROSSPOINT-Input-3"	
+     536870926	module-null-sink	sink_name=crosspoint_in_2 sink_properties=device.description="CROSSPOINT-Input-2"	
+     536870927	module-null-sink	sink_name=crosspoint_in_1 sink_properties=device.description="CROSSPOINT-Input-1"	
+-- 2 s nach SIGTERM (erwartet: 0/0/0)
+   Prozesse: 0
+   pactl list short modules | grep -i crosspoint: 0
+   pw-cli list-objects Node | grep -c crosspoint_: 0
+-- Endstand
+   Prozesse: 0
+   pactl list short modules | grep -i crosspoint: 0
+   pw-cli list-objects Node | grep -c crosspoint_: 0
+
+=== App-Protokoll: Aufraeumzeilen ===
+Aufraeumen (Start): 0 Module, 0 Knoten entfernt, 0 Fehler; Rest: 0 Module, 0 Knoten
+  Sweep: 0 entfernt, Rest 0 Module / 0 Knoten
+Selbsttest: Fenster schliessen nach 10 s
+  crosspoint_in_1 entfernt
+  crosspoint_in_2 entfernt
+  crosspoint_in_3 entfernt
+  crosspoint_out_B1 entfernt
+  crosspoint_out_B2 entfernt
+  crosspoint_out_B3 entfernt
+  crosspoint_mic_in_1 entfernt
+  crosspoint_mic_in_2 entfernt
+  crosspoint_mic_in_3 entfernt
+  crosspoint_mic_B1 entfernt
+  crosspoint_mic_B2 entfernt
+  crosspoint_mic_B3 entfernt
+  Sweep: 0 entfernt, Rest 0 Module / 0 Knoten
+Aufraeumen (Fenster zu): 0 Module, 0 Knoten entfernt, 0 Fehler; Rest: 0 Module, 0 Knoten
+Aufraeumen (Fenster zu): 0 Module, 0 Knoten entfernt, 0 Fehler
+Engine beendet; Rest: 0 Module, 0 Knoten
+Aufraeumen (Start): 0 Module, 0 Knoten entfernt, 0 Fehler; Rest: 0 Module, 0 Knoten
+  Sweep: 0 entfernt, Rest 0 Module / 0 Knoten
+Aufraeumen (Start): 12 Module, 0 Knoten entfernt, 0 Fehler; Rest: 0 Module, 0 Knoten
+Reste der vorigen Instanz entfernt: Aufraeumen (Start): 12 Module, 0 Knoten entfernt, 0 Fehler
+  Sweep: 0 entfernt, Rest 0 Module / 0 Knoten
+  crosspoint_in_1 entfernt
+  crosspoint_in_2 entfernt
+  crosspoint_in_3 entfernt
+  crosspoint_out_B1 entfernt
+  crosspoint_out_B2 entfernt
+  crosspoint_out_B3 entfernt
+  crosspoint_mic_in_1 entfernt
+  crosspoint_mic_in_2 entfernt
+  crosspoint_mic_in_3 entfernt
+  crosspoint_mic_B1 entfernt
+  crosspoint_mic_B2 entfernt
+  crosspoint_mic_B3 entfernt
+  Sweep: 0 entfernt, Rest 0 Module / 0 Knoten
+Aufraeumen (Fenster zu): 0 Module, 0 Knoten entfernt, 0 Fehler; Rest: 0 Module, 0 Knoten
+Aufraeumen (Fenster zu): 0 Module, 0 Knoten entfernt, 0 Fehler
+Engine beendet; Rest: 0 Module, 0 Knoten

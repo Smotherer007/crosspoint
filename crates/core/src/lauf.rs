@@ -69,6 +69,13 @@ pub struct Konfig {
     /// (`None` = nie). Im Fensterbetrieb ist das `None`, denn das Fenster ist
     /// die Oberflaeche und fragt den HTTP-Adapter nicht.
     pub leerlauf_ms: Option<u64>,
+    /// Die Oberflaeche laeuft im **selben** Prozess (GTK, `crosspoint --features ui`).
+    ///
+    /// Dann ist der HTTP-Adapter nicht die Oberflaeche: fehlendes Polling sagt
+    /// nichts ueber einen leeren Platz aus und darf die Engine weder beenden
+    /// noch das Abraeumen uebernehmen. Das Aufraeumen haengt allein am Fenster
+    /// (Schliessen, `abschalten`) - nie an einem Zeitgeber.
+    pub oberflaeche_im_prozess: bool,
 }
 
 impl Konfig {
@@ -81,12 +88,19 @@ impl Konfig {
             listen: "127.0.0.1:8770".to_string(),
             preset: crate::pfade::datei("preset.json"),
             leerlauf_ms: leerlauf_aus_env(),
+            oberflaeche_im_prozess: false,
         }
     }
 
     /// Kein Leerlauf-Abschalten (Fensterbetrieb).
+    ///
+    /// Die Oberflaeche im selben Prozess fragt den HTTP-Adapter nicht; der
+    /// Leerlauf-Waechter wuerde sonst nach `CROSSPOINT_IDLE_MS` die Engine
+    /// beenden, obwohl das Fenster offen ist. Beides wird hier abgeschaltet:
+    /// kein Zeitgeber entscheidet ueber Leben und Aufraeumen.
     pub fn dauerbetrieb(mut self) -> Konfig {
         self.leerlauf_ms = None;
+        self.oberflaeche_im_prozess = true;
         self
     }
 }
@@ -144,16 +158,25 @@ impl Lauf {
 
     /// Alles abbauen: Aufnahme schliessen, OSC anhalten, virtuelle Geraete
     /// entfernen, JACK-Client deaktivieren. Mehrfach aufrufbar.
+    ///
+    /// Reihenfolge (deterministisch, kein Zeitgeber):
+    /// 1. Sperre setzen - ab hier legt niemand mehr Geraete an.
+    /// 2. `wire down` ueber das Skript (der regulaere Weg mit Merkliste).
+    /// 3. Sweep ohne Merkliste: entfernt **alle** `crosspoint_*`-Module und
+    ///    -Knoten, auch wenn Schritt 2 fehlschlug oder das Skript fehlt.
+    /// 4. Rest nachzaehlen und protokollieren.
     pub fn abschalten(&self) {
         if self.abgeschaltet.swap(true, Ordering::SeqCst) {
             return;
         }
+        ABBAU.store(true, Ordering::SeqCst);
         self.ende.store(true, Ordering::SeqCst);
         self.tape
             .recording
             .store(false, std::sync::atomic::Ordering::Relaxed);
         self.osc.anhalten();
         wire("down");
+        let bilanz = crate::aufraeumen::sweep("Fenster zu");
         // Der Schreiber-Thread finalisiert die offene Datei (WAV-Kopf mit der
         // richtigen Laenge). Er merkt das Merkmal binnen 4 ms; die Wartezeit
         // ist die Obergrenze, nicht die Regel.
@@ -166,7 +189,16 @@ impl Lauf {
         if let Ok(mut g) = self.client.lock() {
             g.take();
         }
-        eprintln!("Engine beendet");
+        // Letzter Blick: was in Schritt 3 noch nicht weg war (z. B. ein Knoten,
+        // den ein gerade entladenes Modul nachgeschoben hat), faellt hier.
+        let (mut module, mut knoten) = crate::aufraeumen::reste();
+        if module + knoten > 0 {
+            eprintln!("Aufraeumen unvollstaendig: {module} Module, {knoten} Knoten - zweiter Sweep");
+            crate::aufraeumen::sweep("Nachkontrolle");
+            (module, knoten) = crate::aufraeumen::reste();
+        }
+        eprintln!("{}", bilanz.zeile("Fenster zu"));
+        eprintln!("Engine beendet; Rest: {module} Module, {knoten} Knoten");
     }
 }
 
@@ -386,36 +418,67 @@ fn signale_abfangen() {
     }
 }
 
+/// Anlegen und Abraeumen duerfen sich nie ueberholen: beide Wege sperren.
+static WIRE_SPERRE: Mutex<()> = Mutex::new(());
+/// Gesetzt, sobald abgeschaltet wird - ab dann wird nichts mehr angelegt.
+static ABBAU: AtomicBool = AtomicBool::new(false);
+
 /// Legt die virtuellen Knoten an bzw. raeumt sie ab. Damit haengen die Geraete
 /// am Leben der Engine: laeuft die Engine, gibt es sie; wird sie beendet,
 /// verschwinden sie wieder. CROSSPOINT_NO_WIRE=1 schaltet das ab.
+///
+/// Der Aufruf ist gesperrt ([`WIRE_SPERRE`]) und legt nach [`ABBAU`] nichts
+/// mehr an: ein Aufpasser, der gerade `up` fahren will, kann das Abraeumen
+/// sonst ueberholen - dann stehen die Geraete nach dem Schliessen wieder da.
 pub fn wire(richtung: &str) {
     if std::env::var("CROSSPOINT_NO_WIRE").is_ok() {
         return;
     }
+    let _sperre = WIRE_SPERRE.lock().unwrap_or_else(|e| e.into_inner());
+    if richtung == "up" && ABBAU.load(Ordering::SeqCst) {
+        eprintln!("wire up unterlassen: der Abbau laeuft");
+        return;
+    }
     // Reihenfolge: ausdruecklicher Pfad, neben dem Binary (Flatpak: /app/bin),
-    // dann der Repo-Pfad (target/release -> ../../scripts), zuletzt relativ.
+    // dann aufwaerts bis zur Repo-Wurzel (target/debug -> ../../../scripts),
+    // zuletzt relativ zum Arbeitsverzeichnis.
     let mut kandidaten: Vec<PathBuf> = Vec::new();
     if let Some(p) = std::env::var_os("CROSSPOINT_WIRE").filter(|p| !p.is_empty()) {
         kandidaten.push(PathBuf::from(p));
     }
-    if let Some(dir) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-    {
-        kandidaten.push(dir.join("crosspoint-wire.sh"));
-        kandidaten.push(dir.join("../../scripts/crosspoint-wire.sh"));
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            kandidaten.push(dir.join("crosspoint-wire.sh"));
+            let mut hoch = dir.to_path_buf();
+            for _ in 0..5 {
+                kandidaten.push(hoch.join("scripts").join("crosspoint-wire.sh"));
+                if !hoch.pop() {
+                    break;
+                }
+            }
+        }
     }
     kandidaten.push(PathBuf::from("scripts/crosspoint-wire.sh"));
 
-    let script = match kandidaten.into_iter().find(|p| p.is_file()) {
-        Some(p) => p,
-        None => return,
+    let script = match kandidaten.iter().find(|p| p.is_file()) {
+        Some(p) => p.clone(),
+        None => {
+            eprintln!(
+                "wire {richtung}: crosspoint-wire.sh nicht gefunden \
+                 (CROSSPOINT_WIRE setzen) - Geraete werden nur vom Sweep abgeraeumt"
+            );
+            return;
+        }
     };
-    let _ = std::process::Command::new("bash")
+    match std::process::Command::new("bash")
         .arg(&script)
         .arg(richtung)
-        .status();
+        .status()
+    {
+        Ok(s) if s.success() => {}
+        Ok(s) => eprintln!("wire {richtung}: {} endete mit {s}", script.display()),
+        Err(e) => eprintln!("wire {richtung}: {} nicht startbar: {e}", script.display()),
+    }
 }
 
 /// Engine hochfahren: Parameter, JACK-Client, Verdrahtung, Tape, VBAN, Makros,
@@ -576,6 +639,15 @@ pub fn starte(konfig: Konfig) -> Result<Lauf, String> {
         });
     }
 
+    // Selbstheilung vor dem Anlegen: Reste einer abgestuerzten oder frueheren
+    // Instanz (kill -9 laesst Module und Knoten stehen) verschwinden hier,
+    // bevor `wire up` dieselben Namen wieder belegt - sonst sammeln sich
+    // Duplikate an, die niemand mehr zuordnen kann.
+    ABBAU.store(false, Ordering::SeqCst);
+    let reste = crate::aufraeumen::sweep("Start");
+    if reste.gesamt() > 0 {
+        eprintln!("Reste der vorigen Instanz entfernt: {}", reste.zeile("Start"));
+    }
     wire("up");
 
     // OSC-Eingang: `/strip/<n>/<param>` und `/bus/<n>/<param>` landen ueber
@@ -601,15 +673,29 @@ pub fn starte(konfig: Konfig) -> Result<Lauf, String> {
     let ende = Arc::new(AtomicBool::new(false));
     {
         let ende_w = ende.clone();
-        let grenze = konfig.leerlauf_ms;
+        let grenze = konfig.leerlauf_ms.filter(|_| !konfig.oberflaeche_im_prozess);
         thread::spawn(move || {
             // Aufpasser: verschwinden die virtuellen Geraete von aussen (z. B.
             // weil jemand aufgeraeumt hat), legt die Engine sie wieder an.
+            //
+            // Er legt **nur** an, nie ab, und hoert beim ersten Abbauzeichen
+            // auf: das Abraeumen gehoert dem Fenster (abschalten), nicht einem
+            // Zeitgeber. Ohne die Pruefung direkt vor `wire("up")` konnte ein
+            // laufender Aufpasser die Geraete nach dem Schliessen wieder
+            // anlegen - die Sperre in `wire` und [`ABBAU`] schliessen das.
             let mut letzte_pruefung = Instant::now();
             while !SHUTDOWN.load(Ordering::SeqCst) && !ende_w.load(Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(250));
+                // Nach dem Schlafen erneut pruefen: in den 250 ms kann der
+                // Abbau begonnen haben.
+                if SHUTDOWN.load(Ordering::SeqCst) || ende_w.load(Ordering::SeqCst) {
+                    break;
+                }
                 if letzte_pruefung.elapsed() >= Duration::from_secs(5) {
                     letzte_pruefung = Instant::now();
+                    if ende_w.load(Ordering::SeqCst) {
+                        break;
+                    }
                     let vorhanden = std::process::Command::new("pactl")
                         .args(["list", "short", "sinks"])
                         .output()
@@ -729,5 +815,20 @@ mod tests {
         let p = Params::new(48_000.0, 512);
         apply_macro_command(&p, "bus 3 mute 1");
         assert!(p.buses[3].mute.load(Ordering::Relaxed));
+    }
+
+    /// Im Fensterbetrieb ist die Oberflaeche der Prozess selbst: weder ein
+    /// Leerlauf-Zeitgeber noch fehlendes HTTP-Polling darf die Engine beenden.
+    #[test]
+    fn fensterbetrieb_hat_keinen_leerlauf() {
+        let k = Konfig::vorgabe().dauerbetrieb();
+        assert_eq!(k.leerlauf_ms, None);
+        assert!(k.oberflaeche_im_prozess);
+        // Die Vorgabe (Engine allein) haelt den Waechter dagegen bereit.
+        let v = Konfig {
+            oberflaeche_im_prozess: false,
+            ..k
+        };
+        assert!(!v.oberflaeche_im_prozess);
     }
 }

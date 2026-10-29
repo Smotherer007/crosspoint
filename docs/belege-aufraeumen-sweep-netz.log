@@ -1,0 +1,27 @@
+-- 5 s nach dem Start (erwartet: Geraete da)
+   pactl module crosspoint_: 12
+   pw-cli Knoten crosspoint_: 12
+-- 0,3 s nach dem Schliessen (erwartet: 0/0/0 trotz gescheitertem wire down)
+   pactl module crosspoint_: 0
+   pw-cli Knoten crosspoint_: 0
+
+=== App-Protokoll ===
+Aufraeumen (Start): 0 Module, 0 Knoten entfernt, 0 Fehler; Rest: 0 Module, 0 Knoten
+  Sweep: 0 entfernt, Rest 0 Module / 0 Knoten
+kaputt-wire: down scheitert absichtlich
+wire down: /home/patrickweppelmann/.hermes/profiles/re/cache/scratch/kaputt-wire.sh endete mit exit status: 3
+  Modul 536870916 entladen (module-null-sink)
+  Modul 536870917 entladen (module-null-sink)
+  Modul 536870918 entladen (module-null-sink)
+  Modul 536870919 entladen (module-null-sink)
+  Modul 536870920 entladen (module-null-sink)
+  Modul 536870921 entladen (module-null-sink)
+  Modul 536870922 entladen (module-remap-source)
+  Modul 536870923 entladen (module-remap-source)
+  Modul 536870924 entladen (module-remap-source)
+  Modul 536870925 entladen (module-remap-source)
+  Modul 536870926 entladen (module-remap-source)
+  Modul 536870927 entladen (module-remap-source)
+Aufraeumen (Fenster zu): 12 Module, 0 Knoten entfernt, 0 Fehler; Rest: 0 Module, 0 Knoten
+Aufraeumen (Fenster zu): 12 Module, 0 Knoten entfernt, 0 Fehler
+Engine beendet; Rest: 0 Module, 0 Knoten

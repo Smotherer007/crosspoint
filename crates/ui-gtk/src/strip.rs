@@ -616,7 +616,9 @@ mod imp {
             let m = self.masse();
             let fam = &t.font_family;
             // Schrift nie verkleinern: schmale Zuege lassen Details weg.
-            let fs = (m.schrift_klein as f32).max(12.0);
+            // 13 px ist die Untergrenze (Lesbarkeit vor Dichte); die Namen
+            // stehen mit 15 px in `.zugname`.
+            let fs = (m.schrift_klein as f32).max(13.0);
             let schmal = w < 96.0;
 
             let grund = draw::farbe(&t.grund);
@@ -1035,7 +1037,12 @@ mod imp {
                 );
 
                 let x_anfang = 13.0;
-                let x_ende = if schmal { w - 6.0 } else { w - 44.0 };
+                // Frequenz und Wert rechts brauchen bei 13-px-Schrift zusammen
+                // rund 58 px (21 px Frequenz, 30 px Wert, Rand). Ist der Zug
+                // schmaler, bleiben sie weg - lieber keine Zahl als eine
+                // abgeschnittene.
+                let text_an = !schmal && w >= 118.0;
+                let x_ende = if text_an { w - 58.0 } else { w - 6.0 };
                 let breite = (x_ende - x_anfang).max(10.0);
                 draw::waagerecht(
                     snap,
@@ -1078,7 +1085,7 @@ mod imp {
                     },
                 );
 
-                if !schmal {
+                if text_an {
                     draw::text(
                         snap,
                         &*self.obj(),
@@ -1100,9 +1107,9 @@ mod imp {
                         snap,
                         &*self.obj(),
                         &fmt::gain_text(gain),
-                        w - 20.0,
+                        w - 32.0,
                         y_mitte - fs * 0.62,
-                        16.0,
+                        28.0,
                         fs - 0.5,
                         false,
                         fam,
@@ -1165,6 +1172,21 @@ impl StripView {
 
     pub fn db(&self) -> f32 {
         self.imp().db.get()
+    }
+
+    /// Breite vorgeben (aus der Breitenrechnung des Pults).
+    ///
+    /// Die Breite kommt von aussen, nicht aus dem Inhalt: sonst bestimmt der
+    /// laengste Geraetename oder die Zuordnungstastenreihe, wie breit das
+    /// ganze Pult wird. Die Zeichenflaeche richtet sich nach der Zuteilung
+    /// (`snapshot` liest `width()`), Fader und Pegel wandern mit.
+    pub fn breite_setzen(&self, breite: f64) {
+        let b = breite.round().max(1.0) as i32;
+        if self.imp().nat.get() != b {
+            self.imp().nat.set(b);
+            self.set_size_request(b, -1);
+            self.queue_resize();
+        }
     }
 
     /// 60-Hz-Takt: Pegel fortschreiben und neu zeichnen.
@@ -1243,6 +1265,78 @@ pub fn zug(
         dd.set_margin_start(4);
         dd.set_margin_end(4);
         dd.set_sensitive(aktiv);
+        // Anzeige: ellipsierendes Label. Ohne das bestimmt der laengste
+        // Geraetename die Mindestbreite des ganzen Zugs - und damit die Breite
+        // des Pults. Vollstaendig steht der Name im Tooltip.
+        {
+            // Zwei Fabriken: die Knopf-Anzeige ist knapp (im Zug ist wenig
+            // Platz, "kein Eingang" wuerde zu "ke..." schrumpfen), die Liste
+            // im Aufklappmenue zeigt den vollen Namen.
+            let knopf = gtk::SignalListItemFactory::new();
+            knopf.connect_setup(|_, obj| {
+                let Some(item) = obj.downcast_ref::<gtk::ListItem>() else {
+                    return;
+                };
+                let l = gtk::Label::new(None);
+                l.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                l.set_xalign(0.0);
+                l.set_single_line_mode(true);
+                // Natuerliche Breite deckeln: sonst fordert der Zug so viel
+                // wie der laengste Geraetename. Angezeigt wird trotzdem so
+                // viel, wie der Zug hergibt (Ellipse + Tooltip).
+                l.set_max_width_chars(6);
+                item.set_child(Some(&l));
+            });
+            knopf.connect_bind(|_, obj| {
+                let Some(item) = obj.downcast_ref::<gtk::ListItem>() else {
+                    return;
+                };
+                let text = item
+                    .item()
+                    .and_then(|i| i.downcast::<gtk::StringObject>().ok())
+                    .map(|s| s.string().to_string())
+                    .unwrap_or_default();
+                if let Some(l) = item.child().and_then(|c| c.downcast::<gtk::Label>().ok()) {
+                    // "kein Eingang"/"kein Ausgang" stehen im Zug als Strich:
+                    // vollstaendig waeren sie breiter als ein Bus.
+                    let kurz = if text == crate::geraete::KEIN_EINGANG
+                        || text == crate::geraete::KEIN_AUSGANG
+                    {
+                        "—".to_string()
+                    } else {
+                        text.clone()
+                    };
+                    l.set_text(&kurz);
+                    l.set_tooltip_text(Some(&text));
+                }
+            });
+            let liste = gtk::SignalListItemFactory::new();
+            liste.connect_setup(|_, obj| {
+                let Some(item) = obj.downcast_ref::<gtk::ListItem>() else {
+                    return;
+                };
+                let l = gtk::Label::new(None);
+                l.set_xalign(0.0);
+                l.set_single_line_mode(true);
+                l.set_max_width_chars(40);
+                item.set_child(Some(&l));
+            });
+            liste.connect_bind(|_, obj| {
+                let Some(item) = obj.downcast_ref::<gtk::ListItem>() else {
+                    return;
+                };
+                let text = item
+                    .item()
+                    .and_then(|i| i.downcast::<gtk::StringObject>().ok())
+                    .map(|s| s.string().to_string())
+                    .unwrap_or_default();
+                if let Some(l) = item.child().and_then(|c| c.downcast::<gtk::Label>().ok()) {
+                    l.set_text(&text);
+                }
+            });
+            dd.set_factory(Some(&knopf));
+            dd.set_list_factory(Some(&liste));
+        }
         if !aktiv {
             dd.set_tooltip_text(Some(match rolle {
                 Rolle::Kanal(_) => "Virtueller Streifen: kein Hardware-Eingang",
@@ -1320,6 +1414,9 @@ pub fn zug(
     sub.add_css_class("zugsub");
     sub.set_xalign(0.0);
     sub.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    // Gekuerzt wird nur, wenn der Zug schmal ist - dann steht der volle Text
+    // im Tooltip.
+    sub.set_tooltip_text(Some(&rolle.untertitel()));
     kopf.append(&sub);
     box_.append(&kopf);
 
@@ -1338,9 +1435,15 @@ pub fn zug(
     // ----- Zuordnung A1..B3 (eigener Layout-Bereich) -----
     let mut zuordnung_knoepfe: Vec<gtk::ToggleButton> = Vec::new();
     if zuordnung && rolle.ist_kanal() {
-        let reihe = gtk::Box::new(gtk::Orientation::Horizontal, 1);
+        // Zwei Reihen zu vier Tasten statt einer Reihe zu acht: in einer Reihe
+        // forderte die Reihe 149 px und bestimmte damit die Zugbreite (ein Zug
+        // haette nie unter 150 px kommen koennen). Die Kuerzel A1..B3 stehen
+        // vollstaendig, nichts wird abgeschnitten.
+        let reihe = gtk::Grid::new();
         reihe.add_css_class("zuordnung");
-        reihe.set_homogeneous(true);
+        reihe.set_column_homogeneous(true);
+        reihe.set_column_spacing(1);
+        reihe.set_row_spacing(1);
         reihe.set_margin_start(3);
         reihe.set_margin_end(3);
         reihe.set_margin_bottom(2);
@@ -1361,19 +1464,27 @@ pub fn zug(
                     state::send_setzen(&p, i, bus, b.is_active());
                 });
             }
-            reihe.append(&b);
+            reihe.attach(&b, (bus % 4) as i32, (bus / 4) as i32, 1, 1);
             zuordnung_knoepfe.push(b);
         }
         box_.append(&reihe);
     }
 
     // ----- Knoepfe -----
-    let knopf_zeile = gtk::Box::new(gtk::Orientation::Horizontal, 3);
+    // Zwei Reihen zu zwei Tasten (M/EQ oben, S/MONO unten). In einer Reihe
+    // forderte "MONO" 34 px und die Reihe (homogen) 153 px - mehr als ein Zug
+    // bei schmalem Fenster haben darf. Die Beschriftungen bleiben vollstaendig.
+    let knopf_zeile = gtk::Grid::new();
+    // Spalten nicht gleich breit: sonst muesste die Spalte von "M" so breit
+    // sein wie "MONO" und die Knopfreihe forderte 79 px - mehr als ein Bus bei
+    // schmalem Fenster haben darf (64 px).
+    knopf_zeile.set_column_homogeneous(false);
+    knopf_zeile.set_column_spacing(3);
+    knopf_zeile.set_row_spacing(3);
     knopf_zeile.set_margin_top(3);
     knopf_zeile.set_margin_bottom(4);
     knopf_zeile.set_margin_start(4);
     knopf_zeile.set_margin_end(4);
-    knopf_zeile.set_homogeneous(true);
 
     let (_, index) = rolle.ziel();
     let knopf = |text: &str, klasse: &str| {
@@ -1454,15 +1565,31 @@ pub fn zug(
         });
     }
 
-    knopf_zeile.append(&mute);
+    // Reihe 0: M | EQ (bzw. ohne EQ: M | S), Reihe 1: S | MONO.
+    let mut spalte = 0;
+    let mut reihe = 0;
+    let mut naechster_platz = || {
+        let platz = (spalte, reihe);
+        spalte += 1;
+        if spalte == 2 {
+            spalte = 0;
+            reihe += 1;
+        }
+        platz
+    };
+    let (sx, sy) = naechster_platz();
+    knopf_zeile.attach(&mute, sx, sy, 1, 1);
     if let Some(b) = &eq_knopf {
-        knopf_zeile.append(b);
+        let (x, y) = naechster_platz();
+        knopf_zeile.attach(b, x, y, 1, 1);
     }
     if let Some(b) = &solo {
-        knopf_zeile.append(b);
+        let (x, y) = naechster_platz();
+        knopf_zeile.attach(b, x, y, 1, 1);
     }
     if let Some(b) = &mono {
-        knopf_zeile.append(b);
+        let (x, y) = naechster_platz();
+        knopf_zeile.attach(b, x, y, 1, 1);
     }
     box_.append(&knopf_zeile);
 
@@ -1545,6 +1672,11 @@ pub fn zug(
             let kurz = crate::fmt::kurz(&name, 16);
             if label.text() != kurz {
                 label.set_text(&kurz);
+            }
+            // Der Name wird nur bei Platzmangel gekuerzt; vollstaendig steht er
+            // im Tooltip.
+            if label.tooltip_text().as_deref() != Some(name.as_str()) {
+                label.set_tooltip_text(Some(&name));
             }
             let (mute_an, solo_an, mono_an) = match r {
                 Rolle::Master => (m.mute.load(Ordering::Relaxed), false, false),

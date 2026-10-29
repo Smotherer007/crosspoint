@@ -9,6 +9,37 @@ mkdir -p "$RUNDIR"
 
 link() { pw-link "$1" "$2" 2>/dev/null && echo "  $1 -> $2" || echo "  $1 -> $2 (schon da/fehlt)" >&2; }
 
+# Raeumt alles ab, was crosspoint_ heisst - ohne Merkliste.
+# Modul entladen entfernt den Knoten mit; was uebrig bleibt (Absturz, fremde
+# Hand, halb entladenes Modul) wird einzeln zerstoert. Fehler werden gemeldet,
+# aber der Sweep laeuft weiter - das ist der Pfad, der auch nach `kill -9`
+# wieder sauber macht.
+sweep() {
+  local runde id n=0
+  for runde in 1 2; do
+    for id in $(pactl list short modules | awk -F'\t' '$3 ~ /crosspoint_|vm8_/ {print $1}'); do
+      if pactl unload-module "$id" 2>/dev/null; then
+        echo "  Modul $id entladen"; n=$((n+1))
+      else
+        echo "  Modul $id liess sich nicht entladen" >&2
+      fi
+    done
+    for id in $(pw-cli list-objects Node 2>/dev/null | \
+                awk '/^[[:space:]]*id [0-9]+, type/{split($2,a,","); cur=a[1]} /node.name = "crosspoint_/{print cur}'); do
+      if pw-cli destroy "$id" >/dev/null 2>&1; then
+        echo "  Knoten $id zerstoert"; n=$((n+1))
+      else
+        echo "  Knoten $id liess sich nicht zerstoeren" >&2
+      fi
+    done
+  done
+  local module knoten
+  module=$(pactl list short modules | awk -F'\t' '$3 ~ /crosspoint_|vm8_/' | wc -l)
+  knoten=$(pw-cli list-objects Node 2>/dev/null | grep -c 'node.name = "crosspoint_')
+  echo "  Sweep: $n entfernt, Rest $module Module / $knoten Knoten" >&2
+  [ "$module" -eq 0 ] && [ "$knoten" -eq 0 ]
+}
+
 
 # Erzeugt eine echte Aufnahmequelle (kein "Monitor", den KDE ausblendet).
 # Ohne das erscheinen die virtuellen Geraete nur unter Ausgabe, nicht unter
@@ -50,6 +81,9 @@ sink() {
 
 case "${1:-up}" in
 up)
+  # Erst aufraeumen: Reste einer abgestuerzten Instanz wuerden sonst als
+  # Duplikate neben den neuen Geraeten stehen.
+  sweep || true
   for i in 1 2 3; do sink "crosspoint_in_$i" "CROSSPOINT-Input-$i"; done
   for b in B1 B2 B3; do sink "crosspoint_out_$b" "CROSSPOINT-Output-$b"; done
   sleep 0.5
@@ -92,11 +126,12 @@ down)
   # einem Absturz oder wenn die Liste geloescht wurde. Sonst bleiben die
   # virtuellen Geraete nach dem Schliessen im System stehen. Mit erfasst werden
   # die Geraete der Vorgaengerversion (Praefix vm8), die sonst liegen bleiben.
-  n=0
-  for id in $(pactl list short modules | awk -F'\t' '/sink_name=crosspoint|source_name=crosspoint|sink_name=vm8_|source_name=vm8_/{print $1}'); do
-    pactl unload-module "$id" 2>/dev/null && { echo "  Modul $id entfernt (Nachzuegler)"; n=$((n+1)); }
-  done
-  [ "$n" -eq 0 ] && [ ! -f "$MODFILE" ] && echo "  nichts zu entfernen" >&2
+  sweep
+  exit 0
+  ;;
+sweep)
+  # Nur aufraeumen (Selbstheilung nach kill -9, Diagnose).
+  sweep
   exit 0
   ;;
 status)

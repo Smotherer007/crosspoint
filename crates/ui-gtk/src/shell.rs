@@ -72,6 +72,11 @@ pub struct Shell {
     pub provider: RefCell<Option<gtk::CssProvider>>,
     pub fenster: gtk::ApplicationWindow,
     pub inhalt: gtk::Box,
+    /// Rollbereich um den Inhalt: bei zu schmalem Fenster wird horizontal
+    /// gescrollt, statt Zuege ausserhalb des Fensters zu zeichnen.
+    pub scroll: gtk::ScrolledWindow,
+    /// Zuletzt benutzte Innenbreite (gegen Selbstausloesung beim Nachrechnen).
+    pub letzte_breite: Cell<f64>,
     pub zuege: RefCell<Vec<Zug>>,
     pub tape: TapeUi,
     pub status: RefCell<Option<gtk::Label>>,
@@ -113,12 +118,17 @@ impl Shell {
 
         let inhalt = gtk::Box::new(gtk::Orientation::Vertical, 0);
         inhalt.add_css_class("grund");
-        // Wird das Fenster schmaler als die Zuege brauchen, scrollt die
-        // Oberflaeche - die Schrift bleibt dabei gross.
+        // Rollbereich: wird das Fenster schmaler als die Mindestbreiten des
+        // Pults, scrollt die Oberflaeche horizontal - gezeichnet wird nie
+        // ausserhalb des Fensters. `propagate_natural_width` bleibt aus, sonst
+        // fordert der Inhalt die Fensterbreite ein, statt zu scrollen (das
+        // Fenster waere dann breiter als der Bildschirm). Die Leiste ist keine
+        // Ueberlagerung, sondern nimmt Platz - sie muss sichtbar sein, sonst
+        // merkt niemand, dass rechts noch Zuege stehen.
         let scroll = gtk::ScrolledWindow::new();
         scroll.set_child(Some(&inhalt));
         scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
-        scroll.set_propagate_natural_width(true);
+        scroll.set_overlay_scrolling(false);
         scroll.set_propagate_natural_height(true);
         fenster.set_child(Some(&scroll));
 
@@ -136,6 +146,8 @@ impl Shell {
             provider: RefCell::new(None),
             fenster,
             inhalt,
+            scroll,
+            letzte_breite: Cell::new(0.0),
             zuege: RefCell::new(Vec::new()),
             tape: TapeUi::default(),
             status: RefCell::new(None),
@@ -181,8 +193,90 @@ impl Shell {
         *s.makros.borrow_mut() = Some(an.makros);
 
         Shell::bauen(&s);
+
+        // Die Spaltenbreiten haengen an der Breite, die dem Inhalt wirklich zur
+        // Verfuegung steht (Rollbereich minus senkrechte Leiste). Die Zahl
+        // kommt vom Einstellwert der waagerechten Leiste und aendert sich mit
+        // jedem Groessenschritt des Fensters - nicht aus `fenster.width()`,
+        // denn das ist die Aussenbreite samt Leisten.
+        {
+            let this = Rc::downgrade(&s);
+            let adj = s.scroll.hadjustment();
+            adj.connect_notify_local(Some("page-size"), move |adj, _| {
+                if let Some(s) = this.upgrade() {
+                    Shell::breiten_anwenden(&s, adj.page_size());
+                }
+            });
+        }
+
         Shell::takt_starten(&s);
         s
+    }
+
+    /// Spaltenbreiten nach der verfuegbaren Breite setzen.
+    ///
+    /// Rechnet ueber [`crate::layout::spaltenbreiten`] und gibt das Ergebnis an
+    /// die Zuege weiter: Streifen, Busse und Master bekommen ihre Breite
+    /// zugeteilt, statt sie aus ihrem Inhalt zu fordern. Dadurch passt bei
+    /// 1600 px alles ins Fenster, und bei schmaleren Fenstern bleiben die
+    /// Mindestbreiten stehen (die Leiste scrollt).
+    pub fn breiten_anwenden(this: &Rc<Shell>, verfuegbar: f64) {
+        // Vor der ersten Zuteilung ist der Einstellwert 0; dann mit der
+        // Fensterbreite rechnen (die Leiste korrigiert gleich nach).
+        let breite = if verfuegbar > 1.0 {
+            verfuegbar
+        } else {
+            this.fenster.default_width() as f64
+        };
+        if (breite - this.letzte_breite.get()).abs() < 1.0 && this.letzte_breite.get() > 1.0 {
+            return;
+        }
+        this.letzte_breite.set(breite);
+
+        let layout = this.konfig.borrow().layout.aktuell();
+        let masse = this.masse_jetzt();
+        let streifen = this
+            .zuege
+            .borrow()
+            .iter()
+            .filter(|z| matches!(z.view.rolle(), Rolle::Kanal(_)))
+            .count()
+            .max(1);
+        let busse = this
+            .zuege
+            .borrow()
+            .iter()
+            .filter(|z| matches!(z.view.rolle(), Rolle::Bus(_)))
+            .count();
+        let master_da = this
+            .zuege
+            .borrow()
+            .iter()
+            .any(|z| z.view.rolle() == Rolle::Master);
+        // Steht der Master nicht in der Busspalte, kostet er eine eigene Luecke
+        // samt Blockrand - die Breitenrechnung kennt nur den Normalfall.
+        let eigene_spalte = master_da && layout.master != MasterPlatz::InBusspalte;
+        let platz = if eigene_spalte {
+            (breite - masse.abstand - 2.0 * crate::layout::BLOCK_RAND).max(0.0)
+        } else {
+            breite
+        };
+        let b = crate::layout::spaltenbreiten(platz, masse.abstand, streifen, busse, master_da);
+        for z in this.zuege.borrow().iter() {
+            let w = match z.view.rolle() {
+                Rolle::Kanal(_) => b.streifen,
+                Rolle::Bus(_) => b.bus,
+                Rolle::Master => b.master,
+            };
+            // Der Rahmen des Zugs (CSS: 1 px je Seite) gehoert zur Spalte: die
+            // Zeichenflaeche bekommt 2 px weniger, damit der Zug insgesamt
+            // genau `w` belegt und die Summe zur Rechnung passt.
+            z.widget.set_size_request(w as i32, -1);
+            z.view.breite_setzen(w - 2.0);
+        }
+        if std::env::var_os("CROSSPOINT_UI_BREITEN").is_some() {
+            eprintln!("Spalten bei {breite:.0} px: {}", b.zeile());
+        }
     }
 
     /// Kurze Meldung im Kopf (Erfolg/Misserfolg sichtbar machen).
@@ -295,6 +389,86 @@ impl Shell {
         }
 
         Shell::alle_sync(this);
+
+        // Nach jedem Neubau (Layout-/Theme-Wechsel) die Breiten neu zuteilen:
+        // die neuen Zuege starten mit ihrer Vorgabebreite.
+        let verfuegbar = this.scroll.hadjustment().page_size();
+        this.letzte_breite.set(0.0);
+        Shell::breiten_anwenden(this, verfuegbar);
+
+        // Diagnose (CROSSPOINT_UI_BREITEN=1): einmal nach der Zuteilung
+        // ausgeben, welche Breite wovon gefordert wird. Ohne die Variable
+        // passiert nichts.
+        if std::env::var_os("CROSSPOINT_UI_BREITEN").is_some() {
+            let this2 = Rc::clone(this);
+            gtk::glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+                Shell::breiten_probe(&this2);
+            });
+        }
+    }
+
+    /// Einmalige Breitendiagnose: Fenster, Inhalt, Hauptzeile und die kleinste
+    /// Forderung je Kind. Nur fuer die Fehlersuche (Umgebungsvariable).
+    fn breiten_probe(this: &Rc<Shell>) {
+        let (min, nat, _, _) = this.inhalt.measure(gtk::Orientation::Horizontal, -1);
+        let mut zeile = String::new();
+        if this.inhalt.first_child().is_some() {
+            let mut k = this.inhalt.first_child();
+            while let Some(w) = k {
+                let (mi, na, _, _) = w.measure(gtk::Orientation::Horizontal, -1);
+                let art = w.type_().name().to_string();
+                zeile.push_str(&format!("\n    {art:28} min {mi:5} nat {na:5}"));
+                // Eine Ebene tiefer: was fordert das Kind selbst?
+                let mut e = w.first_child();
+                while let Some(x) = e {
+                    let (mi, na, _, _) = x.measure(gtk::Orientation::Horizontal, -1);
+                    zeile.push_str(&format!(
+                        "\n      {:26} min {mi:5} nat {na:5}",
+                        x.type_().name()
+                    ));
+                    e = x.next_sibling();
+                }
+                k = w.next_sibling();
+            }
+        }
+        let (hmin, hnat, _, _) = this.inhalt.measure(gtk::Orientation::Vertical, -1);
+        let mut hoehen = String::new();
+        let mut k = this.inhalt.first_child();
+        while let Some(w) = k {
+            let (mi, na, _, _) = w.measure(gtk::Orientation::Vertical, -1);
+            hoehen.push_str(&format!(" {}:{mi}/{na}", w.type_().name()));
+            k = w.next_sibling();
+        }
+        eprintln!(
+            "Breiten: Fenster {}x{}, Inhalt min {min} nat {nat}, Hoehe min {hmin} nat {hnat}{hoehen}{zeile}",
+            this.fenster.width(),
+            this.fenster.height()
+        );
+        // Tiefer: der erste Zug im Streifenblock und im Busblock, zwei Ebenen.
+        let mut mitte = this.inhalt.first_child();
+        let mut i = 0;
+        while let Some(w) = mitte {
+            if i == 2 {
+                let mut block = w.first_child();
+                while let Some(b) = block {
+                    if let Some(zug) = b.first_child() {
+                        eprintln!("  Zug-Block {}:", b.type_().name());
+                        dump(&zug, 2);
+                    }
+                    block = b.next_sibling();
+                }
+            }
+            i += 1;
+            mitte = w.next_sibling();
+        }
+        for z in this.zuege.borrow().iter() {
+            let (mi, na, _, _) = z.view.measure(gtk::Orientation::Horizontal, -1);
+            eprintln!(
+                "  Zug {:?}: zugeteilt {} px, min {mi}, nat {na}",
+                z.view.rolle(),
+                z.view.width()
+            );
+        }
     }
 
     fn kopf_bauen(this: &Rc<Shell>) -> gtk::Widget {
@@ -316,7 +490,7 @@ impl Shell {
         kopf.append(&trenner);
 
         let unter = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let ub = gtk::Label::new(Some("VOICEMEETER-MIXER"));
+        let ub = gtk::Label::new(Some("8×8 DIGITAL MIXER"));
         ub.add_css_class("unterzeile-b");
         ub.set_xalign(0.0);
         let ui = gtk::Label::new(Some("8 x 8 · PIPEWIRE / JACK"));
@@ -448,11 +622,15 @@ impl Shell {
         b.upcast()
     }
 
-    /// Tape-Leiste: Aufnahme/Stopp, Laufzeit s:ms, Spitzenpegel, Ordner, Datei.
+    /// Tape-Leiste: eine ruhige Zeile - Aufnahme/Stopp, Laufzeit, Pegel, Ziel,
+    /// Status. Vorher standen Ziel und Status untereinander in einer eigenen
+    /// Spalte; die Zeile wuchs dadurch in die Hoehe und "idle" wurde
+    /// abgeschnitten. Jetzt teilen sich alle Elemente eine Zeile: das Ziel
+    /// nimmt den freien Platz (Ellipse mit Tooltip), der Status steht rechts.
     fn tape_bauen(this: &Rc<Shell>) -> gtk::Widget {
-        let tape = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        let tape = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         tape.add_css_class("tape");
-        tape.set_valign(gtk::Align::Start);
+        tape.set_valign(gtk::Align::Center);
 
         let rec = gtk::ToggleButton::with_label("● REC");
         rec.add_css_class("tbtn");
@@ -515,21 +693,26 @@ impl Shell {
         }
         tape.append(&pegel);
 
-        let text = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let datei = gtk::Label::new(Some(&format!(
-            "Ziel: {}",
-            this.tape.ordner.borrow().display()
-        )));
+        // Ziel: nimmt den freien Platz der Zeile. Gekuerzt wird nur, wenn der
+        // Platz nicht reicht (Ellipse in der Mitte, vollstaendiger Pfad im
+        // Tooltip) - der Rest der Zeile bleibt stehen.
+        let ziel_pfad = this.tape.ordner.borrow().display().to_string();
+        let datei = gtk::Label::new(Some(&format!("Ziel: {ziel_pfad}")));
         datei.add_css_class("tape-datei");
         datei.set_xalign(0.0);
+        datei.set_hexpand(true);
         datei.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-        datei.set_max_width_chars(34);
+        datei.set_tooltip_text(Some(&format!("Ziel: {ziel_pfad}")));
+        tape.append(&datei);
+
         let st = gtk::Label::new(Some("idle"));
         st.add_css_class("tape-status");
-        st.set_xalign(0.0);
-        text.append(&datei);
-        text.append(&st);
-        tape.append(&text);
+        st.set_xalign(1.0);
+        st.set_valign(gtk::Align::Center);
+        st.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        st.set_max_width_chars(32);
+        st.set_tooltip_text(Some("idle"));
+        tape.append(&st);
 
         *this.tape.rec.borrow_mut() = Some(rec);
         *this.tape.stop.borrow_mut() = Some(stop);
@@ -542,8 +725,11 @@ impl Shell {
     }
 
     fn streifen_bauen(this: &Rc<Shell>, layout: &crate::layout::Layout) -> gtk::Widget {
-        let box_ = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        let box_ = gtk::Box::new(gtk::Orientation::Horizontal, crate::layout::STREIFEN_ABSTAND as i32);
         box_.set_hexpand(true);
+        // Rand des Blocks - er gehoert zur Mindestbreite (siehe layout::BLOCK_RAND).
+        box_.set_margin_start(crate::layout::BLOCK_RAND as i32);
+        box_.set_margin_end(crate::layout::BLOCK_RAND as i32);
         let indizes = layout.sichtbare_streifen();
         *this.sichtbare_streifen.borrow_mut() = indizes.clone();
         let zuordnung = layout.sichtbar.get(Bereich::Zuordnung);
@@ -573,8 +759,10 @@ impl Shell {
     }
 
     fn busse_bauen(this: &Rc<Shell>, layout: &crate::layout::Layout) -> gtk::Widget {
-        let box_ = gtk::Box::new(gtk::Orientation::Horizontal, 3);
+        let box_ = gtk::Box::new(gtk::Orientation::Horizontal, crate::layout::BUS_ABSTAND as i32);
         box_.add_css_class("busse");
+        box_.set_margin_start(crate::layout::BLOCK_RAND as i32);
+        box_.set_margin_end(crate::layout::BLOCK_RAND as i32);
         for i in 0..crosspoint::BUSES {
             let umfeld = ZugUmfeld {
                 geraete: Some(Rc::clone(&this.geraete)),
@@ -627,7 +815,6 @@ impl Shell {
                 ..ZugUmfeld::default()
             },
         );
-        z.widget.set_size_request(84, -1);
         box_.append(&z.widget);
         this.zuege.borrow_mut().push(z);
         box_.upcast()
@@ -1054,12 +1241,11 @@ impl Shell {
                     if l.text() != st {
                         l.set_text(&st);
                     }
-                }
-                if let Some(l) = this2.tape.datei.borrow().as_ref() {
-                    if let Some(datei) = st.split_whitespace().find(|w| w.ends_with(".wav")) {
-                        if l.text() != datei {
-                            l.set_text(datei);
-                        }
+                    // Vollstaendiger Zustand (bei Aufnahme inkl. Datei) im
+                    // Tooltip: in der Zeile steht er gekuerzt, damit REC/STOP,
+                    // Zeit, Pegel und Ziel ihren Platz behalten.
+                    if l.tooltip_text().as_deref() != Some(st.as_str()) {
+                        l.set_tooltip_text(Some(&st));
                     }
                 }
             }
@@ -1116,6 +1302,30 @@ impl Shell {
 
             gtk::glib::ControlFlow::Continue
         });
+    }
+}
+
+/// Breitendiagnose: misst ein Widget und seine Kinder (nur Fehlersuche).
+fn dump(w: &gtk::Widget, tiefe: usize) {
+    let (mi, na, _, _) = w.measure(gtk::Orientation::Horizontal, -1);
+    let text = if let Some(dd) = w.downcast_ref::<gtk::DropDown>() {
+        format!("<Aufklappmenue, {} Eintraege>", dd.model().map(|m| m.n_items()).unwrap_or(0))
+    } else if let Some(l) = w.downcast_ref::<gtk::Label>() {
+        format!("<{}>", l.text())
+    } else {
+        String::new()
+    };
+    eprintln!(
+        "    {:>20} min {mi:5} nat {na:5} {text}",
+        w.type_().name()
+    );
+    if tiefe == 0 {
+        return;
+    }
+    let mut k = w.first_child();
+    while let Some(c) = k {
+        dump(&c, tiefe - 1);
+        k = c.next_sibling();
     }
 }
 

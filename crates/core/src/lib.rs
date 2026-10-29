@@ -15,6 +15,8 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 pub mod autostart;
+/// Geraete abraeumen: ein Sweep ohne Merkliste (Absturz, kill -9, doppelte Pfade).
+pub mod aufraeumen;
 pub mod devices;
 pub mod dsp;
 pub mod engine;

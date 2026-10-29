@@ -433,6 +433,217 @@ impl Masse {
     }
 }
 
+/* ==================================================================
+Spaltenbreiten aus der Fensterbreite
+================================================================== */
+
+/// Grenzen der Spaltenbreiten in Pixeln.
+///
+/// Innerhalb dieser Grenzen darf sich das Pult dehnen; darunter wird
+/// **gescrollt**, statt Zuege abzuschneiden. Die Untergrenzen sind
+/// Zeichengrenzen (Fader + Pegel + zwei Beschriftungszeilen passen noch),
+/// keine Geschmacksfrage.
+pub const STREIFEN_MIN: f64 = 88.0;
+pub const STREIFEN_MAX: f64 = 150.0;
+pub const BUS_MIN: f64 = 64.0;
+pub const BUS_MAX: f64 = 120.0;
+pub const MASTER_MIN: f64 = 96.0;
+pub const MASTER_MAX: f64 = 140.0;
+
+/// Abstand zwischen zwei Zuegen im Streifenblock bzw. in der Busspalte.
+pub const STREIFEN_ABSTAND: f64 = 4.0;
+pub const BUS_ABSTAND: f64 = 3.0;
+
+/// Rand links und rechts je Block (Streifen, Busspalte).
+///
+/// Ohne ihn klebten beim schmalsten Pult die Randzuege am Fensterrand; er
+/// gehoert deshalb zur Mindestbreite und nicht zum Zierrat.
+pub const BLOCK_RAND: f64 = 4.0;
+
+/// Gewichte der Aufteilung: ein Streifen zaehlt 1,0, ein Bus 0,62, der Master
+/// 0,85. Busse sind schmaler (kuerzere Namen, kein EQ/Pan), sollen aber auch
+/// nicht auf Faderbreite zusammenschrumpfen.
+const GEWICHT_STREIFEN: f64 = 1.0;
+const GEWICHT_BUS: f64 = 0.62;
+const GEWICHT_MASTER: f64 = 0.85;
+
+/// Ergebnis der Breitenrechnung: was passt in welche Fensterbreite.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spaltenbreiten {
+    /// Breite eines Streifens (88..150).
+    pub streifen: f64,
+    /// Breite eines Busses (64..120).
+    pub bus: f64,
+    /// Breite des Masters (96..140).
+    pub master: f64,
+    /// Breite des ganzen Pults (Streifen + Busspalte + Master + alle
+    /// Abstaende und Raender) bei diesen Spaltenbreiten.
+    pub benoetigt: f64,
+    /// Kleinste Breite, bei der das Pult ohne Scrollen auskommt (alle Spalten
+    /// auf ihrer Untergrenze).
+    pub mindestens: f64,
+    /// Ungenutzter Rest bei sehr breiten Fenstern (alle Spalten am Maximum).
+    pub luecke: f64,
+    /// Fenster schmaler als [`Self::mindestens`]: horizontal scrollen, die
+    /// Spalten bleiben auf ihrer Untergrenze.
+    pub scrollt: bool,
+}
+
+impl Spaltenbreiten {
+    /// Breite, die der Hauptblock bei dieser Fensterbreite belegt.
+    pub fn zeile(&self) -> String {
+        format!(
+            "Streifen {:.0} px, Busse {:.0} px, Master {:.0} px -> {} px von {} px{}",
+            self.streifen,
+            self.bus,
+            self.master,
+            self.benoetigt,
+            self.mindestens,
+            if self.scrollt {
+                " (zu schmal: Leiste)"
+            } else {
+                ""
+            }
+        )
+    }
+}
+
+/// Spaltenbreiten fuer eine verfuegbare Breite ausrechnen.
+///
+/// `fenster` ist die Breite, die dem Pult wirklich zur Verfuegung steht (also
+/// die Fensterbreite abzueglich einer senkrechten Leiste), `abstand` der
+/// Grundabstand des Themes (Rand aussen, Luecke zwischen den Bloecken).
+///
+/// Verfahren: alles, was keine Spalte ist (Raender, Abstaende), wird
+/// abgezogen; der Rest wird im Verhaeltnis der Gewichte aufgeteilt
+/// (Wasserfuellung). Faellt eine Spalte dabei unter ihre Unter- oder ueber
+/// ihre Obergrenze, wird sie auf die Grenze gesetzt und der Rest neu verteilt.
+/// Bleibt am Ende etwas uebrig, ist das Fenster breiter als das Pult je werden
+/// darf - der Rest bleibt als Luft (`luecke`).
+pub fn spaltenbreiten(
+    fenster: f64,
+    abstand: f64,
+    streifen: usize,
+    busse: usize,
+    master: bool,
+) -> Spaltenbreiten {
+    let s = streifen.max(1) as f64;
+    let b = busse as f64;
+    let m = if master { 1.0 } else { 0.0 };
+
+    // Was keine Spalte ist: Aussenraender, Luecke zwischen den Bloecken,
+    // Abstaende zwischen den Zuegen, Rand der Bloecke.
+    let mut fest = 2.0 * abstand + 2.0 * BLOCK_RAND;
+    if b + m > 0.0 {
+        fest += abstand + 2.0 * BLOCK_RAND;
+    }
+    fest += (s - 1.0) * STREIFEN_ABSTAND;
+    if b + m > 1.0 {
+        fest += (b + m - 1.0) * BUS_ABSTAND;
+    }
+
+    let mindestens = fest + s * STREIFEN_MIN + b * BUS_MIN + m * MASTER_MIN;
+    if !(fenster.is_finite() && fenster > 0.0) || fenster < mindestens {
+        return Spaltenbreiten {
+            streifen: STREIFEN_MIN,
+            bus: BUS_MIN,
+            master: MASTER_MIN,
+            benoetigt: mindestens,
+            mindestens,
+            luecke: 0.0,
+            scrollt: true,
+        };
+    }
+
+    // (Anzahl, Gewicht, Minimum, Maximum) je Spaltenart.
+    let typen = [
+        (s, GEWICHT_STREIFEN, STREIFEN_MIN, STREIFEN_MAX),
+        (b, GEWICHT_BUS, BUS_MIN, BUS_MAX),
+        (m, GEWICHT_MASTER, MASTER_MIN, MASTER_MAX),
+    ];
+    let mut breite = [0.0f64; 3];
+    let mut fix = [false; 3];
+    let mut frei = fenster - fest;
+
+    // Hoechstens eine Klemmung je Runde; drei Arten, also reichen vier Runden.
+    for _ in 0..4 {
+        let summe: f64 = typen
+            .iter()
+            .enumerate()
+            .filter(|(i, t)| !fix[*i] && t.0 > 0.0)
+            .map(|(_, t)| t.0 * t.1)
+            .sum();
+        if summe <= 0.0 {
+            break;
+        }
+        let einheit = frei / summe;
+        let mut klemmung = None;
+        for (i, t) in typen.iter().enumerate() {
+            if fix[i] || t.0 <= 0.0 {
+                continue;
+            }
+            let roh = einheit * t.1;
+            if roh < t.2 {
+                klemmung = Some((i, t.2));
+                break;
+            }
+            if roh > t.3 {
+                klemmung = Some((i, t.3));
+                break;
+            }
+        }
+        match klemmung {
+            Some((i, grenze)) => {
+                breite[i] = grenze;
+                fix[i] = true;
+                frei -= typen[i].0 * grenze;
+            }
+            None => {
+                for (i, t) in typen.iter().enumerate() {
+                    if !fix[i] && t.0 > 0.0 {
+                        breite[i] = einheit * t.1;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // Auf ganze Pixel: halbe Pixel flimmern bei 1-px-Linien. Abgerundet wird
+    // auf die Spaltenbreite, der Rest (0..8 px je Streifen) kommt als ganze
+    // Pixel zu den Streifen - so bleibt die Summe immer innerhalb der
+    // Fensterbreite und waechst trotzdem mit ihr.
+    let mut streifen = breite[0].floor().clamp(STREIFEN_MIN, STREIFEN_MAX);
+    let bus = if b > 0.0 {
+        breite[1].floor().clamp(BUS_MIN, BUS_MAX)
+    } else {
+        0.0
+    };
+    let master = if m > 0.0 {
+        breite[2].floor().clamp(MASTER_MIN, MASTER_MAX)
+    } else {
+        0.0
+    };
+    let mut benoetigt = fest + s * streifen + b * bus + m * master;
+    let rest = fenster - benoetigt;
+    if rest >= s {
+        let zusatz = (rest / s).floor().min(STREIFEN_MAX - streifen);
+        if zusatz > 0.0 {
+            streifen += zusatz;
+            benoetigt = fest + s * streifen + b * bus + m * master;
+        }
+    }
+    Spaltenbreiten {
+        streifen,
+        bus,
+        master,
+        benoetigt,
+        mindestens,
+        luecke: (fenster - benoetigt).max(0.0),
+        scrollt: false,
+    }
+}
+
 /// Zeilenplan: was steht oben, in der Hauptzeile, unten.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Plan {
@@ -907,5 +1118,159 @@ mod tests {
         let p = l.plan();
         assert_eq!(p.oben, vec![Bereich::Kopf, Bereich::Tape]);
         assert!(p.unten.is_empty());
+    }
+
+    /* -------- Breitenrechnung aus der Fensterbreite -------- */
+
+    /// Vorgabe: acht Streifen, acht Busse, Master in der Busspalte.
+    fn breiten(b: f64) -> Spaltenbreiten {
+        spaltenbreiten(b, 8.0, 8, 8, true)
+    }
+
+    #[test]
+    fn mindestbreite_des_pults_ist_die_summe_der_untergrenzen() {
+        // 8*88 + 8*64 + 96 Spalten + 92 px Raender und Abstaende.
+        assert_eq!(breiten(100.0).mindestens, 1404.0);
+        assert_eq!(breiten(100.0).streifen, STREIFEN_MIN);
+        assert_eq!(breiten(100.0).bus, BUS_MIN);
+        assert_eq!(breiten(100.0).master, MASTER_MIN);
+        assert!(breiten(100.0).scrollt);
+    }
+
+    #[test]
+    fn bei_1600_passt_alles_ohne_abschneiden() {
+        let b = breiten(1600.0);
+        assert!(!b.scrollt, "1600 px muessen ohne Leiste passen");
+        assert!(b.benoetigt <= 1600.0, "benoetigt {} > 1600", b.benoetigt);
+        assert!(
+            (STREIFEN_MIN..=STREIFEN_MAX).contains(&b.streifen),
+            "Streifen {}",
+            b.streifen
+        );
+        assert!((BUS_MIN..=BUS_MAX).contains(&b.bus), "Bus {}", b.bus);
+        assert!(
+            (MASTER_MIN..=MASTER_MAX).contains(&b.master),
+            "Master {}",
+            b.master
+        );
+        // Die Vorgabe ist nicht die Untergrenze: bei 1600 ist Luft fuer breitere
+        // Streifen als 88 px (sonst waere das Pult nur zufaellig passend).
+        assert!(b.streifen >= 100.0, "Streifen nur {} px", b.streifen);
+        assert!(b.bus >= 60.0, "Busse nur {} px", b.bus);
+        assert!(b.luecke < 10.0, "Rest {} px bleibt ungenutzt", b.luecke);
+    }
+
+    #[test]
+    fn bei_1400_reicht_die_breite_nicht_dann_leiste() {
+        let b = breiten(1400.0);
+        assert!(b.scrollt, "1400 px muessen scrollen (mindestens 1404)");
+        assert_eq!(b.streifen, STREIFEN_MIN);
+        assert_eq!(b.bus, BUS_MIN);
+        assert_eq!(b.master, MASTER_MIN);
+        assert_eq!(b.benoetigt, b.mindestens);
+        assert!(b.benoetigt > 1400.0);
+    }
+
+    #[test]
+    fn bei_2560_werden_die_streifen_breiter() {
+        let klein = breiten(1600.0);
+        let gross = breiten(2560.0);
+        assert!(gross.streifen > klein.streifen);
+        assert_eq!(gross.streifen, STREIFEN_MAX);
+        assert_eq!(gross.bus, BUS_MAX);
+        assert_eq!(gross.master, MASTER_MAX);
+        assert!(!gross.scrollt);
+        // Breiter als das Pult werden darf: der Rest bleibt als Luft.
+        assert!(gross.luecke > 0.0);
+    }
+
+    #[test]
+    fn breiten_bleiben_immer_in_den_grenzen() {
+        for fenster in [0.0, 400.0, 900.0, 1200.0, 1380.0, 1400.0, 1440.0, 1600.0,
+                        1920.0, 2560.0, 3840.0] {
+            let b = breiten(fenster);
+            assert!(
+                (STREIFEN_MIN..=STREIFEN_MAX).contains(&b.streifen),
+                "{fenster}: Streifen {}",
+                b.streifen
+            );
+            assert!((BUS_MIN..=BUS_MAX).contains(&b.bus), "{fenster}: Bus {}", b.bus);
+            assert!(
+                (MASTER_MIN..=MASTER_MAX).contains(&b.master),
+                "{fenster}: Master {}",
+                b.master
+            );
+            // Entweder es passt - dann nie mehr als die Fensterbreite - oder
+            // es wird gescrollt und alle Spalten stehen auf ihrer Untergrenze.
+            if b.scrollt {
+                assert_eq!(b.benoetigt, b.mindestens);
+                assert!(fenster < b.mindestens);
+            } else {
+                assert!(
+                    b.benoetigt <= fenster,
+                    "{fenster}: benoetigt {}",
+                    b.benoetigt
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn breiten_sind_monoton_und_setzen_sich_aus_den_spalten_zusammen() {
+        let mut vorher = 0.0;
+        for fenster in (1404..=3000).step_by(37) {
+            let b = breiten(fenster as f64);
+            assert!(!b.scrollt);
+            assert!(
+                b.streifen >= vorher,
+                "Streifen schrumpfen bei {fenster} px: {} nach {vorher}",
+                b.streifen
+            );
+            vorher = b.streifen;
+            // Nachrechnen: Raender + Spalten + Abstaende = benoetigt.
+            let nachgerechnet = 92.0 + 8.0 * b.streifen + 8.0 * b.bus + b.master;
+            assert_eq!(b.benoetigt, nachgerechnet, "bei {fenster} px");
+        }
+    }
+
+    #[test]
+    fn ohne_busse_und_master_bleibt_nur_der_streifenblock() {
+        let b = spaltenbreiten(900.0, 8.0, 8, 0, false);
+        assert!(!b.scrollt);
+        assert_eq!(b.bus, 0.0);
+        assert_eq!(b.master, 0.0);
+        assert!(b.streifen <= STREIFEN_MAX);
+        assert!(b.benoetigt <= 900.0);
+    }
+
+    #[test]
+    fn ein_einzelner_streifen_nutzt_die_breite_nicht_aus() {
+        // Ein Streifen darf hoechstens 150 px bekommen - der Rest bleibt Luft,
+        // statt den Zug ueber die Grenze zu ziehen.
+        let b = spaltenbreiten(1600.0, 8.0, 1, 0, false);
+        assert_eq!(b.streifen, STREIFEN_MAX);
+        assert!(b.luecke > 0.0);
+        assert!(b.benoetigt < 1600.0);
+    }
+
+    /// Tabelle fuer den Bericht (nicht Teil des normalen Testlaufs):
+    ///   cargo test --lib breiten_tabelle -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn breiten_tabelle() {
+        println!("Fenster | Streifen | Busse | Master | benoetigt | Luft | Leiste");
+        for fenster in [1200.0, 1280.0, 1400.0, 1440.0, 1600.0, 1920.0, 2560.0, 3440.0] {
+            let b = breiten(fenster);
+            println!(
+                "{fenster:7.0} | {:8.0} | {:5.0} | {:6.0} | {:9.0} | {:4.0} | {}",
+                b.streifen,
+                b.bus,
+                b.master,
+                b.benoetigt,
+                b.luecke,
+                if b.scrollt { "ja" } else { "nein" }
+            );
+        }
+        assert!(breiten(1600.0).benoetigt <= 1600.0);
     }
 }
