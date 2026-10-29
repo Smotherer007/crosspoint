@@ -1186,15 +1186,20 @@ mod tests {
 
     #[test]
     fn breiten_bleiben_immer_in_den_grenzen() {
-        for fenster in [0.0, 400.0, 900.0, 1200.0, 1380.0, 1400.0, 1440.0, 1600.0,
-                        1920.0, 2560.0, 3840.0] {
+        for fenster in [
+            0.0, 400.0, 900.0, 1200.0, 1380.0, 1400.0, 1440.0, 1600.0, 1920.0, 2560.0, 3840.0,
+        ] {
             let b = breiten(fenster);
             assert!(
                 (STREIFEN_MIN..=STREIFEN_MAX).contains(&b.streifen),
                 "{fenster}: Streifen {}",
                 b.streifen
             );
-            assert!((BUS_MIN..=BUS_MAX).contains(&b.bus), "{fenster}: Bus {}", b.bus);
+            assert!(
+                (BUS_MIN..=BUS_MAX).contains(&b.bus),
+                "{fenster}: Bus {}",
+                b.bus
+            );
             assert!(
                 (MASTER_MIN..=MASTER_MAX).contains(&b.master),
                 "{fenster}: Master {}",
@@ -1259,7 +1264,9 @@ mod tests {
     #[ignore]
     fn breiten_tabelle() {
         println!("Fenster | Streifen | Busse | Master | benoetigt | Luft | Leiste");
-        for fenster in [1200.0, 1280.0, 1400.0, 1440.0, 1600.0, 1920.0, 2560.0, 3440.0] {
+        for fenster in [
+            1200.0, 1280.0, 1400.0, 1440.0, 1600.0, 1920.0, 2560.0, 3440.0,
+        ] {
             let b = breiten(fenster);
             println!(
                 "{fenster:7.0} | {:8.0} | {:5.0} | {:6.0} | {:9.0} | {:4.0} | {}",

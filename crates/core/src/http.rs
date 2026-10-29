@@ -597,9 +597,27 @@ pub fn apply_preset(params: &Arc<Params>, v: &Value) {
                     params.set("strip", i, key, x as f32);
                 }
             }
-            for key in ["mute", "solo", "mono", "eq", "comp", "gate", "denoiser"] {
+            for key in [
+                "mute", "solo", "mono", "eq", "comp", "gate", "denoiser", "nr_gate",
+            ] {
                 if let Some(b) = s.get(key).and_then(|x| x.as_bool()) {
                     params.set("strip", i, key, if b { 1.0 } else { 0.0 });
+                }
+            }
+            // Zahlenwerte der neuen Stufen: Lowcut, NR und Gate.
+            for key in [
+                "lowcut",
+                "nr",
+                "nr_schwelle",
+                "nr_modus",
+                "gate_schwelle",
+                "gate_hold",
+                "gate_tiefe",
+                "gate_attack",
+                "gate_release",
+            ] {
+                if let Some(x) = s.get(key).and_then(|x| x.as_f64()) {
+                    params.set("strip", i, key, x as f32);
                 }
             }
             if let Some(sends) = s.get("sends").and_then(|x| x.as_arr()) {

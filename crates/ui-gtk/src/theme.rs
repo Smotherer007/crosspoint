@@ -503,12 +503,43 @@ button.knopf:hover {{ border-color: {akzent}; color: {schrift}; }}
 button.knopf:checked {{ background-color: {akzent}; color: {auf_akzent}; border-color: {akzent}; }}
 button.knopf.solo:checked {{ background-color: {schrift}; color: {grund}; border-color: {schrift}; }}
 button.knopf.mono:checked {{ background-color: {akzent_d}; color: {schrift}; border-color: {akzent_d}; }}
+/* Lowcut, NR und Gate: aktiver Zustand im Signalgruen (Akzent). */
+button.knopf.lc:checked, button.knopf.nr:checked, button.knopf.gate:checked {{
+    background-color: {akzent};
+    color: {auf_akzent};
+    border-color: {akzent};
+}}
+
+/* Popover der drei Stufen */
+.stufenmenue {{ padding: 6px; }}
+.stufen-kopf {{
+    font-size: {klitzeklein}px;
+    color: {dim};
+    letter-spacing: 0.08em;
+    padding-bottom: 2px;
+}}
+.stufen-titel {{ font-size: {klein}px; color: {schrift}; }}
+.stufen-wert {{ font-size: {klein}px; color: {akzent_d}; font-weight: 700; }}
+.stufen-hinweis {{ font-size: {klitzeklein}px; color: {akzent_d}; }}
+button.stufenwahl {{
+    font-size: {klein}px;
+    padding: 1px 6px;
+    min-height: 18px;
+}}
+.stufenregler trough {{ min-height: 4px; }}
+.stufenregler slider {{ min-width: 12px; min-height: 12px; }}
 
 /* ---------- Makros ---------- */
 .hinweis {{ font-size: {klein}px; color: {dim}; padding: 0 6px; }}
 .hinweis.fehler {{ color: {warnung_c}; }}
 .tape-datei {{ font-size: {klein}px; color: {dim}; }}
 .tape-status {{ font-size: {klitzeklein}px; color: {gedaempft_c}; }}
+.geraetehinweis {{
+    font-size: {klitzeklein}px;
+    color: {gedaempft_c};
+    letter-spacing: 0.06em;
+    min-height: 15px;
+}}
 dropdown.geraetewahl > button {{
     background-color: {grund};
     background-image: none;

@@ -84,11 +84,12 @@ pub fn knoten_ids(ausgabe: &str) -> Vec<(u32, String)> {
     let mut ids = Vec::new();
     let mut aktuell: Option<u32> = None;
     let mut treffer = false;
-    let abschliessen = |ids: &mut Vec<(u32, String)>, id: Option<u32>, treffer: bool, name: &str| {
-        if let (Some(id), true) = (id, treffer) {
-            ids.push((id, name.to_string()));
-        }
-    };
+    let abschliessen =
+        |ids: &mut Vec<(u32, String)>, id: Option<u32>, treffer: bool, name: &str| {
+            if let (Some(id), true) = (id, treffer) {
+                ids.push((id, name.to_string()));
+            }
+        };
     let mut name = String::new();
     for zeile in ausgabe.lines() {
         let z = zeile.trim();

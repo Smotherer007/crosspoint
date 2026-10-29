@@ -14,9 +14,9 @@
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
-pub mod autostart;
 /// Geraete abraeumen: ein Sweep ohne Merkliste (Absturz, kill -9, doppelte Pfade).
 pub mod aufraeumen;
+pub mod autostart;
 pub mod devices;
 pub mod dsp;
 pub mod engine;
@@ -39,6 +39,8 @@ pub mod pw;
 pub mod remote_api;
 /// Zustand beim Start wiederherstellen, Änderungen selbsttätig sichern.
 pub mod restore;
+// Zugabe: RNNoise nur, wenn librnnoise.so.0 per dlopen erreichbar ist.
+pub mod rnnoise;
 pub mod tape_io;
 pub mod vban_io;
 

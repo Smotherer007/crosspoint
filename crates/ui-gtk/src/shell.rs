@@ -725,7 +725,10 @@ impl Shell {
     }
 
     fn streifen_bauen(this: &Rc<Shell>, layout: &crate::layout::Layout) -> gtk::Widget {
-        let box_ = gtk::Box::new(gtk::Orientation::Horizontal, crate::layout::STREIFEN_ABSTAND as i32);
+        let box_ = gtk::Box::new(
+            gtk::Orientation::Horizontal,
+            crate::layout::STREIFEN_ABSTAND as i32,
+        );
         box_.set_hexpand(true);
         // Rand des Blocks - er gehoert zur Mindestbreite (siehe layout::BLOCK_RAND).
         box_.set_margin_start(crate::layout::BLOCK_RAND as i32);
@@ -759,7 +762,10 @@ impl Shell {
     }
 
     fn busse_bauen(this: &Rc<Shell>, layout: &crate::layout::Layout) -> gtk::Widget {
-        let box_ = gtk::Box::new(gtk::Orientation::Horizontal, crate::layout::BUS_ABSTAND as i32);
+        let box_ = gtk::Box::new(
+            gtk::Orientation::Horizontal,
+            crate::layout::BUS_ABSTAND as i32,
+        );
         box_.add_css_class("busse");
         box_.set_margin_start(crate::layout::BLOCK_RAND as i32);
         box_.set_margin_end(crate::layout::BLOCK_RAND as i32);
@@ -1309,16 +1315,16 @@ impl Shell {
 fn dump(w: &gtk::Widget, tiefe: usize) {
     let (mi, na, _, _) = w.measure(gtk::Orientation::Horizontal, -1);
     let text = if let Some(dd) = w.downcast_ref::<gtk::DropDown>() {
-        format!("<Aufklappmenue, {} Eintraege>", dd.model().map(|m| m.n_items()).unwrap_or(0))
+        format!(
+            "<Aufklappmenue, {} Eintraege>",
+            dd.model().map(|m| m.n_items()).unwrap_or(0)
+        )
     } else if let Some(l) = w.downcast_ref::<gtk::Label>() {
         format!("<{}>", l.text())
     } else {
         String::new()
     };
-    eprintln!(
-        "    {:>20} min {mi:5} nat {na:5} {text}",
-        w.type_().name()
-    );
+    eprintln!("    {:>20} min {mi:5} nat {na:5} {text}", w.type_().name());
     if tiefe == 0 {
         return;
     }

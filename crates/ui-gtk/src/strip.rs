@@ -112,11 +112,13 @@ impl Rolle {
 
     pub fn untertitel(self) -> String {
         match self {
-            Rolle::Kanal(i) if i < 5 => format!("EINGANG {}", i + 1),
-            Rolle::Kanal(i) => format!("VIRTUELL {}", i - 4),
-            Rolle::Bus(i) if i < 5 => "HARDWARE".to_string(),
-            Rolle::Bus(_) => "VIRTUELL".to_string(),
-            Rolle::Master => "SUMME".to_string(),
+            // Kurzformen: bei 65 px Spaltenbreite sind "HARDWARE" und
+            // "VIRTUELL" zu breit und werden mitten im Wort abgeschnitten.
+            Rolle::Kanal(i) if i < 5 => format!("IN {}", i + 1),
+            Rolle::Kanal(i) => format!("VIRT {}", i - 4),
+            Rolle::Bus(i) if i < 5 => "HW".to_string(),
+            Rolle::Bus(_) => "VIRT".to_string(),
+            Rolle::Master => "SUM".to_string(),
         }
     }
 
@@ -1249,7 +1251,22 @@ pub fn zug(
 
     // ----- Geraetezuordnung (ueber dem Namen) -----
     let mut geraetewahl: Option<gtk::DropDown> = None;
-    if let Some(g) = geraete.as_ref() {
+    // Nur echte Hardware-Kanaele bekommen eine Geraetewahl: Streifen 1-5
+    // (Eingang) und Busse A1-A5 (Ausgang). Virtuelle Streifen und die Busse
+    // B1-B3 haengen nicht an einem Geraet - dort steht ein ruhiger Hinweis
+    // gleicher Hoehe, damit die Zeilen buendig bleiben.
+    let hat_geraet =
+        matches!(rolle, Rolle::Kanal(i) if i < 5) || matches!(rolle, Rolle::Bus(i) if i < 5);
+    if !hat_geraet {
+        // Kein Geraet -> kein Bedienelement und kein Text: eine leere Zelle
+        // gleicher Hoehe haelt die Zeilen buendig, ohne die Mindestbreite der
+        // Spalte zu heben (ein Label wuerde genau das tun und das Pult wieder
+        // ueber den Fensterrand schieben).
+        let leer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        leer.set_size_request(0, 21);
+        box_.append(&leer);
+    }
+    if let Some(g) = geraete.as_ref().filter(|_| hat_geraet) {
         let (modell, art) = match rolle {
             Rolle::Kanal(i) if i < 5 => (g.quellen.clone(), true),
             Rolle::Bus(i) if i < 5 => (g.senken.clone(), false),
@@ -1471,9 +1488,11 @@ pub fn zug(
     }
 
     // ----- Knoepfe -----
-    // Zwei Reihen zu zwei Tasten (M/EQ oben, S/MONO unten). In einer Reihe
-    // forderte "MONO" 34 px und die Reihe (homogen) 153 px - mehr als ein Zug
-    // bei schmalem Fenster haben darf. Die Beschriftungen bleiben vollstaendig.
+    // Zwei Spalten: M|EQ, S|MONO, LC|NR, darunter GATE ueber beide Spalten.
+    // In einer Reihe forderte "MONO" 34 px und die Reihe (homogen) 153 px -
+    // mehr als ein Zug bei schmalem Fenster haben darf; eine dritte Spalte
+    // waere bei 64 px Busbreite nicht unterzubringen. Die Beschriftungen
+    // bleiben vollstaendig.
     let knopf_zeile = gtk::Grid::new();
     // Spalten nicht gleich breit: sonst muesste die Spalte von "M" so breit
     // sein wie "MONO" und die Knopfreihe forderte 79 px - mehr als ein Bus bei
@@ -1514,6 +1533,24 @@ pub fn zug(
         Some(knopf("MONO", "mono"))
     } else if matches!(rolle, Rolle::Bus(_)) {
         Some(knopf("MONO", "mono"))
+    } else {
+        None
+    };
+
+    // Die drei Stufen der Sprache gibt es nur an Kanaelen: Lowcut (Rumpeln),
+    // NR (Rauschen unter dem Signal), GATE (Pausen). Busse haben sie nicht.
+    let lc = if rolle.ist_kanal() {
+        Some(knopf("LC", "lc"))
+    } else {
+        None
+    };
+    let nr = if rolle.ist_kanal() {
+        Some(knopf("NR", "nr"))
+    } else {
+        None
+    };
+    let gate_knopf = if rolle.ist_kanal() {
+        Some(knopf("GATE", "gate"))
     } else {
         None
     };
@@ -1565,7 +1602,65 @@ pub fn zug(
         });
     }
 
-    // Reihe 0: M | EQ (bzw. ohne EQ: M | S), Reihe 1: S | MONO.
+    // ----- Lowcut, NR, Gate: Klick schaltet, Rechtsklick oeffnet das Menue -----
+    //
+    // Alle drei schreiben ueber denselben Setter-Pfad wie M/S/MONO. Rechts-
+    // klick oeffnet ein kleines Popover; der Wert steht danach im Tooltip
+    // (siehe `sync`).
+    // Letzte gueltige Werte je Zug: schaltet der Knopf aus und wieder ein,
+    // kommt die vorherige Frequenz bzw. Staerke zurueck. Der Wert wird in
+    // `sync` aus den Parametern nachgezogen, damit ein Zug von aussen (API,
+    // Preset) den Knopf nicht ueberschreibt.
+    let lc_zelle = std::rc::Rc::new(Cell::new(80.0f32));
+    let nr_zelle = std::rc::Rc::new(Cell::new(0.0f32));
+    if let Some(b) = &lc {
+        let p = params.clone();
+        let hz = lc_zelle.clone();
+        {
+            let p = p.clone();
+            let hz = hz.clone();
+            b.connect_toggled(move |btn| {
+                let wert = if btn.is_active() { hz.get() } else { 0.0 };
+                p.set("strip", index, "lowcut", wert);
+            });
+        }
+        let menue = lowcut_menue(&p, index, hz);
+        stufenmenue(b, &menue);
+    }
+    if let Some(b) = &nr {
+        let p = params.clone();
+        nr_zelle.set(nr_wert(&p, index).max(0.5));
+        let staerke = nr_zelle.clone();
+        {
+            let p = p.clone();
+            let staerke = staerke.clone();
+            b.connect_toggled(move |btn| {
+                let wert = if btn.is_active() { staerke.get() } else { 0.0 };
+                p.set("strip", index, "nr", wert);
+            });
+        }
+        let menue = nr_menue(&p, index, staerke);
+        stufenmenue(b, &menue);
+    }
+    if let Some(b) = &gate_knopf {
+        let p = params.clone();
+        {
+            let p = p.clone();
+            b.connect_toggled(move |btn| {
+                p.set(
+                    "strip",
+                    index,
+                    "gate",
+                    if btn.is_active() { 1.0 } else { 0.0 },
+                );
+            });
+        }
+        let menue = gate_menue(&p, index);
+        stufenmenue(b, &menue);
+    }
+
+    // Reihe 0: M | EQ (bzw. ohne EQ: M | S), Reihe 1: S | MONO,
+    // Reihe 2: LC | NR, Reihe 3: GATE ueber beide Spalten.
     let mut spalte = 0;
     let mut reihe = 0;
     let mut naechster_platz = || {
@@ -1590,6 +1685,19 @@ pub fn zug(
     if let Some(b) = &mono {
         let (x, y) = naechster_platz();
         knopf_zeile.attach(b, x, y, 1, 1);
+    }
+    if let Some(b) = &lc {
+        let (x, y) = naechster_platz();
+        knopf_zeile.attach(b, x, y, 1, 1);
+    }
+    if let Some(b) = &nr {
+        let (x, y) = naechster_platz();
+        knopf_zeile.attach(b, x, y, 1, 1);
+    }
+    if let Some(b) = &gate_knopf {
+        // GATE steht allein in der letzten Reihe und nutzt beide Spalten.
+        let (_, y) = naechster_platz();
+        knopf_zeile.attach(b, 0, y, 2, 1);
     }
     box_.append(&knopf_zeile);
 
@@ -1658,6 +1766,11 @@ pub fn zug(
         let mute = mute.clone();
         let solo = solo.clone();
         let mono = mono.clone();
+        let lc = lc.clone();
+        let nr = nr.clone();
+        let gate_knopf = gate_knopf.clone();
+        let lc_zelle = lc_zelle.clone();
+        let nr_zelle = nr_zelle.clone();
         let m = master.clone();
         std::rc::Rc::new(move || {
             let (ziel, idx) = r.ziel();
@@ -1705,6 +1818,38 @@ pub fn zug(
                 }
             }
             if let Rolle::Kanal(i) = r {
+                if let Some(b) = &lc {
+                    let hz = f32_von(&p.strips[i].lc_hz);
+                    // Von aussen gesetzte Werte (API, Preset) werden zur
+                    // letzten Frequenz des Knopfes - sonst schriebe das
+                    // naechste Einschalten den alten Wert zurueck.
+                    if hz > 0.0 {
+                        lc_zelle.set(hz);
+                    }
+                    if b.is_active() != (hz > 0.0) {
+                        b.set_active(hz > 0.0);
+                    }
+                    b.set_tooltip_text(Some(&lc_hinweis(hz)));
+                }
+                if let Some(b) = &nr {
+                    let st = nr_wert(&p, i);
+                    if st > 0.0 {
+                        nr_zelle.set(st);
+                    }
+                    if b.is_active() != (st > 0.0) {
+                        b.set_active(st > 0.0);
+                    }
+                    b.set_tooltip_text(Some(&nr_hinweis(&p, i)));
+                }
+                if let Some(b) = &gate_knopf {
+                    let an = p.strips[i].gate.on.load(Ordering::Relaxed);
+                    if b.is_active() != an {
+                        b.set_active(an);
+                    }
+                    b.set_tooltip_text(Some(&gate_hinweis(&p, i)));
+                }
+            }
+            if let Rolle::Kanal(i) = r {
                 for (bus, b) in zuordnung_knoepfe.iter().enumerate() {
                     let an = state::send_an(&p, i, bus);
                     if b.is_active() != an {
@@ -1722,4 +1867,289 @@ pub fn zug(
         sync,
         geraetewahl,
     }
+}
+
+/* ==================================================================
+Popover der drei Stufen (Lowcut, Rauschunterdrueckung, Gate)
+------------------------------------------------------------------
+Alle Werte gehen ueber `Params::set` – derselbe Weg wie M/S/MONO, also
+auch derselbe Weg in Preset und Autosave. Der Tooltip des Knopfes zeigt
+den aktuellen Wert (gesetzt in `sync`).
+================================================================== */
+
+/// Wert eines Atoms als f32.
+fn f32_von(a: &AtomicU32) -> f32 {
+    f32::from_bits(a.load(Ordering::Relaxed))
+}
+
+/// Staerke der Rauschunterdrueckung eines Streifens (0..1).
+fn nr_wert(p: &Arc<Params>, index: usize) -> f32 {
+    f32_von(&p.strips[index].nr)
+}
+
+fn lc_hinweis(hz: f32) -> String {
+    if hz > 0.0 {
+        format!("Lowcut {hz:.0} Hz (12 dB/Okt) – Rechtsklick: 60/80/120/160 Hz")
+    } else {
+        "Lowcut aus – Rechtsklick: 60/80/120/160 Hz".to_string()
+    }
+}
+
+fn nr_hinweis(p: &Arc<Params>, i: usize) -> String {
+    let st = nr_wert(p, i);
+    let modus = match p.strips[i].nr_modus.load(Ordering::Relaxed) {
+        1 => "einfacher Denoiser",
+        2 => "RNNoise",
+        _ => "eigene Berechnung",
+    };
+    let mut s = if st > 0.0 {
+        format!(
+            "NR {st:.1} ({modus}), Schwelle {:.0} dBFS – Rechtsklick: Staerke/Schwelle",
+            f32_von(&p.strips[i].nr_schwelle)
+        )
+    } else {
+        "NR aus – Rechtsklick: Staerke/Schwelle".to_string()
+    };
+    if !crosspoint::rnnoise::hinweis().is_empty() {
+        s.push_str(" – RNNoise verfuegbar");
+    }
+    s
+}
+
+fn gate_hinweis(p: &Arc<Params>, i: usize) -> String {
+    let g = &p.strips[i].gate;
+    format!(
+        "GATE {:.0} dBFS, Hold {:.0} ms, Tiefe {:.0} dB – Rechtsklick: einstellen",
+        f32_von(&g.threshold),
+        f32_von(&g.hold),
+        f32_von(&g.tiefe)
+    )
+}
+
+/// Haengt ein Popover an einen Knopf; Rechtsklick oeffnet es.
+fn stufenmenue(knopf: &gtk::ToggleButton, inhalt: &gtk::Box) {
+    let pop = gtk::Popover::new();
+    pop.set_parent(knopf);
+    pop.set_child(Some(inhalt));
+    pop.add_css_class("stufenmenue");
+    let g = gtk::GestureClick::new();
+    g.set_button(3);
+    let pop2 = pop.clone();
+    g.connect_pressed(move |_, _, x, y| {
+        pop2.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        pop2.popup();
+    });
+    knopf.add_controller(g);
+}
+
+/// Schliesst das Popover, in dem `w` steckt (nach einer Auswahl).
+fn menue_zu(w: &impl IsA<gtk::Widget>) {
+    let oben: gtk::Widget = w.clone().upcast();
+    if let Some(p) = oben
+        .ancestor(gtk::Popover::static_type())
+        .and_then(|x| x.downcast::<gtk::Popover>().ok())
+    {
+        p.popdown();
+    }
+}
+
+/// Eine Zeile „Titel + Wert" mit Schieberegler darunter.
+fn schieber(
+    titel: &str,
+    min: f64,
+    max: f64,
+    schritt: f64,
+    wert: f64,
+    einheit: &str,
+) -> (gtk::Box, gtk::Scale, gtk::Label) {
+    let kasten = gtk::Box::new(gtk::Orientation::Vertical, 1);
+    let kopf = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    let t = gtk::Label::new(Some(titel));
+    t.set_xalign(0.0);
+    t.set_hexpand(true);
+    t.add_css_class("stufen-titel");
+    let w = gtk::Label::new(Some(&format!("{wert:.1}{einheit}")));
+    w.add_css_class("stufen-wert");
+    kopf.append(&t);
+    kopf.append(&w);
+    let s = gtk::Scale::with_range(gtk::Orientation::Horizontal, min, max, schritt);
+    s.set_draw_value(false);
+    s.set_value(wert);
+    s.set_size_request(180, -1);
+    s.add_css_class("stufenregler");
+    kasten.append(&kopf);
+    kasten.append(&s);
+    (kasten, s, w)
+}
+
+fn kopfzeile(text: &str) -> gtk::Label {
+    let l = gtk::Label::new(Some(text));
+    l.set_xalign(0.0);
+    l.add_css_class("stufen-kopf");
+    l
+}
+
+/// Lowcut: vier Grenzfrequenzen und „aus".
+fn lowcut_menue(p: &Arc<Params>, index: usize, hz: std::rc::Rc<Cell<f32>>) -> gtk::Box {
+    let kasten = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    kasten.add_css_class("stufenmenue");
+    kasten.append(&kopfzeile("LOWCUT · HOCHPASS 12 dB/OKT"));
+    for (wert, text) in [
+        (60.0f32, "60 Hz"),
+        (80.0, "80 Hz"),
+        (120.0, "120 Hz"),
+        (160.0, "160 Hz"),
+        (0.0, "aus"),
+    ] {
+        let b = gtk::Button::with_label(text);
+        b.add_css_class("stufenwahl");
+        let p2 = p.clone();
+        let hz2 = hz.clone();
+        b.connect_clicked(move |b| {
+            p2.set("strip", index, "lowcut", wert);
+            if wert > 0.0 {
+                hz2.set(wert);
+            }
+            menue_zu(b);
+        });
+        kasten.append(&b);
+    }
+    kasten
+}
+
+/// Rauschunterdrueckung: Staerke, Schwelle, Expander, Modus.
+fn nr_menue(p: &Arc<Params>, index: usize, staerke: std::rc::Rc<Cell<f32>>) -> gtk::Box {
+    let kasten = gtk::Box::new(gtk::Orientation::Vertical, 5);
+    kasten.add_css_class("stufenmenue");
+    kasten.append(&kopfzeile("RAUSCHUNTERDRUECKUNG"));
+
+    let st = nr_wert(p, index);
+    let (k1, s1, w1) = schieber("Staerke", 0.0, 100.0, 10.0, st as f64 * 100.0, "");
+    {
+        let p = p.clone();
+        let staerke = staerke.clone();
+        let w1 = w1.clone();
+        s1.connect_value_changed(move |s| {
+            let v = (s.value() / 100.0) as f32;
+            w1.set_text(&format!("{v:.1}"));
+            if v > 0.0 {
+                staerke.set(v);
+            }
+            p.set("strip", index, "nr", v);
+        });
+    }
+    kasten.append(&k1);
+
+    let sch = f32_von(&p.strips[index].nr_schwelle);
+    let (k2, s2, w2) = schieber(
+        "Schwelle (Expander)",
+        -60.0,
+        -20.0,
+        1.0,
+        sch as f64,
+        " dBFS",
+    );
+    {
+        let p = p.clone();
+        let w2 = w2.clone();
+        s2.connect_value_changed(move |s| {
+            w2.set_text(&format!("{:.0} dBFS", s.value()));
+            p.set("strip", index, "nr_schwelle", s.value() as f32);
+        });
+    }
+    kasten.append(&k2);
+
+    let exp = gtk::CheckButton::with_label("Expander in der NR");
+    exp.set_active(p.strips[index].nr_gate.load(Ordering::Relaxed));
+    exp.set_tooltip_text(Some(
+        "Aus: die NR senkt nur spektral. Fuer Sprachpausen ist der GATE-Knopf da.",
+    ));
+    {
+        let p = p.clone();
+        exp.connect_toggled(move |c| {
+            p.set(
+                "strip",
+                index,
+                "nr_gate",
+                if c.is_active() { 1.0 } else { 0.0 },
+            );
+        });
+    }
+    kasten.append(&exp);
+
+    let mut modi: Vec<&str> = vec!["Eigene Berechnung", "Einfacher Denoiser"];
+    let rn_da = !crosspoint::rnnoise::hinweis().is_empty();
+    if rn_da {
+        modi.push("RNNoise (Bibliothek)");
+    }
+    let dd = gtk::DropDown::from_strings(&modi);
+    // Ohne Bibliothek gibt es nur zwei Eintraege; ein gespeicherter Modus 2
+    // faellt dann auf die eigene Berechnung (so rechnet auch die Engine).
+    let gespeichert = p.strips[index].nr_modus.load(Ordering::Relaxed);
+    dd.set_selected(if rn_da {
+        gespeichert.min(2)
+    } else {
+        gespeichert.min(1)
+    });
+    {
+        let p = p.clone();
+        dd.connect_selected_notify(move |d| {
+            p.set("strip", index, "nr_modus", d.selected() as f32);
+        });
+    }
+    kasten.append(&dd);
+    // Nur wenn die Bibliothek da ist, steht hier etwas Zusaetzliches. Fehlt
+    // sie, bleibt das Menue vollstaendig und nichts ist ausgegraut.
+    if rn_da {
+        let l = gtk::Label::new(Some(crosspoint::rnnoise::hinweis()));
+        l.set_xalign(0.0);
+        l.add_css_class("stufen-hinweis");
+        kasten.append(&l);
+    }
+    kasten
+}
+
+/// Gate: Schwelle, Hold, Tiefe.
+fn gate_menue(p: &Arc<Params>, index: usize) -> gtk::Box {
+    let kasten = gtk::Box::new(gtk::Orientation::Vertical, 5);
+    kasten.add_css_class("stufenmenue");
+    kasten.append(&kopfzeile("GATE · STILLE UNTER DER SCHWELLE"));
+
+    let g = &p.strips[index].gate;
+    let sch = f32_von(&g.threshold);
+    let (k1, s1, w1) = schieber("Schwelle", -60.0, -20.0, 1.0, sch as f64, " dBFS");
+    {
+        let p = p.clone();
+        let w1 = w1.clone();
+        s1.connect_value_changed(move |s| {
+            w1.set_text(&format!("{:.0} dBFS", s.value()));
+            p.set("strip", index, "gate_schwelle", s.value() as f32);
+        });
+    }
+    kasten.append(&k1);
+
+    let hold = f32_von(&g.hold);
+    let (k2, s2, w2) = schieber("Hold", 0.0, 500.0, 10.0, hold as f64, " ms");
+    {
+        let p = p.clone();
+        let w2 = w2.clone();
+        s2.connect_value_changed(move |s| {
+            w2.set_text(&format!("{:.0} ms", s.value()));
+            p.set("strip", index, "gate_hold", s.value() as f32);
+        });
+    }
+    kasten.append(&k2);
+
+    let tiefe = f32_von(&g.tiefe);
+    let (k3, s3, w3) = schieber("Tiefe", 0.0, 80.0, 5.0, tiefe as f64, " dB");
+    {
+        let p = p.clone();
+        let w3 = w3.clone();
+        s3.connect_value_changed(move |s| {
+            w3.set_text(&format!("{:.0} dB", s.value()));
+            p.set("strip", index, "gate_tiefe", s.value() as f32);
+        });
+    }
+    kasten.append(&k3);
+    kasten
 }

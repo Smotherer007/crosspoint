@@ -193,7 +193,9 @@ impl Lauf {
         // den ein gerade entladenes Modul nachgeschoben hat), faellt hier.
         let (mut module, mut knoten) = crate::aufraeumen::reste();
         if module + knoten > 0 {
-            eprintln!("Aufraeumen unvollstaendig: {module} Module, {knoten} Knoten - zweiter Sweep");
+            eprintln!(
+                "Aufraeumen unvollstaendig: {module} Module, {knoten} Knoten - zweiter Sweep"
+            );
             crate::aufraeumen::sweep("Nachkontrolle");
             (module, knoten) = crate::aufraeumen::reste();
         }
@@ -646,7 +648,10 @@ pub fn starte(konfig: Konfig) -> Result<Lauf, String> {
     ABBAU.store(false, Ordering::SeqCst);
     let reste = crate::aufraeumen::sweep("Start");
     if reste.gesamt() > 0 {
-        eprintln!("Reste der vorigen Instanz entfernt: {}", reste.zeile("Start"));
+        eprintln!(
+            "Reste der vorigen Instanz entfernt: {}",
+            reste.zeile("Start")
+        );
     }
     wire("up");
 
@@ -673,7 +678,9 @@ pub fn starte(konfig: Konfig) -> Result<Lauf, String> {
     let ende = Arc::new(AtomicBool::new(false));
     {
         let ende_w = ende.clone();
-        let grenze = konfig.leerlauf_ms.filter(|_| !konfig.oberflaeche_im_prozess);
+        let grenze = konfig
+            .leerlauf_ms
+            .filter(|_| !konfig.oberflaeche_im_prozess);
         thread::spawn(move || {
             // Aufpasser: verschwinden die virtuellen Geraete von aussen (z. B.
             // weil jemand aufgeraeumt hat), legt die Engine sie wieder an.

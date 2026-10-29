@@ -1,8 +1,15 @@
 //! Echtzeit-Kern: Parameter als Atome, DSP-Zustand ausschließlich im Audio-Thread.
 //!
-//! Signalkette je Streifen (Reihenfolge wie im Original dokumentiert):
-//!   Eingang -> 6-Band-EQ -> Compressor -> Gate -> Denoiser -> Gain -> Pan
-//!   -> Routing-Matrix (8 Busse)
+//! Signalkette je Streifen:
+//!   Eingang -> Mono -> LOWCUT -> GATE -> NR (spektral) -> EQ -> Compressor
+//!   -> Denoiser ("einfach") -> Gain -> Pan -> Routing-Matrix (8 Busse)
+//!
+//! Die Reihenfolge folgt der Sprache, nicht dem Original: erst Rumpeln weg
+//! (Lowcut), dann entscheidet das Gate **am unveraenderten Pegel**, ob eine
+//! Pause vorliegt, dann senkt die NR das Rauschen unter dem Signal, und erst
+//! danach formen EQ und Compressor den Klang. Stuende der Compressor vor dem
+//! Gate, haenge die Gate-Schwelle von seiner Kennlinie und seinem Makeup ab;
+//! hinter dem Gate arbeitet er auf dem schon bereinigten Signal.
 //! Je Bus: Summe -> Mischmodus (mode/cross) -> Limiter -> Delay pro Kanal
 //!   -> Trim -> Gain/Mute -> Ausgang.
 //!
@@ -73,20 +80,24 @@ impl CompParam {
 
 pub struct GateParam {
     pub on: AtomicBool,
+    /// Schwelle in dBFS (`gate_schwelle`, auch `gate_threshold`).
     pub threshold: AtomicU32,
     pub attack: AtomicU32,
     pub hold: AtomicU32,
     pub release: AtomicU32,
+    /// Tiefe in dB: wie weit das Gate zumacht (`gate_tiefe`).
+    pub tiefe: AtomicU32,
 }
 
 impl GateParam {
     fn new() -> GateParam {
         GateParam {
             on: AtomicBool::new(false),
-            threshold: AtomicU32::new((-40.0f32).to_bits()),
+            threshold: AtomicU32::new((-45.0f32).to_bits()),
             attack: AtomicU32::new(5.0f32.to_bits()),
-            hold: AtomicU32::new(100.0f32.to_bits()),
+            hold: AtomicU32::new(80.0f32.to_bits()),
             release: AtomicU32::new(200.0f32.to_bits()),
+            tiefe: AtomicU32::new(60.0f32.to_bits()),
         }
     }
 }
@@ -106,6 +117,16 @@ pub struct StripParam {
     pub dn_on: AtomicBool,
     pub dn_floor: AtomicU32,
     pub dn_threshold: AtomicU32,
+    /// Lowcut in Hz (0 = aus, sonst 60/80/120/160).
+    pub lc_hz: AtomicU32,
+    /// Staerke der Rauschunterdrueckung 0..1 (0 = aus).
+    pub nr: AtomicU32,
+    /// Schwelle des NR-Expanders in dBFS (-60..-20).
+    pub nr_schwelle: AtomicU32,
+    /// 0 = eigene Berechnung, 1 = einfacher Denoiser, 2 = RNNoise (Zugabe).
+    pub nr_modus: AtomicU32,
+    /// Expander innerhalb der NR zuschalten (sonst nur spektrale Subtraktion).
+    pub nr_gate: AtomicBool,
     pub level: AtomicU32,
     /// Frei wählbarer Name (`/api/set` mit `param:label`); leer = Vorgabename.
     pub label: Mutex<String>,
@@ -130,6 +151,11 @@ impl StripParam {
             dn_on: AtomicBool::new(false),
             dn_floor: AtomicU32::new((-30.0f32).to_bits()),
             dn_threshold: AtomicU32::new((-55.0f32).to_bits()),
+            lc_hz: AtomicU32::new(0f32.to_bits()),
+            nr: AtomicU32::new(0f32.to_bits()),
+            nr_schwelle: AtomicU32::new((-45.0f32).to_bits()),
+            nr_modus: AtomicU32::new(0),
+            nr_gate: AtomicBool::new(false),
             level: AtomicU32::new(0f32.to_bits()),
             label: Mutex::new(String::new()),
         }
@@ -361,6 +387,14 @@ impl Params {
                                 ("comp", Value::Bool(s.comp.on.load(Relaxed))),
                                 ("gate", Value::Bool(s.gate.on.load(Relaxed))),
                                 ("denoiser", Value::Bool(s.dn_on.load(Relaxed))),
+                                ("lowcut", Value::num(fget(&s.lc_hz) as f64)),
+                                ("nr", Value::num(fget(&s.nr) as f64)),
+                                ("nr_schwelle", Value::num(fget(&s.nr_schwelle) as f64)),
+                                ("nr_modus", Value::num(s.nr_modus.load(Relaxed) as f64)),
+                                ("nr_gate", Value::Bool(s.nr_gate.load(Relaxed))),
+                                ("gate_schwelle", Value::num(fget(&s.gate.threshold) as f64)),
+                                ("gate_hold", Value::num(fget(&s.gate.hold) as f64)),
+                                ("gate_tiefe", Value::num(fget(&s.gate.tiefe) as f64)),
                             ])
                         })
                         .collect(),
@@ -470,6 +504,27 @@ fn set_strip(s: &StripParam, param: &str, v: f32) -> bool {
             s.dn_on.store(v != 0.0, Relaxed);
             true
         }
+        // Lowcut: 0 = aus, sonst auf 60/80/120/160 Hz gerastet.
+        "lowcut" => {
+            fset(&s.lc_hz, crate::dsp::lowcut_raster(v.clamp(0.0, 160.0)));
+            true
+        }
+        "nr" => {
+            fset(&s.nr, v.clamp(0.0, 1.0));
+            true
+        }
+        "nr_schwelle" => {
+            fset(&s.nr_schwelle, v.clamp(-60.0, -20.0));
+            true
+        }
+        "nr_modus" => {
+            s.nr_modus.store(v.clamp(0.0, 2.0) as u32, Relaxed);
+            true
+        }
+        "nr_gate" => {
+            s.nr_gate.store(v != 0.0, Relaxed);
+            true
+        }
         "comp_threshold" => {
             fset(&s.comp.threshold, v);
             true
@@ -486,12 +541,28 @@ fn set_strip(s: &StripParam, param: &str, v: f32) -> bool {
             fset(&s.comp.release, v);
             true
         }
+        // Die beiden Gain-Stufen des Compressors waren bisher nur intern
+        // gesetzt; hier sind sie ueber /api/set erreichbar.
+        "comp_gain_in" => {
+            fset(&s.comp.gain_in, v.clamp(-24.0, 24.0));
+            true
+        }
+        "comp_gain_out" => {
+            fset(&s.comp.gain_out, v.clamp(-24.0, 24.0));
+            true
+        }
         "comp_knee" => {
             fset(&s.comp.knee, v);
             true
         }
-        "gate_threshold" => {
-            fset(&s.gate.threshold, v);
+        // `gate_schwelle` ist der Name aus der Oberflaeche, `gate_threshold`
+        // der alte; beide schreiben dasselbe Atom.
+        "gate_threshold" | "gate_schwelle" => {
+            fset(&s.gate.threshold, v.clamp(-60.0, -20.0));
+            true
+        }
+        "gate_tiefe" => {
+            fset(&s.gate.tiefe, v.clamp(0.0, 80.0));
             true
         }
         "gate_attack" => {
@@ -499,7 +570,7 @@ fn set_strip(s: &StripParam, param: &str, v: f32) -> bool {
             true
         }
         "gate_hold" => {
-            fset(&s.gate.hold, v);
+            fset(&s.gate.hold, v.clamp(0.0, 500.0));
             true
         }
         "gate_release" => {
@@ -634,6 +705,12 @@ pub struct Io {
 
 /// DSP-Zustand, ausschließlich vom Audio-Thread benutzt.
 pub struct EngineDsp {
+    strip_lc: [[LowCut; 2]; STRIPS],
+    strip_nr: [[NoiseReduction; 2]; STRIPS],
+    /// RNNoise-Kanaele, nur wenn die Bibliothek geladen werden konnte.
+    strip_rn: [[Option<crate::rnnoise::Kanal>; 2]; STRIPS],
+    /// Laeuft der RNNoise-Modus gerade (Modus 2 und Bibliothek da)?
+    rn_on: [[bool; 2]; STRIPS],
     strip_eq: [[[Biquad; EQ_CELLS]; 2]; STRIPS],
     strip_comp: [[Compressor; 2]; STRIPS],
     strip_gate: [[Gate; 2]; STRIPS],
@@ -651,6 +728,18 @@ pub struct EngineDsp {
 impl EngineDsp {
     pub fn new(max_block: usize) -> EngineDsp {
         EngineDsp {
+            strip_lc: [[LowCut::new(); 2]; STRIPS],
+            // Fenster, Tabellen und Ringpuffer entstehen hier, einmal, mit
+            // fester Groesse - nicht im Audio-Callback.
+            strip_nr: std::array::from_fn(|_| {
+                [NoiseReduction::new(48000.0), NoiseReduction::new(48000.0)]
+            }),
+            // Nur wenn librnnoise.so.0 da ist, entstehen Kanaele - und zwar
+            // hier, ausserhalb des Callbacks.
+            strip_rn: std::array::from_fn(|_| {
+                [crate::rnnoise::Kanal::neu(), crate::rnnoise::Kanal::neu()]
+            }),
+            rn_on: [[false; 2]; STRIPS],
             strip_eq: std::array::from_fn(|_| {
                 std::array::from_fn(|_| [Biquad::bypass(); EQ_CELLS])
             }),
@@ -693,14 +782,30 @@ impl EngineDsp {
                 }
                 self.strip_comp[i][ch].enabled = s.comp.on.load(Relaxed);
                 self.strip_comp[i][ch].set_times(fget(&s.comp.attack), fget(&s.comp.release), sr);
+                let lc = fget(&s.lc_hz);
+                self.strip_lc[i][ch].set_hz(lc, sr);
                 self.strip_gate[i][ch].enabled = s.gate.on.load(Relaxed);
+                self.strip_gate[i][ch].set_tiefe(fget(&s.gate.tiefe));
                 self.strip_gate[i][ch].set_times(
                     fget(&s.gate.attack),
                     fget(&s.gate.hold),
                     fget(&s.gate.release),
                     sr,
                 );
-                self.strip_dn[i][ch].enabled = s.dn_on.load(Relaxed);
+                // NR: Stufe 'eigen' (Modus 0) ist die eigene Berechnung,
+                // 'einfach' (1) benutzt den vorhandenen Denoiser, 'rnnoise'
+                // (2) nur, wenn die Bibliothek geladen ist (sonst Modus 0).
+                let nr_st = fget(&s.nr);
+                let modus = s.nr_modus.load(Relaxed);
+                let nr = &mut self.strip_nr[i][ch];
+                nr.gate_on = s.nr_gate.load(Relaxed);
+                // Modus 2 nur bei 48 kHz und vorhandener Bibliothek; sonst
+                // faellt der Streifen still auf die eigene Berechnung zurueck.
+                let rn_geht =
+                    self.strip_rn[i][ch].is_some() && (sr - 48000.0).abs() < 0.5 && modus == 2;
+                self.rn_on[i][ch] = nr_st > 0.0 && rn_geht;
+                nr.enabled = nr_st > 0.0 && (modus == 0 || (modus == 2 && !rn_geht));
+                self.strip_dn[i][ch].enabled = s.dn_on.load(Relaxed) || (nr_st > 0.0 && modus == 1);
             }
         }
         for i in 0..BUSES {
@@ -761,13 +866,30 @@ impl EngineDsp {
                     let m = 0.5 * (s[0] + s[1]);
                     s = [m, m];
                 }
+                let nr_st = fget(&sp.nr);
+                let nr_modus = sp.nr_modus.load(Relaxed);
+                let nr_schwelle = fget(&sp.nr_schwelle);
                 for ch in 0..2 {
                     let mut x = s[ch];
+                    // (1) LOWCUT: Rumpeln weg, bevor irgendetwas entscheidet.
+                    x = self.strip_lc[si][ch].process(x);
+                    // (2) GATE: entscheidet am unveraenderten Pegel ueber Pausen.
+                    x = self.strip_gate[si][ch].process(x, fget(&sp.gate.threshold));
+                    // (3) NR: Rauschen unter dem Signal.
+                    if self.rn_on[si][ch] {
+                        if let Some(k) = self.strip_rn[si][ch].as_mut() {
+                            x = k.process(x);
+                        }
+                    } else if nr_st > 0.0 && nr_modus == 0 {
+                        x = self.strip_nr[si][ch].process(x, nr_st, nr_schwelle, sr);
+                    }
+                    // (4) EQ: formt erst nach dem Bereinigen.
                     if sp.eq_on.load(Relaxed) {
                         for c in 0..EQ_CELLS {
                             x = self.strip_eq[si][ch][c].process(x);
                         }
                     }
+                    // (5) COMP: sieht das Gate-Ergebnis, nicht umgekehrt.
                     let prefix = db_to_lin(fget(&sp.comp.gain_in));
                     x *= prefix;
                     let comp = &mut self.strip_comp[si][ch];
@@ -778,10 +900,15 @@ impl EngineDsp {
                         fget(&sp.comp.knee),
                         auto_makeup(sp),
                     );
-                    let gate = &mut self.strip_gate[si][ch];
-                    x = gate.process(x, fget(&sp.gate.threshold));
+                    // Stufe 'einfach' der Rauschunterdrueckung: der vorhandene
+                    // Denoiser, mit Schwelle/Staerke der NR angesteuert.
                     let dn = &mut self.strip_dn[si][ch];
-                    x = dn.process(x, fget(&sp.dn_floor), fget(&sp.dn_threshold));
+                    if nr_st > 0.0 && nr_modus == 1 {
+                        x = dn.process(x, -(6.0 + 24.0 * nr_st), nr_schwelle);
+                    } else if sp.dn_on.load(Relaxed) {
+                        x = dn.process(x, fget(&sp.dn_floor), fget(&sp.dn_threshold));
+                    }
+                    // (6) Fader.
                     x *= gain;
                     s[ch] = x;
                 }
