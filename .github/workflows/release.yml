@@ -137,8 +137,17 @@ jobs:
       - name: Pakete pruefen
         run: |
           ls -l pakete
+          # Mindestens ein Paket muss ankommen. Fehlt nur das Flatpak, wird das
+          # Release trotzdem veroeffentlicht und der Ausfall benannt - ein
+          # Release ohne jedes Paket bleibt ein Fehler.
           if ! ls pakete/*.flatpak pakete/*.tar.gz >/dev/null 2>&1; then
             echo "Keine Pakete im Artefakt - Abbruch statt stillem Erfolg"; exit 1
+          fi
+          if ! ls pakete/*.flatpak >/dev/null 2>&1; then
+            echo "::warning::Flatpak-Bundle fehlt in diesem Lauf - nur der Tarball wird veroeffentlicht"
+          fi
+          if ! ls pakete/*.tar.gz >/dev/null 2>&1; then
+            echo "::warning::Tarball fehlt in diesem Lauf - nur das Flatpak wird veroeffentlicht"
           fi
       - name: Release sicherstellen, veroeffentlichen, Pakete anhaengen
         env:
