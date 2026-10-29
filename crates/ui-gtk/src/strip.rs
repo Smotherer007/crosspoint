@@ -1537,10 +1537,16 @@ pub fn zug(
         None
     };
 
-    // Die drei Stufen der Sprache gibt es nur an Kanaelen: Lowcut (Rumpeln),
-    // NR (Rauschen unter dem Signal), GATE (Pausen). Busse haben sie nicht.
+    // Die vier Stufen der Sprache gibt es nur an Kanaelen: Lowcut (Rumpeln),
+    // TK (Klackser/Poltern), NR (Rauschen unter dem Signal), GATE (Pausen).
+    // Busse haben sie nicht.
     let lc = if rolle.ist_kanal() {
         Some(knopf("LC", "lc"))
+    } else {
+        None
+    };
+    let tk = if rolle.ist_kanal() {
+        Some(knopf("TK", "tk"))
     } else {
         None
     };
@@ -1658,9 +1664,27 @@ pub fn zug(
         let menue = gate_menue(&p, index);
         stufenmenue(b, &menue);
     }
+    if let Some(b) = &tk {
+        let p = params.clone();
+        {
+            let p = p.clone();
+            b.connect_toggled(move |btn| {
+                p.set(
+                    "strip",
+                    index,
+                    "tk",
+                    if btn.is_active() { 1.0 } else { 0.0 },
+                );
+            });
+        }
+        let menue = tk_menue(&p, index);
+        stufenmenue(b, &menue);
+    }
 
     // Reihe 0: M | EQ (bzw. ohne EQ: M | S), Reihe 1: S | MONO,
-    // Reihe 2: LC | NR, Reihe 3: GATE ueber beide Spalten.
+    // Reihe 2: LC | TK, Reihe 3: NR | GATE – vier Reihen wie bisher, nur
+    // GATE teilt sich die letzte Reihe jetzt mit NR statt sie allein zu
+    // fuellen (so bleibt die Zughoehe unveraendert).
     let mut spalte = 0;
     let mut reihe = 0;
     let mut naechster_platz = || {
@@ -1690,14 +1714,18 @@ pub fn zug(
         let (x, y) = naechster_platz();
         knopf_zeile.attach(b, x, y, 1, 1);
     }
+    if let Some(b) = &tk {
+        let (x, y) = naechster_platz();
+        knopf_zeile.attach(b, x, y, 1, 1);
+    }
     if let Some(b) = &nr {
         let (x, y) = naechster_platz();
         knopf_zeile.attach(b, x, y, 1, 1);
     }
     if let Some(b) = &gate_knopf {
-        // GATE steht allein in der letzten Reihe und nutzt beide Spalten.
-        let (_, y) = naechster_platz();
-        knopf_zeile.attach(b, 0, y, 2, 1);
+        // GATE in der letzten Zelle neben NR.
+        let (x, y) = naechster_platz();
+        knopf_zeile.attach(b, x, y, 1, 1);
     }
     box_.append(&knopf_zeile);
 
@@ -1767,6 +1795,7 @@ pub fn zug(
         let solo = solo.clone();
         let mono = mono.clone();
         let lc = lc.clone();
+        let tk = tk.clone();
         let nr = nr.clone();
         let gate_knopf = gate_knopf.clone();
         let lc_zelle = lc_zelle.clone();
@@ -1841,6 +1870,13 @@ pub fn zug(
                     }
                     b.set_tooltip_text(Some(&nr_hinweis(&p, i)));
                 }
+                if let Some(b) = &tk {
+                    let an = p.strips[i].tk.load(Ordering::Relaxed);
+                    if b.is_active() != an {
+                        b.set_active(an);
+                    }
+                    b.set_tooltip_text(Some(&tk_hinweis(&p, i)));
+                }
                 if let Some(b) = &gate_knopf {
                     let an = p.strips[i].gate.on.load(Ordering::Relaxed);
                     if b.is_active() != an {
@@ -1914,6 +1950,16 @@ fn nr_hinweis(p: &Arc<Params>, i: usize) -> String {
         s.push_str(" – RNNoise verfuegbar");
     }
     s
+}
+
+fn tk_hinweis(p: &Arc<Params>, i: usize) -> String {
+    let sch = f32_von(&p.strips[i].tk_schwelle);
+    let tiefe = f32_von(&p.strips[i].tk_tiefe);
+    if p.strips[i].tk.load(Ordering::Relaxed) {
+        format!("TK: Klackser ab {sch:.0} dB Verhaeltnis, {tiefe:.0} dB Absenkung – Rechtsklick: einstellen")
+    } else {
+        "TK aus (Klackser/Poltern) – Rechtsklick: Schwelle/Tiefe".to_string()
+    }
 }
 
 fn gate_hinweis(p: &Arc<Params>, i: usize) -> String {
@@ -2106,6 +2152,55 @@ fn nr_menue(p: &Arc<Params>, index: usize, staerke: std::rc::Rc<Cell<f32>>) -> g
         l.add_css_class("stufen-hinweis");
         kasten.append(&l);
     }
+    kasten
+}
+
+/// Transienten-Unterdruecker: Schwelle (Pegelverhaeltnis) und Tiefe.
+fn tk_menue(p: &Arc<Params>, index: usize) -> gtk::Box {
+    let kasten = gtk::Box::new(gtk::Orientation::Vertical, 5);
+    kasten.add_css_class("stufenmenue");
+    kasten.append(&kopfzeile("TK · KLACKSER UND POLTERN"));
+
+    let sch = f32_von(&p.strips[index].tk_schwelle);
+    let (k1, s1, w1) = schieber(
+        "Schwelle (schnell/langsam)",
+        0.0,
+        20.0,
+        1.0,
+        sch as f64,
+        " dB",
+    );
+    {
+        let p = p.clone();
+        let w1 = w1.clone();
+        s1.connect_value_changed(move |s| {
+            w1.set_text(&format!("{:.0} dB", s.value()));
+            p.set("strip", index, "tk_schwelle", s.value() as f32);
+        });
+    }
+    kasten.append(&k1);
+
+    let tiefe = f32_von(&p.strips[index].tk_tiefe);
+    let (k2, s2, w2) = schieber("Tiefe", 0.0, 30.0, 1.0, tiefe as f64, " dB");
+    {
+        let p = p.clone();
+        let w2 = w2.clone();
+        s2.connect_value_changed(move |s| {
+            w2.set_text(&format!("{:.0} dB", s.value()));
+            p.set("strip", index, "tk_tiefe", s.value() as f32);
+        });
+    }
+    kasten.append(&k2);
+
+    let l = gtk::Label::new(Some(
+        "Senkt nur Flanken (Klackser, Poltern) kurz ab – 5 ms Vorlauf. \
+         Ein Silbenaufbau gilt nicht als Transient.",
+    ));
+    l.set_xalign(0.0);
+    l.set_wrap(true);
+    l.set_max_width_chars(32);
+    l.add_css_class("stufen-hinweis");
+    kasten.append(&l);
     kasten
 }
 

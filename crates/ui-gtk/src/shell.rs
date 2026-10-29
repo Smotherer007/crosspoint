@@ -651,6 +651,13 @@ impl Shell {
                 }
                 if let Some(t) = this2.tape.zeit.borrow().as_ref() {
                     t.remove_css_class("aus");
+                    // Waehrend der Aufnahme steht die Zeit in Rot: das ist das
+                    // Signal, das man im Augenwinkel sieht.
+                    if an {
+                        t.add_css_class("an");
+                    } else {
+                        t.remove_css_class("an");
+                    }
                 }
             });
         }
@@ -668,6 +675,7 @@ impl Shell {
                 if let Some(t) = this2.tape.zeit.borrow().as_ref() {
                     t.set_text("0:00.000");
                     t.add_css_class("aus");
+                    t.remove_css_class("an");
                 }
             });
         }

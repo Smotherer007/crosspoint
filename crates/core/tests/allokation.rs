@@ -2,7 +2,8 @@
 //!
 //! Ein zaehlender Allokator umhuellt das ganze Testprogramm. Gemessen wird
 //! nur das Fenster um `EngineDsp::process` – Aufbau, Presets und Puffer
-//! entstehen vorher. Im Fenster sind Lowcut, Gate, NR (mit FFT) und der
+//! entstehen vorher. Im Fenster sind Lowcut, TK (mit Lookahead-Ring), Gate,
+//! NR (mit FFT) und der
 //! einfache Denoiser aktiv: alle Puffer liegen im DSP-Zustand, `process`
 //! baut kein Vec und ruft kein `format!`.
 
@@ -50,6 +51,9 @@ fn process_allokiert_nichts() {
     // Alles an, was Puffer brauchen koennte.
     for (k, v) in [
         ("lowcut", 120.0),
+        ("tk", 1.0),
+        ("tk_schwelle", 6.0),
+        ("tk_tiefe", 15.0),
         ("gate", 1.0),
         ("gate_schwelle", -45.0),
         ("nr", 0.8),

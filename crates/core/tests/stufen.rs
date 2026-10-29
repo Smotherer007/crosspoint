@@ -592,6 +592,9 @@ fn preset_speichert_und_laedt_die_neuen_stufen() {
     let quelle = Arc::new(Params::new(SR, BLOCK as u32));
     for (k, v) in [
         ("lowcut", 160.0),
+        ("tk", 1.0),
+        ("tk_schwelle", 9.0),
+        ("tk_tiefe", 22.0),
         ("nr", 0.4),
         ("nr_schwelle", -35.0),
         ("nr_modus", 1.0),
@@ -612,8 +615,11 @@ fn preset_speichert_und_laedt_die_neuen_stufen() {
     let s = s.get("strips").and_then(|v| v.as_arr()).unwrap();
     let f = |k: &str| s[3].get(k).and_then(|v| v.as_f64()).unwrap();
     println!(
-        "PRESET: lowcut {} nr {} nr_schwelle {} nr_modus {} gate_schwelle {} gate_hold {} gate_tiefe {}",
+        "PRESET: lowcut {} tk {} tk_schwelle {} tk_tiefe {} nr {} nr_schwelle {} nr_modus {} gate_schwelle {} gate_hold {} gate_tiefe {}",
         f("lowcut"),
+        f("tk"),
+        f("tk_schwelle"),
+        f("tk_tiefe"),
         f("nr"),
         f("nr_schwelle"),
         f("nr_modus"),
@@ -622,6 +628,9 @@ fn preset_speichert_und_laedt_die_neuen_stufen() {
         f("gate_tiefe")
     );
     assert_eq!(f("lowcut"), 160.0);
+    assert_eq!(f("tk"), 1.0);
+    assert_eq!(f("tk_schwelle"), 9.0);
+    assert_eq!(f("tk_tiefe"), 22.0);
     assert!((f("nr") - 0.4).abs() < 1e-6);
     assert_eq!(f("nr_schwelle"), -35.0);
     assert_eq!(f("nr_modus"), 1.0);

@@ -1,15 +1,17 @@
 //! Echtzeit-Kern: Parameter als Atome, DSP-Zustand ausschließlich im Audio-Thread.
 //!
 //! Signalkette je Streifen:
-//!   Eingang -> Mono -> LOWCUT -> GATE -> NR (spektral) -> EQ -> Compressor
+//!   Eingang -> Mono -> LOWCUT -> TK -> GATE -> NR (spektral) -> EQ -> Compressor
 //!   -> Denoiser ("einfach") -> Gain -> Pan -> Routing-Matrix (8 Busse)
 //!
 //! Die Reihenfolge folgt der Sprache, nicht dem Original: erst Rumpeln weg
-//! (Lowcut), dann entscheidet das Gate **am unveraenderten Pegel**, ob eine
-//! Pause vorliegt, dann senkt die NR das Rauschen unter dem Signal, und erst
-//! danach formen EQ und Compressor den Klang. Stuende der Compressor vor dem
-//! Gate, haenge die Gate-Schwelle von seiner Kennlinie und seinem Makeup ab;
-//! hinter dem Gate arbeitet er auf dem schon bereinigten Signal.
+//! (Lowcut), dann der Transienten-Unterdruecker (Klackser/Poltern, bevor das
+//! Gate ueber Pausen entscheidet), dann entscheidet das Gate **am
+//! unveraenderten Pegel**, ob eine Pause vorliegt, dann senkt die NR das
+//! Rauschen unter dem Signal, und erst danach formen EQ und Compressor den
+//! Klang. Stuende der Compressor vor dem Gate, haenge die Gate-Schwelle von
+//! seiner Kennlinie und seinem Makeup ab; hinter dem Gate arbeitet er auf dem
+//! schon bereinigten Signal.
 //! Je Bus: Summe -> Mischmodus (mode/cross) -> Limiter -> Delay pro Kanal
 //!   -> Trim -> Gain/Mute -> Ausgang.
 //!
@@ -119,6 +121,12 @@ pub struct StripParam {
     pub dn_threshold: AtomicU32,
     /// Lowcut in Hz (0 = aus, sonst 60/80/120/160).
     pub lc_hz: AtomicU32,
+    /// Transienten-Unterdruecker (`tk`): 0 = aus, sonst an.
+    pub tk: AtomicBool,
+    /// Verhaeltnis schnell/langsam, ab dem der TK absenkt (0..20 dB).
+    pub tk_schwelle: AtomicU32,
+    /// Wie weit der TK absenkt (0..30 dB, Vorgabe 15).
+    pub tk_tiefe: AtomicU32,
     /// Staerke der Rauschunterdrueckung 0..1 (0 = aus).
     pub nr: AtomicU32,
     /// Schwelle des NR-Expanders in dBFS (-60..-20).
@@ -152,6 +160,9 @@ impl StripParam {
             dn_floor: AtomicU32::new((-30.0f32).to_bits()),
             dn_threshold: AtomicU32::new((-55.0f32).to_bits()),
             lc_hz: AtomicU32::new(0f32.to_bits()),
+            tk: AtomicBool::new(false),
+            tk_schwelle: AtomicU32::new(6.0f32.to_bits()),
+            tk_tiefe: AtomicU32::new(15.0f32.to_bits()),
             nr: AtomicU32::new(0f32.to_bits()),
             nr_schwelle: AtomicU32::new((-45.0f32).to_bits()),
             nr_modus: AtomicU32::new(0),
@@ -388,6 +399,9 @@ impl Params {
                                 ("gate", Value::Bool(s.gate.on.load(Relaxed))),
                                 ("denoiser", Value::Bool(s.dn_on.load(Relaxed))),
                                 ("lowcut", Value::num(fget(&s.lc_hz) as f64)),
+                                ("tk", Value::Bool(s.tk.load(Relaxed))),
+                                ("tk_schwelle", Value::num(fget(&s.tk_schwelle) as f64)),
+                                ("tk_tiefe", Value::num(fget(&s.tk_tiefe) as f64)),
                                 ("nr", Value::num(fget(&s.nr) as f64)),
                                 ("nr_schwelle", Value::num(fget(&s.nr_schwelle) as f64)),
                                 ("nr_modus", Value::num(s.nr_modus.load(Relaxed) as f64)),
@@ -507,6 +521,20 @@ fn set_strip(s: &StripParam, param: &str, v: f32) -> bool {
         // Lowcut: 0 = aus, sonst auf 60/80/120/160 Hz gerastet.
         "lowcut" => {
             fset(&s.lc_hz, crate::dsp::lowcut_raster(v.clamp(0.0, 160.0)));
+            true
+        }
+        // Transienten-Unterdruecker: 0 = aus, sonst an; Schwelle als
+        // Pegelverhaeltnis (0..20 dB), Tiefe 0..30 dB.
+        "tk" => {
+            s.tk.store(v != 0.0, Relaxed);
+            true
+        }
+        "tk_schwelle" => {
+            fset(&s.tk_schwelle, v.clamp(0.0, 20.0));
+            true
+        }
+        "tk_tiefe" => {
+            fset(&s.tk_tiefe, v.clamp(0.0, 30.0));
             true
         }
         "nr" => {
@@ -706,6 +734,8 @@ pub struct Io {
 /// DSP-Zustand, ausschließlich vom Audio-Thread benutzt.
 pub struct EngineDsp {
     strip_lc: [[LowCut; 2]; STRIPS],
+    /// Transienten-Unterdruecker je Kanal (Lookahead-Ring in `new` allokiert).
+    strip_tk: [[TransientenUnterdruecker; 2]; STRIPS],
     strip_nr: [[NoiseReduction; 2]; STRIPS],
     /// RNNoise-Kanaele, nur wenn die Bibliothek geladen werden konnte.
     strip_rn: [[Option<crate::rnnoise::Kanal>; 2]; STRIPS],
@@ -729,6 +759,14 @@ impl EngineDsp {
     pub fn new(max_block: usize) -> EngineDsp {
         EngineDsp {
             strip_lc: [[LowCut::new(); 2]; STRIPS],
+            // Der TK bringt je Kanal einen Lookahead-Ring mit; er entsteht
+            // hier, ausserhalb des Callbacks.
+            strip_tk: std::array::from_fn(|_| {
+                [
+                    TransientenUnterdruecker::new(48000.0),
+                    TransientenUnterdruecker::new(48000.0),
+                ]
+            }),
             // Fenster, Tabellen und Ringpuffer entstehen hier, einmal, mit
             // fester Groesse - nicht im Audio-Callback.
             strip_nr: std::array::from_fn(|_| {
@@ -784,6 +822,8 @@ impl EngineDsp {
                 self.strip_comp[i][ch].set_times(fget(&s.comp.attack), fget(&s.comp.release), sr);
                 let lc = fget(&s.lc_hz);
                 self.strip_lc[i][ch].set_hz(lc, sr);
+                // TK: Schalter und Rate je Block; der Ring bleibt im DSP-Zustand.
+                self.strip_tk[i][ch].setup(s.tk.load(Relaxed), sr);
                 self.strip_gate[i][ch].enabled = s.gate.on.load(Relaxed);
                 self.strip_gate[i][ch].set_tiefe(fget(&s.gate.tiefe));
                 self.strip_gate[i][ch].set_times(
@@ -869,10 +909,18 @@ impl EngineDsp {
                 let nr_st = fget(&sp.nr);
                 let nr_modus = sp.nr_modus.load(Relaxed);
                 let nr_schwelle = fget(&sp.nr_schwelle);
+                let tk_schwelle = fget(&sp.tk_schwelle);
+                let tk_tiefe = fget(&sp.tk_tiefe);
                 for ch in 0..2 {
                     let mut x = s[ch];
                     // (1) LOWCUT: Rumpeln weg, bevor irgendetwas entscheidet.
                     x = self.strip_lc[si][ch].process(x);
+                    // (1b) TK: Klackser und Poltern am Verhaeltnis zweier
+                    //      Huellkurven, mit 5 ms Vorlauf. Aus = bit-gleich durch.
+                    let tk = &mut self.strip_tk[si][ch];
+                    if tk.enabled {
+                        x = tk.process(x, tk_schwelle, tk_tiefe);
+                    }
                     // (2) GATE: entscheidet am unveraenderten Pegel ueber Pausen.
                     x = self.strip_gate[si][ch].process(x, fget(&sp.gate.threshold));
                     // (3) NR: Rauschen unter dem Signal.

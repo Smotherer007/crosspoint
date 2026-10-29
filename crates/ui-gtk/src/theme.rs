@@ -441,7 +441,13 @@ window, window.background, .grund {{
 }}
 .tape.auf .tape-zeit {{ color: {warn}; }}
 .tape-zeit.aus {{ color: {dim}; }}
-.tape-rec.an {{ background-color: {warn}; border-color: {warn}; color: {auf_akzent}; }}
+.tape-rec.an {{
+    background-color: #e8453c;
+    border-color: #ff6a60;
+    color: #ffffff;
+    font-weight: 700;
+}}
+.tape-zeit.an {{ color: #ff6a60; font-weight: 700; }}
 .seg {{ background-color: {linie}; border-radius: 0px; min-width: 3px; min-height: 9px; }}
 .seg.an {{ background-color: {akzent}; }}
 .seg.spitze.an {{ background-color: {warn}; }}
@@ -503,8 +509,8 @@ button.knopf:hover {{ border-color: {akzent}; color: {schrift}; }}
 button.knopf:checked {{ background-color: {akzent}; color: {auf_akzent}; border-color: {akzent}; }}
 button.knopf.solo:checked {{ background-color: {schrift}; color: {grund}; border-color: {schrift}; }}
 button.knopf.mono:checked {{ background-color: {akzent_d}; color: {schrift}; border-color: {akzent_d}; }}
-/* Lowcut, NR und Gate: aktiver Zustand im Signalgruen (Akzent). */
-button.knopf.lc:checked, button.knopf.nr:checked, button.knopf.gate:checked {{
+/* Lowcut, TK, NR und Gate: aktiver Zustand im Signalgruen (Akzent). */
+button.knopf.lc:checked, button.knopf.tk:checked, button.knopf.nr:checked, button.knopf.gate:checked {{
     background-color: {akzent};
     color: {auf_akzent};
     border-color: {akzent};

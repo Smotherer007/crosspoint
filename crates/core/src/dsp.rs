@@ -742,6 +742,332 @@ impl LowCut {
 }
 
 /* ==================================================================
+TK – TRANSIENTEN-UNTERDRUECKER
+------------------------------------------------------------------
+Ein Gate ist ein Pegelschalter: es entscheidet, **wie laut** etwas ist.
+Tastaturklackern und Tischpoltern sind aber keine Pegelfrage, sondern
+eine Flankenfrage – sie sind kurz und steil, und sie liegen mitten im
+offenen Gate (gemessen am Sennheiser-Mikrofon: Spitzen -12,6 dBFS,
+Sprache dagegen -25,3 dBFS).
+
+Der TK erkennt sie an zwei Huellkurven und einer Flanke:
+
+* **schnell** – Attack sofort, Release 8 ms: haelt den Spitzenwert der
+  letzten Millisekunden. Der Attack ist bewusst *sofort*: ein Klackser
+  kann ein einzelnes Sample lang sein, eine 0,5-ms-Attack saehe davon
+  nur vier Prozent (am Messmaterial blieb damit die Haelfte unsichtbar).
+* **langsam** – Attack 30 ms, Release 50 ms: folgt dem Pegel.
+
+Das Verhaeltnis schnell/langsam gegen `tk_schwelle` (dB) ist der
+Detektor; der Detektorboden haelt ihn aus dem Grundrauschen heraus.
+Zusaetzlich muss eine **Flanke** da sein: der Spitzenwert des laufenden
+Milliseconds gegen den geglaetteten Bezug der letzten ~12 ms. Damit
+gilt der Aufbau einer Silbe (rund 1 dB/ms, der Bezug zieht mit) nicht
+als Transient – ohne diese Sperre schluckte jeder Wortanfang 30 ms
+lang 15 dB.
+
+Ueberschreiten beide Bedingungen die Schwelle, wird die Verstaerkung
+innerhalb von 1 ms um bis zu `tk_tiefe` abgesenkt, 30 ms gehalten und
+ueber 80 ms freigegeben.
+
+**Lookahead 5 ms:** der Ringpuffer haelt das Signal zurueck, die
+Absenkung setzt also ein, *bevor* der Klackser am Ausgang steht. Der
+Detektor sieht das Signal unverzoegert – deshalb liegt die Absenkung
+vor der Flanke statt hinter ihr. Der Preis ist genau diese Verzoegerung.
+
+Alles liegt in festen Feldern; `process` allokiert nichts und rechnet
+ohne `log`/`pow` je Sample (Schwelle, Tiefe und Flanke sind lineare
+Faktoren). Bei `enabled == false` ist der Ausgang bit-gleich der
+Eingang, ohne Ring und ohne Multiplikation.
+================================================================== */
+
+/// Lookahead des TK in Millisekunden.
+pub const TK_LOOKAHEAD_MS: f32 = 5.0;
+/// Hoechste Abtastrate, fuer die der Ringpuffer Platz hat (0,96 kB je Kanal).
+pub const TK_MAX_SR: f32 = 192_000.0;
+/// Flankenfenster (Millisekunden), in dem der Spitzenwert steht.
+pub const TK_FLANKE_MS: f32 = 1.0;
+/// Mindestanstieg des Spitzenwerts ueber den geglaetteten Bezug (dB).
+pub const TK_FLANKE_DB: f32 = 6.0;
+/// Detektorboden in dBFS: darunter gibt es nichts zu schuetzen (Grundrauschen
+/// des Mikrofons, digitale Stille). Der Boden ist **kein Gate** – er
+/// entscheidet nicht ueber das Signal, sondern nur darueber, ob der Detektor
+/// ueberhaupt hinsieht; ohne ihn senkte das Rauschen im Stillen die
+/// Verstaerkung staendig um 15 dB.
+pub const TK_BODEN_DB: f32 = -45.0;
+/// Glaettung des Flankenbezugs je Flankenfenster (0,08 ~ 12 ms).
+const TK_BEZUG_K: f32 = 0.08;
+
+/// Transienten-Unterdruecker je Kanal (siehe Modulkopf).
+pub struct TransientenUnterdruecker {
+    pub enabled: bool,
+    sr: f32,
+    // Huellkurven (Betrag)
+    fast: f32,
+    slow: f32,
+    /// Stand der langsamen Huellkurve vor 2 ms („steigt der Pegel?“).
+    slow_alt: f32,
+    /// Spitzenwert des laufenden Flankenfensters und der geglaettete Bezug.
+    block_max: f32,
+    block_ref: f32,
+    // Koeffizienten (einpolig, aus der Abtastrate)
+    f_att: f32,
+    f_rel: f32,
+    s_att: f32,
+    s_rel: f32,
+    g_att: f32,
+    g_rel: f32,
+    hold_s: f32,
+    // Zaehler bis zum naechsten Vergleichsstand
+    cnt_rise: usize,
+    n_rise: usize,
+    cnt_flanke: usize,
+    n_flanke: usize,
+    /// Mindestanstieg der Flanke als linearer Faktor.
+    flanke_lin: f32,
+    /// Detektor gesperrt (Sprachbeginn ohne Flanke).
+    sperre: bool,
+    /// Regelung der Verstaerkung
+    gain: f32,
+    hold: f32,
+    schwelle_db: f32,
+    tiefe_db: f32,
+    /// Vorberechnete lineare Faktoren (kein pow je Sample).
+    schwelle_lin: f32,
+    tiefe_lin: f32,
+    /// Detektorboden als linearer Wert (aus [`TK_BODEN_DB`]).
+    boden_lin: f32,
+    /// Lookahead-Ring, in `new` allokiert.
+    ring: Vec<f32>,
+    pos: usize,
+    len: usize,
+    frisch: bool,
+}
+
+impl Default for TransientenUnterdruecker {
+    fn default() -> Self {
+        TransientenUnterdruecker::new(48000.0)
+    }
+}
+
+impl TransientenUnterdruecker {
+    pub fn new(sr: f32) -> TransientenUnterdruecker {
+        let mut t = TransientenUnterdruecker {
+            enabled: false,
+            sr: 0.0,
+            fast: 0.0,
+            slow: 0.0,
+            slow_alt: 0.0,
+            block_max: 0.0,
+            block_ref: 0.0,
+            f_att: 0.0,
+            f_rel: 0.0,
+            s_att: 0.0,
+            s_rel: 0.0,
+            g_att: 0.0,
+            g_rel: 0.0,
+            hold_s: 0.0,
+            cnt_rise: 0,
+            n_rise: 1,
+            cnt_flanke: 0,
+            n_flanke: 1,
+            flanke_lin: db_to_lin(TK_FLANKE_DB),
+            sperre: false,
+            gain: 1.0,
+            hold: 0.0,
+            schwelle_db: 6.0,
+            tiefe_db: 15.0,
+            schwelle_lin: db_to_lin(6.0),
+            tiefe_lin: db_to_lin(-15.0),
+            boden_lin: db_to_lin(TK_BODEN_DB),
+            // Platz fuer die hoechste unterstuetzte Rate; bei 48 kHz werden
+            // nur 240 Samples gebraucht.
+            ring: vec![0.0; (TK_LOOKAHEAD_MS * 0.001 * TK_MAX_SR) as usize + 2],
+            pos: 0,
+            len: 0,
+            frisch: true,
+        };
+        t.set_sample_rate(sr);
+        t
+    }
+
+    fn set_sample_rate(&mut self, sr: f32) {
+        let sr = sr.max(8000.0);
+        if (sr - self.sr).abs() < 0.5 {
+            return;
+        }
+        self.sr = sr;
+        let coef = |ms: f32| (-1.0 / (ms * 0.001 * sr)).exp();
+        self.f_att = 0.0; // Attack sofort (siehe Modulkopf)
+        self.f_rel = coef(8.0);
+        self.s_att = coef(30.0);
+        self.s_rel = coef(50.0);
+        self.g_att = coef(1.0);
+        self.g_rel = coef(80.0);
+        self.hold_s = 0.030 * sr;
+        self.n_rise = ((0.002 * sr) as usize).max(1);
+        self.n_flanke = ((TK_FLANKE_MS * 0.001 * sr) as usize).max(1);
+        // Der Ring ist fuer TK_MAX_SR bemessen; bei hoeherer Rate bleibt die
+        // Verzoegerung bei seinem Ende stehen.
+        self.len = ((TK_LOOKAHEAD_MS * 0.001 * sr) as usize).min(self.ring.len() - 1);
+        self.reset();
+    }
+
+    /// Schalten und Abtastrate setzen – einmal je Block, nicht je Sample.
+    ///
+    /// Beim Ein- und Ausschalten wird der Zustand zurueckgesetzt: der
+    /// Lookahead-Ring darf keine Samples aus dem alten Zustand ausgeben.
+    pub fn setup(&mut self, enabled: bool, sr: f32) {
+        self.set_sample_rate(sr);
+        if self.enabled != enabled {
+            self.reset();
+            self.enabled = enabled;
+        }
+    }
+
+    /// Alles auf Anfang, auch beim Aus- und Einschalten.
+    pub fn reset(&mut self) {
+        self.fast = 0.0;
+        self.slow = 0.0;
+        self.slow_alt = 0.0;
+        self.block_max = 0.0;
+        self.block_ref = 0.0;
+        self.cnt_rise = 0;
+        self.cnt_flanke = 0;
+        self.sperre = false;
+        self.gain = 1.0;
+        self.hold = 0.0;
+        self.pos = 0;
+        self.frisch = true;
+        for v in self.ring.iter_mut() {
+            *v = 0.0;
+        }
+    }
+
+    /// Detektorschwelle als Pegelverhaeltnis schnell/langsam in dB (0..20).
+    fn set_schwelle(&mut self, db: f32) {
+        let db = if db.is_nan() {
+            6.0
+        } else {
+            db.clamp(0.0, 20.0)
+        };
+        if (db - self.schwelle_db).abs() < 0.01 {
+            return;
+        }
+        self.schwelle_db = db;
+        // 0 dB hiesse „jeder Anstieg“ – das waere kein Detektor; die
+        // Untergrenze haelt ihn bei 0,1 dB scharf statt blind.
+        self.schwelle_lin = db_to_lin(db.max(0.1));
+    }
+
+    /// Absenktiefe in dB (0..30).
+    fn set_tiefe(&mut self, db: f32) {
+        let db = if db.is_nan() {
+            15.0
+        } else {
+            db.clamp(0.0, 30.0)
+        };
+        if (db - self.tiefe_db).abs() < 0.01 {
+            return;
+        }
+        self.tiefe_db = db;
+        self.tiefe_lin = db_to_lin(-db);
+    }
+
+    /// Ein Sample. `schwelle_db` 0..20 dB Verhaeltnis, `tiefe_db` 0..30 dB.
+    ///
+    /// Bei `enabled == false` ist der Ausgang **bit-gleich** der Eingang
+    /// (kein Ring, keine Multiplikation) – der Streifen klingt dann genau
+    /// wie vor dem Einbau des TK.
+    #[inline]
+    pub fn process(&mut self, x: f32, schwelle_db: f32, tiefe_db: f32) -> f32 {
+        if !self.enabled {
+            return x;
+        }
+        if self.frisch {
+            // Erster Sample nach dem Einschalten: Ring vorfuellen, damit die
+            // 5 ms Verzoegerung nicht als Loch zu hoeren sind.
+            self.frisch = false;
+            for v in self.ring.iter_mut() {
+                *v = x;
+            }
+        }
+        self.set_schwelle(schwelle_db);
+        self.set_tiefe(tiefe_db);
+
+        let lvl = x.abs();
+        // 1) Huellkurven: schnell (Attack sofort / 8 ms), langsam (30/50 ms).
+        let c = if lvl > self.fast {
+            self.f_att
+        } else {
+            self.f_rel
+        };
+        self.fast = c * self.fast + (1.0 - c) * lvl;
+        let c = if lvl > self.slow {
+            self.s_att
+        } else {
+            self.s_rel
+        };
+        self.slow = c * self.slow + (1.0 - c) * lvl;
+
+        // 2) Verhaeltnis schnell/langsam gegen die Schwelle (linear, kein log).
+        //    Der Boden haelt den Detektor aus dem Grundrauschen heraus.
+        let ueber = self.fast > self.slow * self.schwelle_lin && self.fast > self.boden_lin;
+
+        // 3) Flanke: Spitzenwert des laufenden Milliseconds gegen den
+        //    geglaetteten Bezug der letzten ~12 ms. Ein Klackser reisst den
+        //    Blockwert sofort hoch, ein Silbenaufbau zieht den Bezug mit, und
+        //    Rauschen schwankt von Block zu Block nur um wenige dB.
+        if lvl > self.block_max {
+            self.block_max = lvl;
+        }
+        self.cnt_flanke += 1;
+        if self.cnt_flanke >= self.n_flanke {
+            self.cnt_flanke = 0;
+            self.block_ref += (self.block_max - self.block_ref) * TK_BEZUG_K;
+            self.block_max = 0.0;
+        }
+        let flanke = self.block_max > self.block_ref * self.flanke_lin;
+
+        // 4) Sperre: steigt der langsame Pegel (Sprachbeginn) ohne Flanke,
+        //    ist der Detektor aus.
+        self.cnt_rise += 1;
+        if self.cnt_rise >= self.n_rise {
+            self.cnt_rise = 0;
+            self.slow_alt = self.slow;
+        }
+        self.sperre = self.slow > self.slow_alt && !flanke;
+
+        // 5) Huellkurve der Absenkung: 1 ms zu, 30 ms halten, 80 ms auf.
+        //    Ausgeloest wird nur eine **Flanke** ueber der Schwelle: damit
+        //    bleibt der Aufbau einer Silbe (steigender Pegel ohne Flanke)
+        //    unberuehrt, auch wenn sein Verhaeltnis die Schwelle reisst.
+        if ueber && flanke && !self.sperre {
+            self.hold = self.hold_s;
+        }
+        if self.hold > 0.0 {
+            self.hold -= 1.0;
+        }
+        let ziel = if self.hold > 0.0 { self.tiefe_lin } else { 1.0 };
+        let c = if ziel < self.gain {
+            self.g_att
+        } else {
+            self.g_rel
+        };
+        self.gain += (ziel - self.gain) * c;
+
+        // 6) Lookahead: das Signal laeuft 5 ms hinter dem Detektor her.
+        let out = self.ring[self.pos] * self.gain;
+        self.ring[self.pos] = x;
+        self.pos += 1;
+        if self.pos >= self.len {
+            self.pos = 0;
+        }
+        out
+    }
+}
+
+/* ==================================================================
 FFT – eigene Radix-2-Implementierung, Tabellen vorab
 ================================================================== */
 
@@ -1280,6 +1606,116 @@ impl NoiseReduction {
         } else {
             0.0
         }
+    }
+}
+
+#[cfg(test)]
+mod tk_tests {
+    use super::*;
+
+    /// Deterministisches Rauschen (LCG) – dieselbe Quelle wie in `nr_tests`.
+    struct Rausch {
+        s: u32,
+    }
+
+    impl Rausch {
+        fn neu(seed: u32) -> Rausch {
+            Rausch { s: seed | 1 }
+        }
+        fn next(&mut self) -> f32 {
+            let mut sum = 0.0;
+            for _ in 0..3 {
+                self.s = self.s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                sum += (self.s >> 8) as f32 / 8_388_608.0 - 1.0;
+            }
+            sum * 0.577
+        }
+    }
+
+    #[test]
+    fn tk_aus_ist_bitgenau_durchgang() {
+        let mut tk = TransientenUnterdruecker::new(48000.0);
+        tk.setup(false, 48000.0);
+        let mut r = Rausch::neu(4711);
+        for _ in 0..20_000 {
+            let x = r.next() * 0.3;
+            assert_eq!(tk.process(x, 6.0, 15.0).to_bits(), x.to_bits());
+        }
+    }
+
+    #[test]
+    fn tk_verzoegert_um_den_lookahead() {
+        let sr = 48000.0;
+        let mut tk = TransientenUnterdruecker::new(sr);
+        tk.setup(true, sr);
+        // Ein leiser Nadelimpuls (-60 dBFS, unter dem Detektorboden) darf nur
+        // die Verzoegerung zeigen, nicht gedaempft werden.
+        let n = 2000;
+        let mut aus = Vec::with_capacity(n);
+        for i in 0..n {
+            let x = if i == 1000 { 0.001 } else { 0.0 };
+            aus.push(tk.process(x, 6.0, 15.0));
+        }
+        let versatz = (TK_LOOKAHEAD_MS * 0.001 * sr) as usize;
+        assert_eq!(versatz, 240);
+        assert!(
+            (aus[1000 + versatz] - 0.001).abs() < 1e-9,
+            "Impuls lag nicht am erwarteten Platz"
+        );
+        assert!(aus[1000 + versatz - 1].abs() < 1e-9);
+        assert!(
+            aus[1000].abs() < 1e-9,
+            "ohne Lookahead kam der Impuls zu frueh"
+        );
+    }
+
+    /// Sinus -20 dBFS mit eingestreuten 5-ms-Knacksen bei -10 dBFS.
+    fn lauf(mit_tk: bool) -> (f32, f32) {
+        let sr = 48000.0;
+        let n = 48_000;
+        let mut tk = TransientenUnterdruecker::new(sr);
+        tk.setup(mit_tk, sr);
+        let mut aus = Vec::with_capacity(n);
+        let mut knack_peak = 0.0f32;
+        let mut ton_peak = 0.0f32;
+        let (k0, k1) = (12_000, 12_240); // 5 ms Knacks
+        for i in 0..n {
+            let mut x = 0.1 * (2.0 * PI * 1000.0 * i as f32 / sr).sin();
+            if i >= k0 && i < k1 {
+                x += 0.316 * (2.0 * PI * 1000.0 * i as f32 / sr).sin();
+            }
+            let y = tk.process(x, 6.0, 15.0);
+            aus.push(y);
+            if i >= k0 + 240 && i < k1 + 240 {
+                knack_peak = knack_peak.max(y.abs());
+            }
+            if i > 24_000 {
+                ton_peak = ton_peak.max(y.abs());
+            }
+        }
+        // Eingangspegel zum Vergleich
+        let mut knack_ein = 0.0f32;
+        for i in k0..k1 {
+            let x = 0.1 * (2.0 * PI * 1000.0 * i as f32 / sr).sin()
+                + 0.316 * (2.0 * PI * 1000.0 * i as f32 / sr).sin();
+            knack_ein = knack_ein.max(x.abs());
+        }
+        let _ = ton_peak;
+        (lin_to_db(knack_ein), lin_to_db(knack_peak))
+    }
+
+    #[test]
+    fn tk_senkt_knackser_und_haelt_den_ton() {
+        let (ein, aus) = lauf(true);
+        println!(
+            "TK Knacks: {ein:.2} -> {aus:.2} dBFS ({:+.2} dB)",
+            aus - ein
+        );
+        assert!(
+            aus - ein < -10.0,
+            "Knacks nur um {:.2} dB abgesenkt",
+            aus - ein
+        );
     }
 }
 
