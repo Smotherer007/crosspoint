@@ -10,12 +10,15 @@
 #
 # WebKitGTK kommt mit org.gnome.Platform//51 (libwebkit2gtk-4.1), die
 # Entwicklungspakete mit org.gnome.Sdk//51. Den Rust-Toolchain bringt der
-# GNOME-SDK unter /usr/lib/sdk/rust-stable bereits mit; eine rust-stable-
-# Extension braucht es nicht mehr.
+# Die Rust-Extension MUSS deklariert sein: ohne sie liegt kein cargo im Build
+# ("cargo: command not found"), auch wenn das SDK lokal eines mitbringt.
+# org.gnome.Sdk.Extension.rust-stable//51 existiert auf Flathub.
 app-id: de.weppelmann.Crosspoint
 runtime: org.gnome.Platform
 runtime-version: '51'
 sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.gnome.Sdk.Extension.rust-stable
 command: crosspoint-start
 
 finish-args:
