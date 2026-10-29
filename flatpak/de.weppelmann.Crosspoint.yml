@@ -17,8 +17,6 @@ app-id: de.weppelmann.Crosspoint
 runtime: org.gnome.Platform
 runtime-version: '51'
 sdk: org.gnome.Sdk
-sdk-extensions:
-  - org.gnome.Sdk.Extension.rust-stable
 command: crosspoint-start
 
 finish-args:
@@ -39,17 +37,17 @@ finish-args:
   # Konfiguration (~/.config/crosspoint) darf angelegt werden
   - --filesystem=~/.config/crosspoint:create
 
-build-options:
-  append-path: /usr/lib/sdk/rust-stable/bin
-  env:
-    CARGO_HOME: /run/build/crosspoint/cargo
-
+# Kein Rust im Flatpak-Build: die Engine wird im CI-Job "Tarball" gebaut und
+# hier als fertiges Binary eingesetzt (prebuilt/crosspoint-engine). Die
+# GNOME-Runtime stellt keine rust-Extension bereit (flathub kennt
+# org.gnome.Sdk.Extension.rust-stable nicht), und Rust im Container
+# nachzuinstallieren waere ein eigener Fehlerherd.
 modules:
   - name: crosspoint
     buildsystem: simple
     build-commands:
-      - cargo build --release --offline --locked
-      - install -Dm755 target/release/crosspoint-engine /app/bin/crosspoint-engine
+      # Die Datei-Quelle landet unter ihrem Basisnamen im Build-Verzeichnis.
+      - install -Dm755 crosspoint-engine /app/bin/crosspoint-engine
       - install -Dm755 scripts/crosspoint-start.sh /app/bin/crosspoint-start
       - install -Dm755 scripts/crosspoint-wire.sh /app/bin/crosspoint-wire.sh
       # Der Desktop-Eintrag des Repos startet auf dem Host den Browser
@@ -69,9 +67,12 @@ modules:
             "/app/share/icons/hicolor/${n}x${n}/apps/de.weppelmann.Crosspoint.png"
         done
     sources:
+      - type: file
+        path: ../prebuilt/crosspoint-engine
       - type: dir
         path: ..
         skip:
+          - prebuilt
           - .git
           - target
           - build-dir

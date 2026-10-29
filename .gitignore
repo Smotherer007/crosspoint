@@ -5,3 +5,4 @@
 /build-dir
 /.flatpak-builder
 /flatpak-build/
+/prebuilt/

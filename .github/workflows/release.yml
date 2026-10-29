@@ -76,8 +76,8 @@ jobs:
   # offizielle Action. Der eigene apt-Weg scheiterte an "sudo flatpak run",
   # die Action-Variante an fehlender AppStream-Datei im Build.
   flatpak:
-    needs: prepare
-    if: always() && needs.prepare.result == 'success'
+    needs: [prepare, tarball]
+    if: always() && needs.prepare.result == 'success' && needs.tarball.result == 'success'
     name: Flatpak
     runs-on: ubuntu-latest
     container:
@@ -87,6 +87,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare.outputs.tag }}
+      # Die Engine kommt fertig gebaut aus dem Tarball-Job - im Flatpak-Build
+      # gibt es kein cargo.
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine
+          path: prebuilt
+      - name: Ausfuehrbar machen
+        run: chmod +x prebuilt/crosspoint-engine && ls -l prebuilt
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: crosspoint-${{ needs.prepare.outputs.version }}-x86_64.flatpak
@@ -121,6 +129,10 @@ jobs:
           cp packaging/linux/de.weppelmann.Crosspoint.desktop dist/
           cp docs/brand/crosspoint-icon-1024.png dist/crosspoint.png
           tar -C dist -czf "crosspoint-${VERSION}-linux-x86_64.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine
+          path: target/release/crosspoint-engine
       - uses: actions/upload-artifact@v4
         with:
           name: tarball
