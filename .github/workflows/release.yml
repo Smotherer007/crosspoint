@@ -93,6 +93,9 @@ jobs:
           bundle: crosspoint-${{ needs.prepare.outputs.version }}-x86_64.flatpak
           cache-key: flatpak-builder-${{ github.sha }}
           upload-artifact: true
+          # Die Action umhuellt Tests mit xvfb-run; das scheitert hier
+          # ('/app/bin/xvfb-run' exit 1). Unsere Tests laufen im CI-Job.
+          run-tests: false
 
   tarball:
     needs: prepare
