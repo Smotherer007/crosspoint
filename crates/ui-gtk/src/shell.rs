@@ -292,6 +292,20 @@ impl Shell {
         eprintln!("crosspoint-gtk: {text}");
     }
 
+    /// Wie [`Shell::hinweis`], aber nur bei geändertem Text – der Gerätetakt
+    /// läuft alle 400 ms und würde sonst dasselbe ins Protokoll schreiben.
+    pub fn hinweis_neu(&self, text: &str, fehler: bool) {
+        let gleich = self
+            .hinweis_label
+            .borrow()
+            .as_ref()
+            .map(|l| l.text().to_string() == text)
+            .unwrap_or(false);
+        if !gleich {
+            self.hinweis(text, fehler);
+        }
+    }
+
     pub fn tokens_jetzt(&self) -> Tokens {
         match self.tokens.read() {
             Ok(t) => t.clone(),
@@ -1160,17 +1174,20 @@ impl Shell {
         };
         this.geraete.sperre.set(true);
 
+        // Ein gemerktes, aber abgestecktes Gerät bleibt in der Liste – mit
+        // Zusatz „(nicht verbunden)“, damit das Menü nicht stillschweigend auf
+        // „kein Eingang“ zurückfällt.
         let mut q_namen: Vec<Option<String>> = vec![None];
         let mut q_texte: Vec<String> = vec![geraete::KEIN_EINGANG.to_string()];
         for e in &bestand.quellen {
             q_namen.push(Some(e.name.clone()));
-            q_texte.push(e.anzeige.clone());
+            q_texte.push(geraete::eintrag_text(&e.anzeige, e.fehlt));
         }
         let mut s_namen: Vec<Option<String>> = vec![None];
         let mut s_texte: Vec<String> = vec![geraete::KEIN_AUSGANG.to_string()];
         for e in &bestand.senken {
             s_namen.push(Some(e.name.clone()));
-            s_texte.push(e.anzeige.clone());
+            s_texte.push(geraete::eintrag_text(&e.anzeige, e.fehlt));
         }
 
         let q_refs: Vec<&str> = q_texte.iter().map(|s| s.as_str()).collect();
@@ -1185,33 +1202,84 @@ impl Shell {
         *this.geraete.senken_namen.borrow_mut() = s_namen.clone();
 
         for z in this.zuege.borrow().iter() {
-            let Some(dd) = z.geraetewahl.as_ref() else {
-                continue;
-            };
-            let idx = match z.view.rolle() {
-                Rolle::Kanal(i) if i < 5 => bestand
-                    .streifen
-                    .get(i)
-                    .and_then(|q| q.as_ref())
-                    .and_then(|name| q_namen.iter().position(|n| n.as_ref() == Some(name)))
-                    .unwrap_or(0),
-                Rolle::Bus(i) if i < 5 => {
-                    let bus = crosspoint::BUS_NAMES[i];
-                    bestand
-                        .busse
-                        .iter()
-                        .find(|(b, _)| b == bus)
-                        .and_then(|(_, s)| s.as_ref())
-                        .and_then(|name| s_namen.iter().position(|n| n.as_ref() == Some(name)))
-                        .unwrap_or(0)
+            let rolle = z.view.rolle();
+            if let Some(dd) = z.geraetewahl.as_ref() {
+                let (idx, fehlt, bus) = match rolle {
+                    Rolle::Kanal(i) if i < 5 => {
+                        let fehlt = bestand.streifen_fehlt.get(i).copied().unwrap_or(false);
+                        let idx = bestand
+                            .streifen
+                            .get(i)
+                            .and_then(|q| q.as_ref())
+                            .and_then(|name| q_namen.iter().position(|n| n.as_ref() == Some(name)))
+                            .unwrap_or(0);
+                        (idx, fehlt, None)
+                    }
+                    Rolle::Bus(i) if i < 5 => {
+                        let fehlt = bestand.busse_fehlt.get(i).copied().unwrap_or(false);
+                        let bus = crosspoint::BUS_NAMES[i];
+                        let idx = bestand
+                            .busse
+                            .iter()
+                            .find(|(b, _)| b == bus)
+                            .and_then(|(_, s)| s.as_ref())
+                            .and_then(|name| s_namen.iter().position(|n| n.as_ref() == Some(name)))
+                            .unwrap_or(0);
+                        (idx, fehlt, Some((i, bus)))
+                    }
+                    _ => (0, false, None),
+                };
+                dd.set_selected(idx as u32);
+                if fehlt {
+                    dd.add_css_class("fehlt");
+                } else {
+                    dd.remove_css_class("fehlt");
                 }
-                _ => 0,
-            };
-            dd.set_selected(idx as u32);
+
+                // Statuszeile: Streifen zeigen „EINGANG FEHLT“, Busse ihre
+                // Gerätelautstärke („A1 · 45 %“, „A1 · STUMM“, „A1 · FEHLT“).
+                if let Some(zeile) = z.geraetezeile.as_ref() {
+                    let (text, tipp) = match bus {
+                        Some((i, name)) => {
+                            let ls = bestand.busse_lautstaerke.get(i).copied().flatten();
+                            (
+                                geraete::bus_lautstaerke(name, ls, fehlt),
+                                if fehlt {
+                                    "Gerät ist nicht angeschlossen (abgesteckt?)"
+                                } else {
+                                    "Gerätelautstärke des Ziels – Klick setzt 100 % und hebt Stumm auf"
+                                },
+                            )
+                        }
+                        None => (
+                            if fehlt {
+                                "EINGANG FEHLT".to_string()
+                            } else {
+                                String::new()
+                            },
+                            geraete::FEHLT_TIPP,
+                        ),
+                    };
+                    if zeile.text() != text {
+                        zeile.set_text(&text);
+                    }
+                    if fehlt {
+                        zeile.add_css_class("fehlt");
+                    } else {
+                        zeile.remove_css_class("fehlt");
+                    }
+                    zeile.set_tooltip_text(Some(tipp).filter(|_| fehlt || bus.is_some()));
+                }
+            }
         }
 
         if let Some(f) = bestand.fehler.clone() {
-            this.hinweis(&format!("Geraete: {f}"), true);
+            this.hinweis_neu(&format!("Geraete: {f}"), true);
+        } else if !bestand.fehlend.is_empty() {
+            this.hinweis_neu(
+                &format!("Nicht angeschlossen: {}", bestand.fehlend.join(" · ")),
+                true,
+            );
         }
         this.geraete.sperre.set(false);
     }

@@ -137,6 +137,28 @@ pub fn strip_ports(strip: usize) -> Result<(String, String, String, String), Str
     ))
 }
 
+/// Portpaare Quelle → Streifen für einen gemerkten Eintrag.
+///
+/// Gebraucht, wenn eine Quelle abgesteckt ist: dann steht kein Link mehr im
+/// Graphen, an dem sich die Verbindung festmachen ließe.
+pub fn ports_zu(strip: usize, quelle: &str) -> Result<Vec<(String, String)>, String> {
+    let (in_l, in_r, _, _) = strip_ports(strip)?;
+    let (von_l, von_r) = ports_for(quelle);
+    Ok(vec![(von_l, in_l), (von_r, in_r)])
+}
+
+/// Ist der Streifen laut Graph mit dieser Quelle verbunden?
+pub fn ist_verbunden(graph: &Graph, strip: usize, quelle: &str) -> bool {
+    let Ok((in_l, in_r, _, _)) = strip_ports(strip) else {
+        return false;
+    };
+    let praefix = format!("{}:", kanonisch(quelle));
+    graph
+        .offene_links(&[in_l, in_r])
+        .iter()
+        .any(|v| v.von.starts_with(&praefix))
+}
+
 /// Alle Ausgangsports einer Quelle, so wie PipeWire sie gerade anbietet –
 /// als Pfad `"<knoten>:<port>"`.
 ///
@@ -308,16 +330,48 @@ pub fn status_json_mit(
         .enumerate()
         .filter_map(|(i, eintrag)| {
             let name = eintrag.as_ref()?;
-            let desc = graph
+            let knoten = graph.as_ref().ok().and_then(|g| g.knoten(name));
+            let desc = knoten.map(|n| n.anzeige().to_string()).unwrap_or_default();
+            let vorhanden = knoten.is_some();
+            let verbunden = graph
                 .as_ref()
-                .ok()
-                .and_then(|g| g.knoten(name))
-                .map(|n| n.anzeige().to_string())
-                .unwrap_or_default();
+                .map(|g| ist_verbunden(g, i + 1, name))
+                .unwrap_or(false);
+            let zustand = crate::devices::Zustand::aus(vorhanden, verbunden, true);
             Some(Value::obj(vec![
                 ("strip", Value::num((i + 1) as f64)),
                 ("source", Value::str(name.clone())),
                 ("desc", Value::str(desc)),
+                ("vorhanden", Value::Bool(vorhanden)),
+                ("verbunden", Value::Bool(verbunden)),
+                ("zustand", Value::str(zustand.text())),
+                (
+                    "grund",
+                    zustand.grund().map(Value::str).unwrap_or(Value::Null),
+                ),
+            ]))
+        })
+        .collect();
+
+    // Streifen, deren Quelle gemerkt ist und gerade fehlt.
+    let fehlend: Vec<Value> = m
+        .iter()
+        .enumerate()
+        .filter_map(|(i, eintrag)| {
+            let name = eintrag.as_ref()?;
+            if graph.as_ref().ok().and_then(|g| g.knoten(name)).is_some() {
+                return None;
+            }
+            Some(Value::obj(vec![
+                ("ziel", Value::str(format!("Streifen {}", i + 1))),
+                ("art", Value::str("eingang")),
+                ("name", Value::str(name.clone())),
+                ("vorhanden", Value::Bool(false)),
+                ("zustand", Value::str(crate::devices::Zustand::Fehlt.text())),
+                (
+                    "grund",
+                    Value::str(crate::devices::Zustand::Fehlt.grund().unwrap_or("")),
+                ),
             ]))
         })
         .collect();
@@ -350,6 +404,13 @@ pub fn status_json_mit(
     Value::obj(vec![
         ("sources", Value::Arr(quellen_json)),
         ("assigned", Value::Arr(zuordnung)),
+        (
+            "fehlend",
+            Value::obj(vec![
+                ("anzahl", Value::num(fehlend.len() as f64)),
+                ("liste", Value::Arr(fehlend)),
+            ]),
+        ),
         ("links", Value::Arr(links)),
         ("strips", Value::num(MAX_HW_STRIPS as f64)),
         ("error", fehler),

@@ -85,8 +85,67 @@ impl Richtung {
     }
 }
 
+/// Gerätelautstärke eines Sinks, wie PipeWire sie im `SPA_PARAM_Props` führt.
+///
+/// Der Wert ist der **lineare** Pegel (1.0 = keine Absenkung). Angezeigt wird
+/// derselbe Prozentwert, den `wpctl`/`pavucontrol` zeigen – die rechnen die
+/// kubische Wurzel, weil Lautstärke als Amplitude und nicht als Leistung
+/// empfunden wird (`0.45³ = 0.091` → „45 %“).
+///
+/// Warum das hier steht: bei einem USB-Headset ohne ALSA-Mixer ist das die
+/// einzige Hör-Schraube. PipeWire stellt beim Neustart die gespeicherte
+/// Gerätelautstärke wieder her (gemessen: HS80 kam mit 45 % statt 90 % zurück),
+/// und ohne Anzeige sucht man den Fehler im Mixer statt am Gerät.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lautstaerke {
+    /// Linearer Pegel, 1.0 = ohne Absenkung.
+    pub volumen: f32,
+    /// Stumm geschaltet (unabhängig vom Pegel).
+    pub stumm: bool,
+    /// Kanalzahl, mit der PipeWire den Pegel führt (0 = unbekannt). Wird zum
+    /// Setzen gebraucht: `channelVolumes` hat einen Wert je Kanal.
+    pub kanaele: u32,
+}
+
+impl Lautstaerke {
+    pub fn neu(volumen: f32, stumm: bool) -> Lautstaerke {
+        Lautstaerke {
+            volumen: if volumen.is_finite() {
+                volumen.max(0.0)
+            } else {
+                0.0
+            },
+            stumm,
+            kanaele: 0,
+        }
+    }
+
+    /// Wie [`Lautstaerke::neu`], aber mit der Kanalzahl des Geräts.
+    pub fn mit_kanaelen(volumen: f32, stumm: bool, kanaele: u32) -> Lautstaerke {
+        Lautstaerke {
+            kanaele,
+            ..Lautstaerke::neu(volumen, stumm)
+        }
+    }
+
+    /// Prozentwert wie `wpctl` (kubische Wurzel, gerundet, 0..=150).
+    pub fn prozent(&self) -> u32 {
+        let kubisch = self.volumen.clamp(0.0, 3.375).cbrt();
+        (kubisch * 100.0).round().clamp(0.0, 150.0) as u32
+    }
+
+    /// Anzeige für die Oberfläche: `45 %`, `STUMM`, `100 %`.
+    pub fn text(&self) -> String {
+        if self.stumm {
+            "STUMM".to_string()
+        } else {
+            format!("{} %", self.prozent())
+        }
+    }
+}
+
 /// Ein PipeWire-Knoten aus einer der [`GERAETEKLASSEN`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     /// Objekt-ID im Graphen – stabil nur bis zum Neustart.
     pub id: u32,
@@ -101,6 +160,8 @@ pub struct Node {
     pub media_class: String,
     /// Monitor eines Sinks (Name endet auf `.monitor` oder `stream.monitor`).
     pub ist_monitor: bool,
+    /// Gerätelautstärke, wenn der Knoten sie führt (`None` = unbekannt/anwendbar).
+    pub lautstaerke: Option<Lautstaerke>,
 }
 
 impl Node {
@@ -166,7 +227,7 @@ pub struct Verbindung {
 }
 
 /// Der aufgenommene Graph: Knoten, Ports, Links.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Graph {
     pub nodes: Vec<Node>,
     pub ports: Vec<Port>,
@@ -315,6 +376,18 @@ impl Graph {
             .iter()
             .any(|p| p.name.starts_with("monitor_"))
     }
+
+    /// Gerätelautstärke eines Knotens nach `node.name` (falls bekannt).
+    pub fn lautstaerke(&self, name: &str) -> Option<Lautstaerke> {
+        self.knoten(name).and_then(|n| n.lautstaerke)
+    }
+
+    /// Kurzform der Gerätelautstärke für Anzeigen: `45 %`, `STUMM`, `—`.
+    pub fn lautstaerke_text(&self, name: &str) -> String {
+        self.lautstaerke(name)
+            .map(|l| l.text())
+            .unwrap_or_else(|| "—".to_string())
+    }
 }
 
 /// Wählt aus einer Portliste die beiden Kanalpfade für links/rechts.
@@ -358,6 +431,21 @@ pub trait Zugriff {
     /// Löst die Verbindung zwischen zwei Ports (`"node:port"`). Gibt es keine,
     /// passiert nichts (idempotent).
     fn trennen(&self, von: &str, nach: &str) -> Result<(), String>;
+
+    /// Setzt die Gerätelautstärke eines Sinks (`None` lässt den Wert stehen).
+    ///
+    /// Derselbe Weg wie [`Zugriff::verbinden`]: ein Auftrag an den
+    /// Registry-Thread, kein `wpctl`-Aufruf von außen. Die Vorgabe schlägt fehl,
+    /// damit ein Test-Doppel ohne Lautstärke nicht stillschweigend Erfolg meldet.
+    fn lautstaerke_setzen(
+        &self,
+        sink: &str,
+        volumen: Option<f32>,
+        stumm: Option<bool>,
+    ) -> Result<(), String> {
+        let _ = (sink, volumen, stumm);
+        Err("Lautstaerke wird hier nicht unterstuetzt".to_string())
+    }
 }
 
 /// Der echte PipeWire-Zugriff über die Crate (ein Client je Prozess).
@@ -390,6 +478,15 @@ impl Zugriff for PipeWire {
 
     fn trennen(&self, von: &str, nach: &str) -> Result<(), String> {
         PwClient::global().trennen(von, nach)
+    }
+
+    fn lautstaerke_setzen(
+        &self,
+        sink: &str,
+        volumen: Option<f32>,
+        stumm: Option<bool>,
+    ) -> Result<(), String> {
+        PwClient::global().lautstaerke_setzen(sink, volumen, stumm)
     }
 }
 
@@ -445,6 +542,9 @@ struct Bestand {
     /// Zustand je Link (`active`, `paused`, …). Steht nur in den Link-Infos,
     /// nicht in den Properties – deshalb ein eigener Speicher.
     link_zustand: BTreeMap<u32, String>,
+    /// Gerätelautstärke je Knoten. Kommt aus `SPA_PARAM_Props` (eigenes
+    /// Ereignis, wie der Link-Zustand), nicht aus den Registry-Properties.
+    lautstaerke: BTreeMap<u32, Lautstaerke>,
 }
 
 /// Ein Port, wie ihn [`Zugriff::verbinden`] braucht.
@@ -459,6 +559,7 @@ impl Bestand {
     fn leeren(&mut self) {
         self.objekte.clear();
         self.link_zustand.clear();
+        self.lautstaerke.clear();
     }
 
     fn einfuegen(&mut self, id: u32, art: Art, props: BTreeMap<String, String>) {
@@ -468,10 +569,23 @@ impl Bestand {
     fn entfernen(&mut self, id: u32) {
         self.objekte.remove(&id);
         self.link_zustand.remove(&id);
+        self.lautstaerke.remove(&id);
     }
 
     fn setze_link_zustand(&mut self, id: u32, zustand: &str) {
         self.link_zustand.insert(id, zustand.to_string());
+    }
+
+    fn setze_lautstaerke(&mut self, id: u32, lautstaerke: Lautstaerke) {
+        self.lautstaerke.insert(id, lautstaerke);
+    }
+
+    /// Knoten-ID zu einem technischen Namen (`node.name`).
+    fn knoten_id(&self, name: &str) -> Option<u32> {
+        self.objekte.iter().find_map(|(id, roh)| {
+            (roh.art == Art::Node && roh.props.get("node.name").map(String::as_str) == Some(name))
+                .then_some(*id)
+        })
     }
 
     /// Baut den [`Graph`] aus dem Bestand – Knoten, Ports und Links, jeweils
@@ -481,7 +595,8 @@ impl Bestand {
         for (id, roh) in &self.objekte {
             match roh.art {
                 Art::Node => {
-                    if let Some(n) = knoten_aus(*id, roh) {
+                    if let Some(mut n) = knoten_aus(*id, roh) {
+                        n.lautstaerke = self.lautstaerke.get(id).copied();
                         graph.nodes.push(n);
                     }
                 }
@@ -594,7 +709,136 @@ fn knoten_aus(id: u32, roh: &Roh) -> Option<Node> {
         description: roh.text("node.description"),
         nick: roh.text("node.nick"),
         media_class: roh.text("media.class"),
+        lautstaerke: None,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Gerätelautstärke: `SPA_PARAM_Props`
+// ---------------------------------------------------------------------------
+
+// Schlüssel aus `spa/param/props.h` (`enum spa_prop`), Abschnitt
+// `SPA_PROP_START_Audio = 0x10000`. Die Konstanten sind in `libspa-sys` nicht
+// gebunden, deshalb stehen sie hier mit Quelle.
+const SPA_PROP_VOLUME: u32 = 0x1_0003;
+const SPA_PROP_MUTE: u32 = 0x1_0004;
+const SPA_PROP_CHANNEL_VOLUMES: u32 = 0x1_0008;
+// `softMute`/`softVolumes`: die zweite Hälfte von Pegel und Stummschaltung.
+// WirePlumber legt sie an, wenn das Gerät keinen Hardware-Mixer hat (USB-
+// Headset) – ohne sie bleibt "nicht stumm" wirkungslos, weil die Software-
+// Stufe weiter auf stumm steht.
+const SPA_PROP_SOFT_MUTE: u32 = 0x1_000F;
+const SPA_PROP_SOFT_VOLUMES: u32 = 0x1_0010;
+
+/// Liest Pegel und Stummschaltung aus einem `SPA_PARAM_Props`-Pod.
+///
+/// `SPA_PROP_volume` ist der skalare Pegel (Maximum der Kanäle), wie ihn
+/// PipeWire selbst führt; fehlt er, zählt das erste Element von
+/// `SPA_PROP_channelVolumes`. Ohne beides bleibt die Lautstärke unbekannt –
+/// dann zeigt die Oberfläche nichts an, statt eine Zahl zu erfinden.
+fn lautstaerke_aus(pod: &pw::spa::pod::Pod) -> Option<Lautstaerke> {
+    let obj = pod.as_object().ok()?;
+    let wert = |key: u32| obj.find_prop(pw::spa::utils::Id(key)).map(|p| p.value());
+    let stumm = wert(SPA_PROP_MUTE)
+        .and_then(|v| v.get_bool().ok())
+        .unwrap_or(false);
+    if let Some((volumen, kanaele)) = wert(SPA_PROP_CHANNEL_VOLUMES).and_then(kanal_pegel) {
+        return Some(Lautstaerke::mit_kanaelen(volumen, stumm, kanaele));
+    }
+    let volumen = wert(SPA_PROP_VOLUME).and_then(|v| v.get_float().ok())?;
+    Some(Lautstaerke::neu(volumen, stumm))
+}
+
+/// Größter Kanalpegel eines `SPA_PROP_channelVolumes`-Arrays.
+///
+/// Der Pod wird von Hand gelesen, weil `libspa` für Arrays keinen Leser
+/// anbietet. Aufbau (`spa/pod/array.h`): Kopf `{size, type}`, dahinter
+/// `{child_size, child_type}` und die Werte – **ohne** Elementzahl, die ergibt
+/// sich aus `size`. Belegt an echten Props (`pw-cli e <id> Props`):
+/// `10 00 00 00 | 0d 00 00 00 | 04 00 00 00 | 06 00 00 00 | <f32> <f32>`.
+///
+/// Gelesen wird `channelVolumes` und **nicht** `volume`: `volume` ist bei
+/// PipeWire nur die Obergrenze (meist 1.0), die tatsächlich anliegende
+/// Lautstärke steht in den Kanalpegeln (gemessen: HS80 `volume` 1.0,
+/// `channelVolumes` 0.0911 = „45 %“).
+fn kanal_pegel(pod: &pw::spa::pod::Pod) -> Option<(f32, u32)> {
+    const SPA_TYPE_FLOAT: u32 = 6;
+    if !pod.is_array() {
+        return None;
+    }
+    let bytes = pod.as_bytes();
+    if bytes.len() < 20 {
+        return None;
+    }
+    let zahl = |von: usize| -> Option<u32> {
+        Some(u32::from_ne_bytes(
+            bytes.get(von..von + 4)?.try_into().ok()?,
+        ))
+    };
+    let child_size = zahl(8)? as usize;
+    let child_type = zahl(12)?;
+    if child_size != 4 || child_type != SPA_TYPE_FLOAT {
+        return None;
+    }
+    let anzahl = (pod.size() as usize).saturating_sub(8) / child_size;
+    let werte: Vec<f32> = (0..anzahl)
+        .filter_map(|i| {
+            let von = 16 + i * 4;
+            let roh: [u8; 4] = bytes.get(von..von + 4)?.try_into().ok()?;
+            Some(f32::from_ne_bytes(roh))
+        })
+        .filter(|v| v.is_finite())
+        .collect();
+    let max = werte.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    max.is_finite()
+        .then(|| (max, u32::try_from(werte.len()).unwrap_or(0)))
+}
+
+/// Baut das `SPA_PARAM_Props`-Pod zum Setzen von Pegel und Stummschaltung.
+///
+/// Geschrieben wird `channelVolumes` (der wirksame Pegel) – **nicht** `volume`:
+/// das ist bei PipeWire nur die Obergrenze und bleibt 1.0 (gemessen an einem
+/// HS80: `volume` 1.0, `channelVolumes` 0.0911 = „45 %“).
+fn props_pod(volumen: Option<f32>, stumm: Option<bool>, kanaele: u32) -> Vec<u8> {
+    use pw::spa::pod::{self, Value};
+    use pw::spa::utils::SpaTypes;
+    let mut eigenschaften = Vec::new();
+    if let Some(stumm) = stumm {
+        eigenschaften.push(pod::Property::new(SPA_PROP_MUTE, Value::Bool(stumm)));
+        eigenschaften.push(pod::Property::new(SPA_PROP_SOFT_MUTE, Value::Bool(stumm)));
+    }
+    if let Some(volumen) = volumen {
+        let pegel = volumen.clamp(0.0, 1.5);
+        // `volume` allein ist nur die Obergrenze: PipeWire übernimmt den
+        // wirksamen Pegel aus `channelVolumes`, ein Wert je Kanal. Ohne
+        // Kanalzahl bleibt der Skalar.
+        if kanaele > 0 {
+            let werte = vec![pegel; kanaele.min(64) as usize];
+            eigenschaften.push(pod::Property::new(
+                SPA_PROP_CHANNEL_VOLUMES,
+                Value::ValueArray(pod::ValueArray::Float(werte.clone())),
+            ));
+            // Software-Stufe gleich mitziehen: sonst bleibt ein alter
+            // `softVolumes`-Wert als zweite Absenkung davor.
+            eigenschaften.push(pod::Property::new(
+                SPA_PROP_SOFT_VOLUMES,
+                Value::ValueArray(pod::ValueArray::Float(werte)),
+            ));
+        } else {
+            eigenschaften.push(pod::Property::new(SPA_PROP_VOLUME, Value::Float(pegel)));
+        }
+    }
+    let objekt = pod::Object {
+        type_: SpaTypes::ObjectParamProps.as_raw(),
+        id: pw::spa::param::ParamType::Props.as_raw(),
+        properties: eigenschaften,
+    };
+    let mut daten = Vec::new();
+    let mut ziel = std::io::Cursor::new(&mut daten);
+    match pod::serialize::PodSerializer::serialize(&mut ziel, &Value::Object(objekt)) {
+        Ok(_) => daten,
+        Err(_) => Vec::new(),
+    }
 }
 
 fn port_aus(id: u32, roh: &Roh) -> Option<Port> {
@@ -651,16 +895,31 @@ enum Befehl {
         nach: String,
         antwort: SyncSender<Result<(), String>>,
     },
+    Lautstaerke {
+        sink: String,
+        volumen: Option<f32>,
+        stumm: Option<bool>,
+        antwort: SyncSender<Result<(), String>>,
+    },
     Ende,
 }
 
-/// Hält einen gebundenen Link-Proxy samt Listener am Leben.
+/// Hält einen gebundenen Proxy samt Listener am Leben.
 ///
-/// Der Proxy ist nur zum Lesen des Zustands da (`info`-Ereignis). Solange er
-/// lebt, meldet PipeWire Änderungen; fällt er weg, endet die Meldung.
-struct LinkHalte {
-    _proxy: pw::link::Link,
-    _listener: pw::link::LinkListener,
+/// Der Proxy ist nur zum Lesen von Zuständen da (`info` beim Link, `param` beim
+/// Knoten). Solange er lebt, meldet PipeWire Änderungen; fällt er weg, endet
+/// die Meldung.
+enum Halte {
+    Link {
+        _proxy: pw::link::Link,
+        _listener: pw::link::LinkListener,
+    },
+    /// Sink-Knoten: liefert die Gerätelautstärke (`SPA_PARAM_Props`) und nimmt
+    /// neue Werte entgegen.
+    Knoten {
+        proxy: pw::node::Node,
+        _listener: pw::node::NodeListener,
+    },
 }
 
 /// Der Graph-Client: ein Thread, ein PipeWire-Client, ein Snapshot.
@@ -768,6 +1027,35 @@ impl PwClient {
         self.anfrage(von, nach, false)
     }
 
+    /// Gerätelautstärke setzen (Auftrag an den Registry-Thread).
+    pub fn lautstaerke_setzen(
+        &self,
+        sink: &str,
+        volumen: Option<f32>,
+        stumm: Option<bool>,
+    ) -> Result<(), String> {
+        if !self.verbunden() {
+            return Err(self
+                .grund()
+                .unwrap_or_else(|| "keine Verbindung zu PipeWire".to_string()));
+        }
+        if volumen.is_none() && stumm.is_none() {
+            return Ok(());
+        }
+        let (antwort, empfangen) = sync_channel(1);
+        self.befehle
+            .send(Befehl::Lautstaerke {
+                sink: sink.to_string(),
+                volumen,
+                stumm,
+                antwort,
+            })
+            .map_err(|_| "PipeWire-Thread läuft nicht mehr".to_string())?;
+        empfangen
+            .recv_timeout(ANTWORT)
+            .unwrap_or_else(|_| Err("PipeWire antwortet nicht".to_string()))
+    }
+
     fn anfrage(&self, von: &str, nach: &str, verbinden: bool) -> Result<(), String> {
         if !self.verbunden() {
             return Err(self
@@ -861,7 +1149,9 @@ async fn warte(befehle: &Receiver<Befehl>, stopp: &Arc<AtomicBool>, dauer: Durat
         while let Ok(befehl) = befehle.try_recv() {
             match befehl {
                 Befehl::Ende => return,
-                Befehl::Verbinden { antwort, .. } | Befehl::Trennen { antwort, .. } => {
+                Befehl::Verbinden { antwort, .. }
+                | Befehl::Trennen { antwort, .. }
+                | Befehl::Lautstaerke { antwort, .. } => {
                     let _ = antwort.send(Err("keine Verbindung zu PipeWire".to_string()));
                 }
             }
@@ -903,8 +1193,8 @@ async fn lauf(
         Err(e) => return Some(format!("PipeWire-Registry nicht lesbar: {e:?}")),
     };
     // Zustand, in den die Callbacks schreiben. Alles bleibt im Loop-Thread.
-    let proxies: Rc<RefCell<HashMap<u32, LinkHalte>>> = Rc::new(RefCell::new(HashMap::new()));
-    let entsorgt: Rc<RefCell<Vec<LinkHalte>>> = Rc::new(RefCell::new(Vec::new()));
+    let proxies: Rc<RefCell<HashMap<u32, Halte>>> = Rc::new(RefCell::new(HashMap::new()));
+    let entsorgt: Rc<RefCell<Vec<Halte>>> = Rc::new(RefCell::new(Vec::new()));
     let fertig_seq = Rc::new(Cell::new(-1i32));
     let letzter_fehler: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     let abbruch = Rc::new(Cell::new(false));
@@ -935,13 +1225,63 @@ async fn lauf(
                 if let Ok(mut bestand) = daten.write() {
                     bestand.einfuegen(obj.id, art, props);
                 }
-                if art != Art::Link {
+                // Der Registry-Durchgriff im Callback (siehe oben): nur so
+                // lassen sich Proxys binden.
+                let registry: &pw::registry::Registry =
+                    unsafe { &*(registry_zeiger as *const pw::registry::Registry) };
+                if art == Art::Node {
+                    // Sinks führen ihre Gerätelautstärke als Parameter, nicht
+                    // als Property – dafür braucht es einen Knoten-Proxy.
+                    let ist_sink = obj
+                        .props
+                        .as_ref()
+                        .and_then(|d| d.get("media.class"))
+                        .map(|c| c == "Audio/Sink")
+                        .unwrap_or(false);
+                    if ist_sink {
+                        if let Ok(node) = registry.bind::<pw::node::Node, _>(obj) {
+                            let daten_knoten = daten.clone();
+                            let id = obj.id;
+                            let listener = node
+                                .add_listener_local()
+                                .param(move |_seq, param_art, _index, _next, param| {
+                                    if param_art != pw::spa::param::ParamType::Props {
+                                        return;
+                                    }
+                                    let Some(pod) = param else {
+                                        return;
+                                    };
+                                    let Some(ls) = lautstaerke_aus(pod) else {
+                                        return;
+                                    };
+                                    if let Ok(mut bestand) = daten_knoten.write() {
+                                        bestand.setze_lautstaerke(id, ls);
+                                    }
+                                })
+                                .register();
+                            // Erst lauschen, dann den Ist-Wert abholen: die
+                            // Reihenfolge entscheidet, ob Änderungen zwischen
+                            // beiden Schritten verloren gehen.
+                            node.subscribe_params(&[pw::spa::param::ParamType::Props]);
+                            node.enum_params(
+                                1,
+                                Some(pw::spa::param::ParamType::Props),
+                                0,
+                                u32::MAX,
+                            );
+                            proxies_neu.borrow_mut().insert(
+                                id,
+                                Halte::Knoten {
+                                    proxy: node,
+                                    _listener: listener,
+                                },
+                            );
+                        }
+                    }
                     return;
                 }
                 // Der Zustand eines Links steht nur im Info-Ereignis, nicht in
                 // den Properties – dafür braucht es einen Proxy je Link.
-                let registry: &pw::registry::Registry =
-                    unsafe { &*(registry_zeiger as *const pw::registry::Registry) };
                 if let Ok(link) = registry.bind::<pw::link::Link, _>(obj) {
                     let daten = daten.clone();
                     let id = obj.id;
@@ -955,7 +1295,7 @@ async fn lauf(
                         .register();
                     proxies_neu.borrow_mut().insert(
                         id,
-                        LinkHalte {
+                        Halte::Link {
                             _proxy: link,
                             _listener: listener,
                         },
@@ -1043,6 +1383,24 @@ async fn lauf(
                         daten,
                         &von,
                         &nach,
+                    );
+                    let _ = antwort.send(ergebnis);
+                }
+                Befehl::Lautstaerke {
+                    sink,
+                    volumen,
+                    stumm,
+                    antwort,
+                } => {
+                    let ergebnis = lautstaerke_setzen(
+                        &proxies,
+                        &core,
+                        &main_loop,
+                        &fertig_seq,
+                        daten,
+                        &sink,
+                        volumen,
+                        stumm,
                     );
                     let _ = antwort.send(ergebnis);
                 }
@@ -1213,6 +1571,54 @@ fn trennen(
     Ok(())
 }
 
+/// Gerätelautstärke eines Sinks setzen: `SPA_PARAM_Props` an den Knoten.
+///
+/// Läuft im Registry-Thread und benutzt den Knoten-Proxy, den die
+/// Registry-Ereignisse ohnehin halten – derselbe Weg wie Verbinden/Trennen,
+/// kein `wpctl` von außen. Nach dem Setzen wird der Graph einmal
+/// synchronisiert, damit die Antwort den neuen Stand meint.
+#[allow(clippy::too_many_arguments)]
+fn lautstaerke_setzen(
+    proxies: &RefCell<HashMap<u32, Halte>>,
+    core: &pw::core::Core,
+    main_loop: &pw::main_loop::MainLoopBox,
+    fertig: &Cell<i32>,
+    daten: &RwLock<Bestand>,
+    sink: &str,
+    volumen: Option<f32>,
+    stumm: Option<bool>,
+) -> Result<(), String> {
+    let id = {
+        let bestand = daten
+            .read()
+            .map_err(|_| "PipeWire-Zustand gesperrt".to_string())?;
+        bestand
+            .knoten_id(sink)
+            .ok_or_else(|| format!("Sink '{sink}' steht nicht im PipeWire-Graph"))?
+    };
+    let kanaele = {
+        let bestand = daten
+            .read()
+            .map_err(|_| "PipeWire-Zustand gesperrt".to_string())?;
+        bestand.lautstaerke.get(&id).map(|l| l.kanaele).unwrap_or(0)
+    };
+    let roh = props_pod(volumen, stumm, kanaele);
+    if roh.is_empty() {
+        return Err("Lautstaerke-Pod nicht baubar".to_string());
+    }
+    let pod = pw::spa::pod::Pod::from_bytes(&roh)
+        .ok_or_else(|| "Lautstaerke-Pod nicht lesbar".to_string())?;
+    {
+        let proxys = proxies.borrow();
+        let Some(Halte::Knoten { proxy, .. }) = proxys.get(&id) else {
+            return Err(format!("Sink '{sink}' hat keinen Knoten-Proxy"));
+        };
+        proxy.set_param(pw::spa::param::ParamType::Props, 0, pod);
+    }
+    sperre(core, main_loop, fertig)?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1235,7 +1641,8 @@ pub mod tests {
        "info": {"props": {"media.class": "Audio/Sink",
                           "node.name": "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo",
                           "node.description": "Corsair HS80 RGB USB Gaming Headset Analoges Stereo",
-                          "node.nick": "Corsair HS80 RGB USB Gaming Hea"}}},
+                          "node.nick": "Corsair HS80 RGB USB Gaming Hea"},
+                "params": {"Props": [{"volume": 0.091125, "mute": false}]}}},
       {"id": 49, "type": "PipeWire:Interface:Node",
        "info": {"props": {"media.class": "Audio/Sink",
                           "node.name": "alsa_output.pci-0000_03_00.1.hdmi-stereo-extra2",
@@ -1369,6 +1776,111 @@ pub mod tests {
             self.aktionen.borrow_mut().push(aktion.clone());
             self.pruefe(&aktion)
         }
+
+        fn lautstaerke_setzen(
+            &self,
+            sink: &str,
+            volumen: Option<f32>,
+            stumm: Option<bool>,
+        ) -> Result<(), String> {
+            let aktion = format!(
+                "lautstaerke {sink} {} {}",
+                volumen
+                    .map(|v| format!("{v:.3}"))
+                    .unwrap_or_else(|| "-".into()),
+                stumm
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            );
+            self.aktionen.borrow_mut().push(aktion.clone());
+            self.pruefe(&aktion)
+        }
+    }
+
+    /// Test-Doppel mit wandelbarem Graphen: erst fehlt das Gerät, dann ist es
+    /// da (für Wächter und Wiederholversuch beim Start).
+    ///
+    /// Verbinden/Trennen wirken wie im Betrieb auf den Graphen: ein
+    /// angelegter Link erscheint als [`Link`], ein gelöster verschwindet.
+    /// Sonst würde ein Wächter dieselbe Verbindung endlos neu legen.
+    pub struct Wandelzugriff {
+        graph: RefCell<Graph>,
+        aktionen: RefCell<Vec<String>>,
+        naechste_link_id: RefCell<u32>,
+    }
+
+    impl Wandelzugriff {
+        pub fn neu(graph: Graph) -> Wandelzugriff {
+            Wandelzugriff {
+                graph: RefCell::new(graph),
+                aktionen: RefCell::new(Vec::new()),
+                naechste_link_id: RefCell::new(9000),
+            }
+        }
+
+        /// Tauscht den Graphen aus (Gerät an- oder abgesteckt).
+        pub fn setzen(&self, graph: Graph) {
+            *self.graph.borrow_mut() = graph;
+        }
+
+        pub fn aktionen(&self) -> Vec<String> {
+            self.aktionen.borrow().clone()
+        }
+
+        fn port_id(&self, pfad: &str) -> Option<u32> {
+            let g = self.graph.borrow();
+            g.ports
+                .iter()
+                .find(|p| g.pfad(p.id).as_deref() == Some(pfad))
+                .map(|p| p.id)
+        }
+    }
+
+    impl Zugriff for Wandelzugriff {
+        fn graph(&self) -> Result<Graph, String> {
+            Ok(self.graph.borrow().clone())
+        }
+
+        fn verbinden(&self, von: &str, nach: &str) -> Result<(), String> {
+            self.aktionen
+                .borrow_mut()
+                .push(format!("verbinden {von} {nach}"));
+            let (Some(aus), Some(ein)) = (self.port_id(von), self.port_id(nach)) else {
+                return Err(format!("Port {von} oder {nach} fehlt im Graph"));
+            };
+            let mut g = self.graph.borrow_mut();
+            if g.ist_verbunden(von, nach) {
+                return Ok(());
+            }
+            let (aus_node, ein_node) = (
+                g.port(aus).map(|p| p.node_id).unwrap_or(0),
+                g.port(ein).map(|p| p.node_id).unwrap_or(0),
+            );
+            let mut id = self.naechste_link_id.borrow_mut();
+            g.links.push(Link {
+                id: *id,
+                ausgang_node: aus_node,
+                ausgang_port: aus,
+                eingang_node: ein_node,
+                eingang_port: ein,
+                zustand: "active".to_string(),
+            });
+            *id += 1;
+            Ok(())
+        }
+
+        fn trennen(&self, von: &str, nach: &str) -> Result<(), String> {
+            self.aktionen
+                .borrow_mut()
+                .push(format!("trennen {von} {nach}"));
+            let (Some(aus), Some(ein)) = (self.port_id(von), self.port_id(nach)) else {
+                return Ok(());
+            };
+            let mut g = self.graph.borrow_mut();
+            g.links
+                .retain(|l| !(l.ausgang_port == aus && l.eingang_port == ein));
+            Ok(())
+        }
     }
 
     impl Graph {
@@ -1447,7 +1959,21 @@ pub mod tests {
             description: text_wert(props.get("node.description")),
             nick: text_wert(props.get("node.nick")),
             media_class: text_wert(props.get("media.class")),
+            lautstaerke: lautstaerke_aus_dump(obj),
         })
+    }
+
+    /// Gerätelautstärke aus dem `params`-Block eines `pw-dump`-Objekts
+    /// (`"params": {"Props": [{"volume": 0.09, "mute": false}]}`).
+    fn lautstaerke_aus_dump(obj: &Value) -> Option<Lautstaerke> {
+        let props = obj.get("info")?.get("params")?.get("Props")?;
+        let eintrag = props.as_arr()?.first()?;
+        let volumen = eintrag.get("volume").and_then(|v| v.as_f64());
+        let stumm = eintrag
+            .get("mute")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        volumen.map(|v| Lautstaerke::neu(v as f32, stumm))
     }
 
     fn port_aus_dump(obj: &Value) -> Option<Port> {
@@ -1594,6 +2120,37 @@ pub mod tests {
             g.knoten("alsa_output.hdmi.monitor").unwrap().name,
             "alsa_output.hdmi.monitor"
         );
+    }
+
+    #[test]
+    fn lautstaerke_text_mit_prozent_rundung_und_stumm() {
+        // Werte wie am Gerät gemessen: 0.091125 linear = 45 % (kubische Wurzel
+        // wie wpctl), 1.0 = 100 %.
+        assert_eq!(Lautstaerke::neu(1.0, false).text(), "100 %");
+        assert_eq!(Lautstaerke::neu(0.091_125, false).text(), "45 %");
+        assert_eq!(Lautstaerke::neu(0.091_125, true).text(), "STUMM");
+        assert_eq!(Lautstaerke::neu(0.0, false).text(), "0 %");
+        // Rundung: 0.5 -> 0.7937 -> 79 %
+        assert_eq!(Lautstaerke::neu(0.5, false).prozent(), 79);
+        // 0.45³ = 0.091125 -> 45 %, 0.9³ = 0.729 -> 90 %
+        assert_eq!(Lautstaerke::neu(0.729, false).prozent(), 90);
+        // Unsinnige Werte fallen nicht durch.
+        assert_eq!(Lautstaerke::neu(-1.0, false).text(), "0 %");
+        assert_eq!(Lautstaerke::neu(f32::NAN, false).text(), "0 %");
+        assert_eq!(Lautstaerke::mit_kanaelen(0.091_125, false, 2).kanaele, 2);
+
+        // Aus dem Graphen: unbekanntes Gerät zeigt einen Strich, kein Prozent.
+        let g = graph();
+        assert_eq!(
+            g.lautstaerke_text(
+                "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo"
+            ),
+            "45 %"
+        );
+        assert_eq!(g.lautstaerke_text("gibtsnicht"), "—");
+        assert!(g
+            .lautstaerke("alsa_output.pci-0000_03_00.1.hdmi-stereo-extra2")
+            .is_none());
     }
 
     #[test]

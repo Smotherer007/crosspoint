@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::devices::DeviceMap;
 use crate::engine::Params;
@@ -143,19 +143,48 @@ pub fn deaktiviert() -> bool {
     }
 }
 
+/// Wie lange beim Start auf ein Gerät gewartet wird, dessen Ports erst beim
+/// Aufwecken erscheinen (USB-Mikrofon nach dem Einstecken).
+pub const START_GEDULD: Duration = Duration::from_secs(3);
+
+/// Abstand zwischen zwei Versuchen beim Start.
+pub const START_TAKT: Duration = Duration::from_millis(200);
+
 // ---------------------------------------------------------------------------
 // Ergebnis
 // ---------------------------------------------------------------------------
 
+/// Ergebnis eines Teils der Wiederherstellung.
+///
+/// `fehlt` ist **kein Fehler**: das Gerät ist nur gerade nicht da, die
+/// Zuordnung bleibt gespeichert und der Wächter legt sie später an. `fehler`
+/// sammelt, was wirklich schiefgegangen ist (Ports, PipeWire, Rechte).
+#[derive(Clone, Debug, Default)]
+pub struct Teil {
+    /// Tatsächlich gesetzte Zuordnungen.
+    pub gesetzt: usize,
+    /// Gemerkt, aber Gerät nicht angeschlossen.
+    pub fehlt: Vec<String>,
+    /// Echte Fehler.
+    pub fehler: Vec<String>,
+}
+
+impl Teil {
+    fn aufnehmen(&mut self, was: &str, e: String) {
+        self.fehler.push(format!("{was}: {e}"));
+    }
+}
+
 /// Was zuletzt wiederhergestellt wurde. `devices`/`inputs` zählen die
 /// tatsächlich gesetzten Zuordnungen, `preset` sagt, ob ein Parameterbild
-/// geladen wurde. `fehler` bleibt für das Protokoll – die API liefert nur die
-/// drei Zahlen.
+/// geladen wurde. `fehlend` nennt, was auf ein Gerät wartet, `fehler` bleibt
+/// für das Protokoll – die API liefert nur die drei Zahlen.
 #[derive(Clone, Debug, Default)]
 pub struct Ergebnis {
     pub devices: usize,
     pub inputs: usize,
     pub preset: bool,
+    pub fehlend: Vec<String>,
     pub fehler: Vec<String>,
 }
 
@@ -182,39 +211,127 @@ impl Ergebnis {
 // ---------------------------------------------------------------------------
 
 /// Alle gemerkten Busse erneut zuordnen (derselbe Weg wie `POST /api/devices`).
-pub fn devices_wiederherstellen(
+///
+/// Ohne Wartezeit – für `POST /api/restore` und Tests.
+pub fn devices_wiederherstellen(map: &mut DeviceMap, zugriff: &dyn Zugriff) -> Teil {
+    devices_wiederherstellen_mit(map, zugriff, Duration::ZERO, START_TAKT)
+}
+
+/// Wie [`devices_wiederherstellen`], aber mit Wiederholung: bis `geduld`
+/// vergeht, wird alle `takt` erneut geprüft, ob ein fehlendes Gerät auftaucht.
+///
+/// Beim Start ist das wichtig: nach dem Einstecken eines USB-Mikrofons
+/// erscheinen die Ports erst, wenn das Gerät aufgeweckt ist. Erst danach wird
+/// „fehlt“ gemeldet – und der Eintrag bleibt in jedem Fall in `devices.json`.
+pub fn devices_wiederherstellen_mit(
     map: &mut DeviceMap,
     zugriff: &dyn Zugriff,
-) -> (usize, Vec<String>) {
-    let eintraege: Vec<(String, String)> = map
+    geduld: Duration,
+    takt: Duration,
+) -> Teil {
+    let mut teil = Teil::default();
+    let mut offen: Vec<(String, String)> = map
         .entries()
         .into_iter()
         .map(|(bus, name)| (bus.to_string(), name.to_string()))
         .collect();
-    let mut gesetzt = 0;
-    let mut fehler = Vec::new();
-    for (bus, sink) in eintraege {
-        match map.assign(zugriff, &bus, &sink) {
-            Ok(()) => gesetzt += 1,
-            Err(e) => fehler.push(format!("{bus} auf '{sink}': {e}")),
+    let frist = Instant::now() + geduld;
+    let mut grund = "abgesteckt?".to_string();
+
+    loop {
+        let graph = zugriff.graph();
+        if let Err(e) = &graph {
+            grund = format!("PipeWire nicht erreichbar: {e}");
         }
+        let mut weiter = Vec::new();
+        for (bus, name) in std::mem::take(&mut offen) {
+            let da = graph
+                .as_ref()
+                .map(|g| g.knoten(&name).is_some())
+                .unwrap_or(false);
+            if !da {
+                weiter.push((bus, name));
+                continue;
+            }
+            match map.assign(zugriff, &bus, &name) {
+                Ok(()) => teil.gesetzt += 1,
+                Err(e) => teil.aufnehmen(&format!("Bus {bus} auf '{name}'"), e),
+            }
+        }
+        if weiter.is_empty() {
+            return teil;
+        }
+        if Instant::now() >= frist {
+            for (bus, name) in weiter {
+                teil.fehlt.push(format!(
+                    "Bus {bus}: '{name}' nicht angeschlossen ({grund}) – Zuordnung bleibt gespeichert"
+                ));
+            }
+            return teil;
+        }
+        let rest = frist.saturating_duration_since(Instant::now());
+        std::thread::sleep(takt.min(rest).max(Duration::from_millis(1)));
+        offen = weiter;
     }
-    (gesetzt, fehler)
 }
 
 /// Alle gemerkten Streifen-Eingänge erneut verbinden.
-pub fn inputs_wiederherstellen(zugriff: &dyn Zugriff, pfad: &Path) -> (usize, Vec<String>) {
-    let zuordnung = crate::inputs::mapping_mit(pfad);
-    let mut gesetzt = 0;
-    let mut fehler = Vec::new();
-    for (i, quelle) in zuordnung.iter().enumerate() {
-        let Some(quelle) = quelle else { continue };
-        match crate::inputs::assign_mit(zugriff, pfad, i + 1, Some(quelle)) {
-            Ok(()) => gesetzt += 1,
-            Err(e) => fehler.push(format!("Streifen {}: {e}", i + 1)),
+pub fn inputs_wiederherstellen(zugriff: &dyn Zugriff, pfad: &Path) -> Teil {
+    inputs_wiederherstellen_mit(zugriff, pfad, Duration::ZERO, START_TAKT)
+}
+
+/// Wie [`inputs_wiederherstellen`], aber mit Wiederholung (siehe
+/// [`devices_wiederherstellen_mit`]).
+pub fn inputs_wiederherstellen_mit(
+    zugriff: &dyn Zugriff,
+    pfad: &Path,
+    geduld: Duration,
+    takt: Duration,
+) -> Teil {
+    let mut teil = Teil::default();
+    let frist = Instant::now() + geduld;
+    let mut offen: Vec<(usize, String)> = crate::inputs::mapping_mit(pfad)
+        .iter()
+        .enumerate()
+        .filter_map(|(i, q)| q.as_ref().map(|name| (i + 1, name.clone())))
+        .collect();
+    let mut grund = "abgesteckt?".to_string();
+
+    loop {
+        let graph = zugriff.graph();
+        if let Err(e) = &graph {
+            grund = format!("PipeWire nicht erreichbar: {e}");
         }
+        let mut weiter = Vec::new();
+        for (strip, name) in std::mem::take(&mut offen) {
+            let da = graph
+                .as_ref()
+                .map(|g| g.knoten(&name).is_some())
+                .unwrap_or(false);
+            if !da {
+                weiter.push((strip, name));
+                continue;
+            }
+            match crate::inputs::assign_mit(zugriff, pfad, strip, Some(&name)) {
+                Ok(()) => teil.gesetzt += 1,
+                Err(e) => teil.aufnehmen(&format!("Streifen {strip} auf '{name}'"), e),
+            }
+        }
+        if weiter.is_empty() {
+            return teil;
+        }
+        if Instant::now() >= frist {
+            for (strip, name) in weiter {
+                teil.fehlt.push(format!(
+                    "Streifen {strip}: '{name}' nicht angeschlossen ({grund}) – Zuordnung bleibt gespeichert"
+                ));
+            }
+            return teil;
+        }
+        let rest = frist.saturating_duration_since(Instant::now());
+        std::thread::sleep(takt.min(rest).max(Duration::from_millis(1)));
+        offen = weiter;
     }
-    (gesetzt, fehler)
 }
 
 /// Preset laden; `false`, wenn keines da ist oder es nicht lesbar ist.
@@ -259,24 +376,54 @@ pub fn anwenden(
     mit_inputs: bool,
     mit_preset: bool,
 ) -> Ergebnis {
+    anwenden_mit_geduld(
+        params,
+        devices,
+        preset_pfad,
+        mit_devices,
+        mit_inputs,
+        mit_preset,
+        Duration::ZERO,
+    )
+}
+
+/// Wie [`anwenden`], aber mit Wartezeit für Geräte, die noch auftauchen
+/// ([`START_GEDULD`] beim Start, `Duration::ZERO` für `POST /api/restore`).
+#[allow(clippy::too_many_arguments)]
+pub fn anwenden_mit_geduld(
+    params: &Arc<Params>,
+    devices: &Arc<Mutex<DeviceMap>>,
+    preset_pfad: &Path,
+    mit_devices: bool,
+    mit_inputs: bool,
+    mit_preset: bool,
+    geduld: Duration,
+) -> Ergebnis {
     let zugriff = PipeWire;
     let mut ergebnis = Ergebnis::default();
 
     if mit_devices {
         match devices.lock() {
             Ok(mut map) => {
-                let (n, f) = devices_wiederherstellen(&mut map, &zugriff);
-                ergebnis.devices = n;
-                ergebnis.fehler.extend(f);
+                let teil = devices_wiederherstellen_mit(&mut map, &zugriff, geduld, START_TAKT);
+                ergebnis.devices = teil.gesetzt;
+                ergebnis.fehlend.extend(teil.fehlt);
+                ergebnis.fehler.extend(teil.fehler);
             }
             Err(_) => ergebnis.fehler.push("Geräteliste gesperrt".into()),
         }
     }
 
     if mit_inputs {
-        let (n, f) = inputs_wiederherstellen(&zugriff, &crate::inputs::mapping_path());
-        ergebnis.inputs = n;
-        ergebnis.fehler.extend(f);
+        let teil = inputs_wiederherstellen_mit(
+            &zugriff,
+            &crate::inputs::mapping_path(),
+            geduld,
+            START_TAKT,
+        );
+        ergebnis.inputs = teil.gesetzt;
+        ergebnis.fehlend.extend(teil.fehlt);
+        ergebnis.fehler.extend(teil.fehler);
     }
 
     if mit_preset {
@@ -287,12 +434,17 @@ pub fn anwenden(
 }
 
 /// Alles wiederherstellen und einmal ins Protokoll schreiben.
+///
+/// Ein fehlendes Gerät ist hier **kein Fehler**: es wird als „nicht
+/// angeschlossen“ gemeldet, die Zuordnung bleibt gespeichert, und der Wächter
+/// legt sie an, sobald das Gerät wieder da ist.
 pub fn beim_start(
     params: &Arc<Params>,
     devices: &Arc<Mutex<DeviceMap>>,
     preset_pfad: &Path,
 ) -> Ergebnis {
-    let ergebnis = anwenden(params, devices, preset_pfad, true, true, true);
+    let ergebnis =
+        anwenden_mit_geduld(params, devices, preset_pfad, true, true, true, START_GEDULD);
     println!(
         "Zustand wiederhergestellt: {} Bus(se), {} Streifen-Eingang/-Eingaenge, Preset {}",
         ergebnis.devices,
@@ -304,9 +456,19 @@ pub fn beim_start(
         }
     );
     ergebnis.meldungen_ausgeben("Wiederherstellen");
+    if !ergebnis.fehlend.is_empty() {
+        println!(
+            "{} Zuordnung(en) warten auf ein Geraet (nicht angeschlossen):",
+            ergebnis.fehlend.len()
+        );
+        for zeile in &ergebnis.fehlend {
+            println!("  {zeile}");
+        }
+        println!("Die Zuordnung bleibt gespeichert und greift, sobald das Geraet wieder da ist.");
+    }
     if !ergebnis.fehler.is_empty() {
         println!(
-            "{} Zuordnung(en) konnten nicht gesetzt werden (Gerät nicht vorhanden?)",
+            "{} Zuordnung(en) konnten nicht gesetzt werden",
             ergebnis.fehler.len()
         );
     }
@@ -334,6 +496,7 @@ pub fn spawn_autosave(params: Arc<Params>, pfad: PathBuf) {
 mod tests {
     use super::*;
     use crate::pw::tests::{Testzugriff, DUMP};
+    use crate::pw::Graph;
 
     const CORSAIR: &str =
         "alsa_output.usb-Corsair_Corsair_HS80_RGB_USB_Gaming_Headset-00.analog-stereo";
@@ -344,6 +507,33 @@ mod tests {
             std::process::id()
         ))
     }
+
+    /// Nur der Mixer mit den Streifenports – kein Gerät.
+    const LEER: &str = r#"[
+      {"id": 2, "type": "PipeWire:Interface:Node",
+       "info": {"props": {"node.name": "crosspoint"}}},
+      {"id": 5, "type": "PipeWire:Interface:Port",
+       "info": {"direction": "input", "props": {"node.id": 2, "port.name": "strip1_L"}}},
+      {"id": 6, "type": "PipeWire:Interface:Port",
+       "info": {"direction": "input", "props": {"node.id": 2, "port.name": "strip1_R"}}}
+    ]"#;
+
+    /// Wie [`LEER`], aber mit dem Mikrofon (noch ohne Link).
+    const GEPLUGGT: &str = r#"[
+      {"id": 1, "type": "PipeWire:Interface:Node",
+       "info": {"props": {"media.class": "Audio/Source", "node.name": "alsa_input.usb-mic",
+                          "node.description": "USB-Mikrofon"}}},
+      {"id": 2, "type": "PipeWire:Interface:Node",
+       "info": {"props": {"node.name": "crosspoint"}}},
+      {"id": 3, "type": "PipeWire:Interface:Port",
+       "info": {"direction": "output", "props": {"node.id": 1, "port.name": "capture_FL"}}},
+      {"id": 4, "type": "PipeWire:Interface:Port",
+       "info": {"direction": "output", "props": {"node.id": 1, "port.name": "capture_FR"}}},
+      {"id": 5, "type": "PipeWire:Interface:Port",
+       "info": {"direction": "input", "props": {"node.id": 2, "port.name": "strip1_L"}}},
+      {"id": 6, "type": "PipeWire:Interface:Port",
+       "info": {"direction": "input", "props": {"node.id": 2, "port.name": "strip1_R"}}}
+    ]"#;
 
     #[test]
     fn deaktiviert_liest_die_umgebungsvariable() {
@@ -423,9 +613,10 @@ mod tests {
         map.assign(&fake, "A1", CORSAIR).unwrap();
         let vorher = fake.aktionen().len();
 
-        let (n, fehler) = devices_wiederherstellen(&mut map, &fake);
-        assert_eq!(n, 1, "{fehler:?}");
-        assert!(fehler.is_empty(), "{fehler:?}");
+        let teil = devices_wiederherstellen(&mut map, &fake);
+        assert_eq!(teil.gesetzt, 1, "{:?}", teil.fehler);
+        assert!(teil.fehler.is_empty(), "{:?}", teil.fehler);
+        assert!(teil.fehlt.is_empty(), "{:?}", teil.fehlt);
         let neu: Vec<String> = fake.aktionen()[vorher..].to_vec();
         assert_eq!(
             neu[0],
@@ -451,10 +642,13 @@ mod tests {
         .unwrap();
         let mut map = DeviceMap::load(&pfad);
         let fake = Testzugriff::aus_dump(DUMP);
-        let (n, fehler) = devices_wiederherstellen(&mut map, &fake);
-        assert_eq!(n, 1, "nur A2 laesst sich verbinden: {fehler:?}");
-        assert_eq!(fehler.len(), 1);
-        assert!(fehler[0].contains("A1"), "{fehler:?}");
+        let teil = devices_wiederherstellen(&mut map, &fake);
+        assert_eq!(teil.gesetzt, 1, "nur A2 laesst sich verbinden: {teil:?}");
+        // Fehlendes Geraet ist kein Fehler, sondern ein Zustand.
+        assert!(teil.fehler.is_empty(), "{:?}", teil.fehler);
+        assert_eq!(teil.fehlt.len(), 1, "{:?}", teil.fehlt);
+        assert!(teil.fehlt[0].contains("A1"), "{:?}", teil.fehlt);
+        assert!(teil.fehlt[0].contains("abgesteckt"), "{:?}", teil.fehlt);
         let _ = std::fs::remove_file(&pfad);
     }
 
@@ -480,9 +674,9 @@ mod tests {
                "info": {"direction": "input", "props": {"node.id": 2, "port.name": "strip1_R"}}}
             ]"#,
         );
-        let (n, fehler) = inputs_wiederherstellen(&fake, &pfad);
-        assert_eq!(n, 1, "{fehler:?}");
-        assert!(fehler.is_empty(), "{fehler:?}");
+        let teil = inputs_wiederherstellen(&fake, &pfad);
+        assert_eq!(teil.gesetzt, 1, "{:?}", teil.fehler);
+        assert!(teil.fehler.is_empty(), "{:?}", teil.fehler);
         let zeilen = fake.aktionen();
         assert!(zeilen
             .contains(&"verbinden alsa_input.usb-mic:capture_FL crosspoint:strip1_L".to_string()));
@@ -532,8 +726,106 @@ mod tests {
             devices: 2,
             inputs: 1,
             preset: true,
+            fehlend: vec!["Streifen 1: 'x' nicht angeschlossen".into()],
             fehler: vec!["egal".into()],
         };
         assert_eq!(e.to_json(), r#"{"devices":2,"inputs":1,"preset":true}"#);
+    }
+
+    #[test]
+    fn fehlendes_geraet_bleibt_in_der_datei_und_ist_kein_fehler() {
+        let pfad = tmp("bleibt", "json");
+        let _ = std::fs::remove_file(&pfad);
+        let inhalt = r#"{"A1":"alsa_output.gibtsnicht"}"#;
+        std::fs::write(&pfad, inhalt).unwrap();
+        let mut map = DeviceMap::load(&pfad);
+
+        let teil = devices_wiederherstellen(&mut map, &Testzugriff::aus_dump(DUMP));
+        assert_eq!(teil.gesetzt, 0);
+        assert!(teil.fehler.is_empty(), "kein Fehler: {:?}", teil.fehler);
+        assert_eq!(teil.fehlt.len(), 1);
+        // Der Eintrag steht unverändert in der Datei – nichts verworfen.
+        assert_eq!(std::fs::read_to_string(&pfad).unwrap(), inhalt);
+        assert_eq!(map.get("A1"), Some("alsa_output.gibtsnicht"));
+
+        // Dasselbe für einen Streifen.
+        let conf = tmp("bleibt", "conf");
+        let _ = std::fs::remove_file(&conf);
+        let zeile = "1=alsa_input.gibtsnicht\n";
+        std::fs::write(&conf, zeile).unwrap();
+        let teil = inputs_wiederherstellen(&Testzugriff::aus_dump(DUMP), &conf);
+        assert_eq!(teil.gesetzt, 0);
+        assert!(teil.fehler.is_empty(), "{:?}", teil.fehler);
+        assert_eq!(teil.fehlt.len(), 1, "{:?}", teil.fehlt);
+        assert!(teil.fehlt[0].contains("Streifen 1"), "{:?}", teil.fehlt);
+        assert!(teil.fehlt[0].contains("abgesteckt"), "{:?}", teil.fehlt);
+        assert_eq!(std::fs::read_to_string(&conf).unwrap(), zeile);
+        let _ = std::fs::remove_file(&pfad);
+        let _ = std::fs::remove_file(&conf);
+    }
+
+    #[test]
+    fn beim_start_wird_bis_drei_sekunden_erneut_geprueft() {
+        // Das Gerät erscheint erst nach dem dritten Versuch („aufgeweckt“).
+        let conf = tmp("geduld", "conf");
+        let _ = std::fs::remove_file(&conf);
+        std::fs::write(&conf, "1=alsa_input.usb-mic\n").unwrap();
+
+        let zugriff = crate::pw::tests::Wandelzugriff::neu(Graph::parse(LEER).unwrap());
+        let zaehler = std::cell::Cell::new(0);
+        // Ein Zugriff, der beim dritten Aufruf das Gerät „ansteckt“.
+        struct Spaet<'a> {
+            inner: &'a crate::pw::tests::Wandelzugriff,
+            runden: &'a std::cell::Cell<u32>,
+            gepluggter: Graph,
+        }
+        impl crate::pw::Zugriff for Spaet<'_> {
+            fn graph(&self) -> Result<Graph, String> {
+                let n = self.runden.get() + 1;
+                self.runden.set(n);
+                if n >= 3 {
+                    self.inner.setzen(self.gepluggter.clone());
+                }
+                self.inner.graph()
+            }
+            fn verbinden(&self, von: &str, nach: &str) -> Result<(), String> {
+                self.inner.verbinden(von, nach)
+            }
+            fn trennen(&self, von: &str, nach: &str) -> Result<(), String> {
+                self.inner.trennen(von, nach)
+            }
+        }
+        let spaet = Spaet {
+            inner: &zugriff,
+            runden: &zaehler,
+            gepluggter: Graph::parse(GEPLUGGT).unwrap(),
+        };
+        let teil = inputs_wiederherstellen_mit(
+            &spaet,
+            &conf,
+            Duration::from_millis(400),
+            Duration::from_millis(10),
+        );
+        assert_eq!(teil.gesetzt, 1, "{teil:?}");
+        assert!(teil.fehlt.is_empty(), "{teil:?}");
+        assert!(teil.fehler.is_empty(), "{teil:?}");
+        assert!(zaehler.get() >= 3, "mehrfach geprueft: {}", zaehler.get());
+        assert_eq!(
+            std::fs::read_to_string(&conf).unwrap(),
+            "1=alsa_input.usb-mic\n"
+        );
+        let _ = std::fs::remove_file(&conf);
+    }
+
+    #[test]
+    fn ohne_geduld_wird_ein_fehlendes_geraet_sofort_gemeldet() {
+        let conf = tmp("ohne-geduld", "conf");
+        let _ = std::fs::remove_file(&conf);
+        std::fs::write(&conf, "1=alsa_input.usb-mic\n").unwrap();
+        let beginn = std::time::Instant::now();
+        let teil = inputs_wiederherstellen(&Testzugriff::aus_dump(DUMP), &conf);
+        assert!(beginn.elapsed() < Duration::from_millis(500), "kein Warten");
+        assert_eq!(teil.fehlt.len(), 1, "{teil:?}");
+        let _ = std::fs::remove_file(&conf);
     }
 }

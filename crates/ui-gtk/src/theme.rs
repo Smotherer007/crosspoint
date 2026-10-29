@@ -532,8 +532,16 @@ button.stufenwahl {{
     padding: 1px 6px;
     min-height: 18px;
 }}
-.stufenregler trough {{ min-height: 4px; }}
-.stufenregler slider {{ min-width: 12px; min-height: 12px; }}
+/* GTK rechnet aus min-width/min-height auf dem Slider eine negative
+   Mindestgroesse (-4) und warnt im Log: deshalb Mindestmass 0 und die Groesse
+   ueber padding/margin steuern. */
+.stufenregler trough {{ min-height: 6px; border-radius: 3px; }}
+.stufenregler slider {{
+    min-width: 0px;
+    min-height: 0px;
+    padding: 6px;
+    margin: -5px 0;
+}}
 
 /* ---------- Makros ---------- */
 .hinweis {{ font-size: {klein}px; color: {dim}; padding: 0 6px; }}
@@ -556,6 +564,23 @@ dropdown.geraetewahl > button {{
     padding: 1px 4px;
     min-height: 13px;
     box-shadow: none;
+}}
+/* Gemerktes Gerät, aber nicht angeschlossen: rot, nicht still. */
+dropdown.geraetewahl.fehlt > button {{
+    color: {warnung_c};
+    border-color: {warnung_c};
+}}
+label.fehlt {{ color: {warnung_c}; }}
+.geraetezeile {{
+    /* 8 px: "A1 · 100 %" und "EINGANG FEHLT" muessen in 65 px passen. */
+    font-size: 8px;
+    color: {gedaempft_c};
+    letter-spacing: 0;
+    min-height: 13px;
+}}
+.geraetezeile.fehlt {{
+    color: {warnung_c};
+    font-weight: 700;
 }}
 .midi-zeile {{ padding: 1px 0; border-bottom: 1px solid {linie}; }}
 button.learn.an {{ background-color: {warnung_c}; color: {auf_akzent}; border-color: {warnung_c}; }}

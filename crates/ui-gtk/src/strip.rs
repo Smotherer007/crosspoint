@@ -558,7 +558,11 @@ mod imp {
                 return;
             };
             match zug.art {
-                Treffer::Fader => self.set_gain(zug.start_wert - dy as f32 * 0.32),
+                Treffer::Fader => {
+                    let roh = zug.start_wert - dy as f32 * 0.32;
+                    let vorher = self.gain();
+                    self.set_gain(crate::fmt::einrasten(roh, vorher));
+                }
                 Treffer::Pan => self.set_pan(zug.start_wert + (dx as f32 + dy as f32 * 0.3) / 70.0),
                 Treffer::Eq(band) => self.set_eq_gain(band, zug.start_wert + dx as f32 * 0.45),
                 Treffer::Nichts => {}
@@ -1229,6 +1233,12 @@ pub struct Zug {
     pub sync: std::rc::Rc<dyn Fn()>,
     /// Aufklappmenue der Geraetezuordnung (Streifen: Quelle, Hardware-Bus: Sink).
     pub geraetewahl: Option<gtk::DropDown>,
+    /// Zeile unter dem Aufklappmenue: „EINGANG FEHLT“ bzw. „A1 · 45 %“.
+    ///
+    /// Bei Streifen ohne Geraet bleibt sie leer (dann steht sie nicht im Weg);
+    /// bei fehlendem Geraet ist sie der sichtbare Unterschied zwischen
+    /// „Stille“ und „kein Eingang“.
+    pub geraetezeile: Option<gtk::Label>,
 }
 
 /// Baut einen Kanalzug, Bus oder Master.
@@ -1251,6 +1261,7 @@ pub fn zug(
 
     // ----- Geraetezuordnung (ueber dem Namen) -----
     let mut geraetewahl: Option<gtk::DropDown> = None;
+    let mut geraetezeile: Option<gtk::Label> = None;
     // Nur echte Hardware-Kanaele bekommen eine Geraetewahl: Streifen 1-5
     // (Eingang) und Busse A1-A5 (Ausgang). Virtuelle Streifen und die Busse
     // B1-B3 haengen nicht an einem Geraet - dort steht ein ruhiger Hinweis
@@ -1262,8 +1273,10 @@ pub fn zug(
         // gleicher Hoehe haelt die Zeilen buendig, ohne die Mindestbreite der
         // Spalte zu heben (ein Label wuerde genau das tun und das Pult wieder
         // ueber den Fensterrand schieben).
+        // 21 px Aufklappmenue + 13 px Statuszeile: gleiche Hoehe wie bei den
+        // Hardware-Zuegen, damit die Namen aller Spalten auf einer Linie stehen.
         let leer = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        leer.set_size_request(0, 21);
+        leer.set_size_request(0, 34);
         box_.append(&leer);
     }
     if let Some(g) = geraete.as_ref().filter(|_| hat_geraet) {
@@ -1324,7 +1337,18 @@ pub fn zug(
                         text.clone()
                     };
                     l.set_text(&kurz);
-                    l.set_tooltip_text(Some(&text));
+                    // Ein abgestecktes Geraet bleibt sichtbar und wird rot.
+                    if text.ends_with(crate::geraete::NICHT_VERBUNDEN) {
+                        l.add_css_class("fehlt");
+                    } else {
+                        l.remove_css_class("fehlt");
+                    }
+                    let tipp = if text.ends_with(crate::geraete::NICHT_VERBUNDEN) {
+                        crate::geraete::FEHLT_TIPP.to_string()
+                    } else {
+                        text.clone()
+                    };
+                    l.set_tooltip_text(Some(&tipp));
                 }
             });
             let liste = gtk::SignalListItemFactory::new();
@@ -1349,6 +1373,14 @@ pub fn zug(
                     .unwrap_or_default();
                 if let Some(l) = item.child().and_then(|c| c.downcast::<gtk::Label>().ok()) {
                     l.set_text(&text);
+                    // Fehlendes Gerät in der Liste rot und mit Tooltip.
+                    if text.ends_with(crate::geraete::NICHT_VERBUNDEN) {
+                        l.add_css_class("fehlt");
+                        l.set_tooltip_text(Some(crate::geraete::FEHLT_TIPP));
+                    } else {
+                        l.remove_css_class("fehlt");
+                        l.set_tooltip_text(None);
+                    }
                 }
             });
             dd.set_factory(Some(&knopf));
@@ -1368,6 +1400,11 @@ pub fn zug(
                 if g2.sperre.get() {
                     return;
                 }
+                // Ein Modellwechsel setzt die Auswahl kurz auf "ungültig";
+                // das ist kein Wunsch des Benutzers.
+                if d.selected() == gtk::INVALID_LIST_POSITION {
+                    return;
+                }
                 let anzeige = if art {
                     g2.quelle_name(d.selected())
                 } else {
@@ -1378,6 +1415,16 @@ pub fn zug(
                     Rolle::Bus(i) => crate::geraete::Ziel::Bus(crosspoint::BUS_NAMES[i]),
                     Rolle::Master => return,
                 };
+                // Nur eine echte Aenderung schreiben: das Nachfuehren der
+                // Liste darf keine Zuordnung loeschen.
+                let wunsch = if anzeige.trim().is_empty() {
+                    None
+                } else {
+                    Some(anzeige.as_str())
+                };
+                if crate::geraete::zuordnung_gleich(ziel, wunsch) {
+                    return;
+                }
                 match crate::geraete::auswahl_anwenden(
                     &crate::geraete::KernZuordner,
                     ziel,
@@ -1396,7 +1443,55 @@ pub fn zug(
             });
         }
         box_.append(&dd);
-        geraetewahl = Some(dd);
+        geraetewahl = Some(dd.clone());
+
+        // Statuszeile unter dem Aufklappmenue: „EINGANG FEHLT“ (Streifen) bzw.
+        // „A1 · 45 %“ (Bus). Immer vorhanden (leer = unsichtbar), damit alle
+        // Zuege gleich hoch bleiben; den Inhalt setzt `Shell::geraete_anwenden`.
+        let zeile = gtk::Label::new(None);
+        zeile.add_css_class("geraetezeile");
+        zeile.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        zeile.set_single_line_mode(true);
+        zeile.set_xalign(0.0);
+        // Kaum Rand: "EINGANG FEHLT" muss in eine 65-px-Spalte passen.
+        zeile.set_margin_start(1);
+        zeile.set_margin_end(1);
+        zeile.set_size_request(0, 13);
+        if matches!(rolle, Rolle::Bus(i) if i < 5) {
+            // Bedienbar: ein Klick holt das Geraet auf 100 % und hebt Stumm
+            // auf – derselbe Weg wie die Zuordnung, kein `wpctl` von aussen.
+            let kg = std::rc::Rc::clone(g);
+            let kd = dd.clone();
+            let klick = gtk::GestureClick::new();
+            klick.set_button(1);
+            klick.connect_released(move |_, _, _, _| {
+                let name = kg.senke_name(kd.selected());
+                if name.is_empty() {
+                    return;
+                }
+                match crate::geraete::Zuordner::lautstaerke(
+                    &crate::geraete::KernZuordner,
+                    &name,
+                    Some(1.0),
+                    Some(false),
+                ) {
+                    Ok(()) => kg.melden(
+                        &format!(
+                            "{}: Geraetelautstaerke 100 %, nicht stumm",
+                            crate::fmt::kurz(&name, 26)
+                        ),
+                        false,
+                    ),
+                    Err(e) => kg.melden(&format!("Lautstaerke: {e}"), true),
+                }
+            });
+            zeile.add_controller(klick);
+            zeile.set_tooltip_text(Some(
+                "Geraetelautstaerke des Zielgeraets – Klick setzt 100 % und hebt Stumm auf",
+            ));
+        }
+        box_.append(&zeile);
+        geraetezeile = Some(zeile);
     }
 
     // ----- Kopf: Name (umschaltbar auf Eingabe) und Nummer -----
@@ -1902,6 +1997,7 @@ pub fn zug(
         view,
         sync,
         geraetewahl,
+        geraetezeile,
     }
 }
 

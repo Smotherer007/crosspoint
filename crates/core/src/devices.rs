@@ -134,6 +134,65 @@ pub fn bus_port(bus: &str, kanal: &str) -> String {
     format!("{CLIENT}:bus{bus}_{kanal}")
 }
 
+/// Wie ein gemerktes Gerät gerade dasteht.
+///
+/// Die Zuordnung bleibt in jedem Fall gespeichert – der Zustand sagt nur, ob
+/// das Gerät auch da ist. `Fehlt` ist der Normalfall „abgesteckt“, `Getrennt`
+/// heißt „Gerät da, aber kein Link“ (z. B. von außen gelöst).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Zustand {
+    /// Kein Gerät gemerkt.
+    Frei,
+    /// Gemerkt, im Graphen vorhanden und verbunden.
+    Verbunden,
+    /// Gemerkt, aber nicht im Graphen (abgesteckt).
+    Fehlt,
+    /// Gemerkt und vorhanden, aber ohne Link.
+    Getrennt,
+}
+
+impl Zustand {
+    /// Text für `/api/state` und `/api/devices`.
+    pub fn text(self) -> &'static str {
+        match self {
+            Zustand::Frei => "frei",
+            Zustand::Verbunden => "verbunden",
+            Zustand::Fehlt => "fehlt",
+            Zustand::Getrennt => "getrennt",
+        }
+    }
+
+    /// Grund in Worten, wenn etwas fehlt.
+    pub fn grund(self) -> Option<&'static str> {
+        match self {
+            Zustand::Fehlt => Some("Gerät ist nicht angeschlossen (abgesteckt?)"),
+            Zustand::Getrennt => Some("Gerät ist da, aber nicht verbunden"),
+            _ => None,
+        }
+    }
+
+    pub fn aus(vorhanden: bool, verbunden: bool, gemerkt: bool) -> Zustand {
+        match (gemerkt, vorhanden, verbunden) {
+            (false, _, _) => Zustand::Frei,
+            (true, false, _) => Zustand::Fehlt,
+            (true, true, true) => Zustand::Verbunden,
+            (true, true, false) => Zustand::Getrennt,
+        }
+    }
+}
+
+/// Portpaare Bus → Sink (`busA1_L`→`playback_FL`, `busA1_R`→`playback_FR`).
+///
+/// Damit lässt sich eine Verbindung auch dann lösen, wenn das Gerät schon aus
+/// dem Graphen verschwunden ist – dort steht kein Link mehr, an dem man sie
+/// festmachen könnte.
+pub fn bus_ports_zu(bus: &str, sink: &str) -> Vec<(String, String)> {
+    CHANNELS
+        .iter()
+        .map(|(kanal, ziel)| (bus_port(bus, kanal), format!("{sink}:{ziel}")))
+        .collect()
+}
+
 /// Speicherort der Zuordnung: `$XDG_CONFIG_HOME/crosspoint/devices.json`,
 /// sonst `~/.config/crosspoint/devices.json`.
 pub fn default_path() -> PathBuf {
@@ -197,6 +256,44 @@ impl DeviceMap {
             .iter()
             .map(|(b, n)| (b.as_str(), n.as_str()))
             .collect()
+    }
+
+    /// Übernimmt den Stand der Datei, wenn er sich geändert hat; `true`, wenn
+    /// sich etwas geändert hat.
+    ///
+    /// Die Oberfläche schreibt ihre Zuordnungen direkt in `devices.json` (ohne
+    /// den Umweg über die HTTP-Schicht). Ohne dieses Nachladen würde der
+    /// Wächter mit einem veralteten Stand arbeiten und eine gerade gelöste
+    /// Zuordnung wieder anlegen.
+    pub fn nachladen(&mut self) -> bool {
+        let frisch = DeviceMap::load(&self.pfad);
+        if frisch.busse == self.busse {
+            return false;
+        }
+        self.busse = frisch.busse;
+        true
+    }
+
+    /// Zustand eines Busses im Graphen (gemerkt? vorhanden? verbunden?).
+    pub fn zustand(&self, bus: &str, graph: &Graph) -> Zustand {
+        let gemerkt = self.busse.contains_key(bus);
+        let name = self.busse.get(bus).map(String::as_str);
+        let vorhanden = graph.knoten(name.unwrap_or("")).is_some() && name.is_some();
+        // Verbunden heißt: der Link führt zu **diesem** Gerät, nicht nur
+        // irgendein Link am Busport (sonst sähe ein umgesteckter Bus
+        // „verbunden“ aus, obwohl er auf ein fehlendes Gerät zeigt).
+        let verbunden = name
+            .map(|n| {
+                let praefix = format!("{n}:");
+                [bus_port(bus, "L"), bus_port(bus, "R")].iter().any(|p| {
+                    graph
+                        .offene_links(&[p.clone()])
+                        .iter()
+                        .any(|v| v.nach.starts_with(&praefix))
+                })
+            })
+            .unwrap_or(false);
+        Zustand::aus(vorhanden, verbunden, gemerkt)
     }
 
     /// Übernimmt eine JSON-Datei. Unbekannte Busse und Einträge ohne Namen
@@ -363,14 +460,56 @@ impl DeviceMap {
                 ));
                 let verbunden = graph
                     .as_ref()
-                    .map(|g| {
-                        [bus_port(bus, "L"), bus_port(bus, "R")]
-                            .iter()
-                            .any(|p| !g.offene_links(&[p.clone()]).is_empty())
-                    })
+                    .map(|g| self.zustand(bus, g) == Zustand::Verbunden)
                     .unwrap_or(false);
                 paare.push(("verbunden".into(), Value::Bool(verbunden)));
+                let zustand = Zustand::aus(geraet.is_some(), verbunden, name.is_some());
+                paare.push(("zustand".into(), Value::str(zustand.text())));
+                paare.push((
+                    "grund".into(),
+                    zustand.grund().map(Value::str).unwrap_or(Value::Null),
+                ));
+                // Gerätelautstärke des Ziels: bei einem USB-Headset ohne
+                // ALSA-Mixer die einzige Hör-Schraube.
+                let lautstaerke = graph
+                    .as_ref()
+                    .ok()
+                    .zip(name)
+                    .and_then(|(g, n)| g.lautstaerke(n));
+                paare.push((
+                    "lautstaerke".into(),
+                    lautstaerke
+                        .map(|l| Value::str(l.text()))
+                        .unwrap_or(Value::Null),
+                ));
+                paare.push((
+                    "stumm".into(),
+                    lautstaerke
+                        .map(|l| Value::Bool(l.stumm))
+                        .unwrap_or(Value::Null),
+                ));
                 Value::Obj(paare)
+            })
+            .collect();
+
+        // Was gemerkt ist und fehlt – an einer Stelle, damit die Oberfläche
+        // nicht jede Zuordnung einzeln prüfen muss.
+        let fehlend: Vec<Value> = HARDWARE_BUSES
+            .iter()
+            .filter_map(|bus| {
+                let name = self.busse.get(*bus)?;
+                let da = graph.as_ref().ok().and_then(|g| g.knoten(name)).is_some();
+                if da {
+                    return None;
+                }
+                Some(Value::obj(vec![
+                    ("ziel", Value::str(format!("Bus {bus}"))),
+                    ("art", Value::str("ausgang")),
+                    ("name", Value::str(name.clone())),
+                    ("vorhanden", Value::Bool(false)),
+                    ("zustand", Value::str(Zustand::Fehlt.text())),
+                    ("grund", Value::str(Zustand::Fehlt.grund().unwrap_or(""))),
+                ]))
             })
             .collect();
 
@@ -385,12 +524,28 @@ impl DeviceMap {
                                 ("id", Value::num(s.id as f64)),
                                 ("name", Value::str(s.name.clone())),
                                 ("desc", Value::str(s.desc.clone())),
+                                (
+                                    "lautstaerke",
+                                    graph
+                                        .as_ref()
+                                        .ok()
+                                        .and_then(|g| g.lautstaerke(&s.name))
+                                        .map(|l| Value::str(l.text()))
+                                        .unwrap_or(Value::Null),
+                                ),
                             ])
                         })
                         .collect(),
                 ),
             ),
             ("buses", Value::Arr(busse)),
+            (
+                "fehlend",
+                Value::obj(vec![
+                    ("anzahl", Value::num(fehlend.len() as f64)),
+                    ("liste", Value::Arr(fehlend)),
+                ]),
+            ),
             ("error", fehler),
         ])
         .to_json()
@@ -719,6 +874,91 @@ mod tests {
             &Value::Bool(false)
         );
         let _ = std::fs::remove_file(&pfad);
+    }
+
+    #[test]
+    fn status_json_meldet_fehlendes_geraet_und_geraetelautstaerke() {
+        let pfad = tmp_path("status-fehlt");
+        let _ = std::fs::remove_file(&pfad);
+        std::fs::write(
+            &pfad,
+            format!(
+                r#"{{"A1":{},"A2":"alsa_output.gibtsnicht"}}"#,
+                crate::json::quote(CORSAIR)
+            ),
+        )
+        .unwrap();
+        let map = DeviceMap::load(&pfad);
+        let wert = crate::json::parse(&map.status_json(&fake(), false)).unwrap();
+        let busse = wert.get("buses").unwrap().as_arr().unwrap();
+
+        // A1: da, verbunden und mit Gerätelautstärke (45 %).
+        assert_eq!(busse[0].get("bus").unwrap(), &Value::str("A1"));
+        assert_eq!(busse[0].get("sink").unwrap(), &Value::str(CORSAIR));
+        assert_eq!(busse[0].get("vorhanden").unwrap(), &Value::Bool(true));
+        assert_eq!(busse[0].get("verbunden").unwrap(), &Value::Bool(true));
+        assert_eq!(busse[0].get("zustand").unwrap(), &Value::str("verbunden"));
+        assert_eq!(busse[0].get("lautstaerke").unwrap(), &Value::str("45 %"));
+        assert_eq!(busse[0].get("stumm").unwrap(), &Value::Bool(false));
+
+        // A2: gemerkt, aber nicht da -> zustand 'fehlt', Grund genannt.
+        assert_eq!(
+            busse[1].get("sink").unwrap(),
+            &Value::str("alsa_output.gibtsnicht")
+        );
+        assert_eq!(busse[1].get("vorhanden").unwrap(), &Value::Bool(false));
+        assert_eq!(busse[1].get("verbunden").unwrap(), &Value::Bool(false));
+        assert_eq!(busse[1].get("zustand").unwrap(), &Value::str("fehlt"));
+        assert!(
+            busse[1]
+                .get("grund")
+                .unwrap()
+                .to_json()
+                .contains("abgesteckt"),
+            "{:?}",
+            busse[1]
+        );
+        assert_eq!(busse[1].get("lautstaerke").unwrap(), &Value::Null);
+
+        // Freier Bus: 'frei'.
+        assert_eq!(busse[2].get("zustand").unwrap(), &Value::str("frei"));
+        assert_eq!(busse[2].get("grund").unwrap(), &Value::Null);
+
+        // Sammlung der fehlenden: eine Zeile, mit Ziel und Grund.
+        let fehlend = wert.get("fehlend").unwrap();
+        assert_eq!(fehlend.get("anzahl").unwrap().as_f64(), Some(1.0));
+        let eintrag = &fehlend.get("liste").unwrap().as_arr().unwrap()[0];
+        assert_eq!(eintrag.get("ziel").unwrap(), &Value::str("Bus A2"));
+        assert_eq!(eintrag.get("zustand").unwrap(), &Value::str("fehlt"));
+
+        // Die Sinkliste nennt die Lautstärke des Geräts.
+        let sinks = wert.get("sinks").unwrap().as_arr().unwrap();
+        assert_eq!(sinks[0].get("lautstaerke").unwrap(), &Value::str("45 %"));
+        let _ = std::fs::remove_file(&pfad);
+    }
+
+    #[test]
+    fn zustand_kennt_vier_faelle() {
+        assert_eq!(Zustand::aus(true, true, false), Zustand::Frei);
+        assert_eq!(Zustand::aus(true, true, true), Zustand::Verbunden);
+        assert_eq!(Zustand::aus(false, false, true), Zustand::Fehlt);
+        assert_eq!(Zustand::aus(true, false, true), Zustand::Getrennt);
+        assert_eq!(Zustand::Fehlt.text(), "fehlt");
+        assert!(Zustand::Fehlt.grund().unwrap().contains("abgesteckt"));
+        assert!(Zustand::Verbunden.grund().is_none());
+        assert_eq!(
+            bus_ports_zu("A1", "sink"),
+            vec![
+                (
+                    "crosspoint:busA1_L".to_string(),
+                    "sink:playback_FL".to_string()
+                ),
+                (
+                    "crosspoint:busA1_R".to_string(),
+                    "sink:playback_FR".to_string()
+                ),
+            ]
+        );
     }
 
     #[test]

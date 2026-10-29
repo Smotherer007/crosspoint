@@ -180,8 +180,21 @@ fn route(zustand: &Zustand, method: &str, path: &str, body: &str) -> Antwort {
             reply("200 OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/state") => {
-            let json = params.to_json().to_json();
-            reply("200 OK", "application/json", json.as_bytes())
+            let mut json = params.to_json();
+            // Geräte-Abstinenz sichtbar machen: was gemerkt ist und gerade
+            // fehlt, steht als eigenes Feld in der Zustandsausgabe.
+            let geraete = match devices.lock() {
+                Ok(d) => crate::wache::fehlend_json(&PipeWire, &d, &crate::inputs::mapping_path()),
+                Err(_) => Value::obj(vec![
+                    ("anzahl", Value::num(0.0)),
+                    ("liste", Value::Arr(Vec::new())),
+                ]),
+            };
+            if let Value::Obj(paare) = &mut json {
+                paare.push(("geraete".to_string(), geraete));
+            }
+            let text = json.to_json();
+            reply("200 OK", "application/json", text.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/levels") => {
             let json = params.levels_json();
@@ -922,8 +935,20 @@ mod tests {
         let a = route(&z, "GET", "/api/state", "");
         assert_eq!(a.status, 200);
         assert_eq!(a.ctype, "application/json");
-        assert_eq!(text(&a), z.params.to_json().to_json());
         assert!(text(&a).starts_with(r#"{"strips":["#));
+        // Der Parameterteil ist byte-gleich; das Feld `geraete` kommt hinten
+        // dazu und meldet, was gemerkt ist und gerade fehlt.
+        let parameter = z.params.to_json().to_json();
+        let rumpf = parameter.strip_suffix('}').expect("Objekt");
+        let antwort = text(&a);
+        assert!(
+            antwort.starts_with(rumpf) && antwort.contains(r#","geraete":{"anzahl":"#),
+            "{antwort}"
+        );
+        let wert = crate::json::parse(&antwort).unwrap();
+        let geraete = wert.get("geraete").cloned().expect("Feld geraete");
+        assert!(geraete.get("anzahl").is_some());
+        assert!(geraete.get("liste").is_some());
     }
 
     #[test]

@@ -675,6 +675,10 @@ pub fn starte(konfig: Konfig) -> Result<Lauf, String> {
     // Aenderung, im eigenen Thread).
     crate::restore::spawn_autosave(params.clone(), preset_pfad.clone());
 
+    // Waechter: ein abgestecktes Geraet bleibt gemerkt; kommt es zurueck, wird
+    // die Zuordnung ohne Neustart wieder gelegt.
+    crate::wache::spawn_wache(devices.clone(), crate::inputs::mapping_path());
+
     let ende = Arc::new(AtomicBool::new(false));
     {
         let ende_w = ende.clone();

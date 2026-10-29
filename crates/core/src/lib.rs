@@ -39,6 +39,8 @@ pub mod pw;
 pub mod remote_api;
 /// Zustand beim Start wiederherstellen, Änderungen selbsttätig sichern.
 pub mod restore;
+/// Wächter über abgesteckte Geräte: Zustand melden, Zuordnung behalten, heilen.
+pub mod wache;
 // Zugabe: RNNoise nur, wenn librnnoise.so.0 per dlopen erreichbar ist.
 pub mod rnnoise;
 pub mod tape_io;

@@ -48,6 +48,25 @@ pub fn db_text(db: f32) -> String {
     }
 }
 
+/// Rastet einen Faderwert auf 0 dB ein, laesst aber ueberall sonst 0,1-dB-Schritte.
+///
+/// * `|v| <= ZONE`         -> genau 0,0 (der Regler springt in die Raste)
+/// * `vorher == 0.0` und   -> bleibt 0,0, bis man deutlich weiter zieht
+///   `|v| < HYSTERESE`        (sonst zittert der Wert an der Raste)
+/// * sonst                 -> auf 0,1 dB gerundet
+///
+/// Die Hysterese ist der Unterschied zwischen „rastet ein" und „klebt":
+/// 0 dB ist leicht zu treffen, aber 0,1 dB daneben bleibt erreichbar.
+pub fn einrasten(v: f32, vorher: f32) -> f32 {
+    const ZONE: f32 = 0.35;
+    const HYSTERESE: f32 = 0.65;
+    if v.abs() <= ZONE || (vorher == 0.0 && v.abs() < HYSTERESE) {
+        0.0
+    } else {
+        (v * 10.0).round() / 10.0
+    }
+}
+
 /// Verstaerkungstext mit Vorzeichen (`+3.0`, `-6.5`, `0.0`).
 pub fn gain_text(db: f32) -> String {
     if db.abs() < 0.05 {
@@ -153,5 +172,34 @@ mod tests {
         assert_eq!(hz_text(100.0), "100");
         assert_eq!(hz_text(1000.0), "1.0k");
         assert_eq!(hz_text(12500.0), "12.5k");
+    }
+}
+
+#[cfg(test)]
+mod rast_tests {
+    use super::einrasten;
+
+    #[test]
+    fn einrasten_trifft_die_null() {
+        assert_eq!(einrasten(0.2, 3.0), 0.0);
+        assert_eq!(einrasten(-0.3, -6.0), 0.0);
+        assert_eq!(einrasten(0.34, 1.0), 0.0);
+    }
+
+    #[test]
+    fn einrasten_haelt_die_null_fest() {
+        // einmal auf 0, dann bleibt es 0 bis deutlich weiter gezogen wird
+        assert_eq!(einrasten(0.5, 0.0), 0.0);
+        assert_eq!(einrasten(-0.64, 0.0), 0.0);
+        assert_ne!(einrasten(0.7, 0.0), 0.0);
+    }
+
+    #[test]
+    fn einrasten_laesst_feine_schritte_zu() {
+        assert_eq!(einrasten(0.1, 5.0), 0.0); // 0,1 dB liegt in der Raste
+        assert_eq!(einrasten(0.8, 5.0), 0.8);
+        assert_eq!(einrasten(1.23, 5.0), 1.2);
+        assert_eq!(einrasten(-6.44, 5.0), -6.4);
+        assert_eq!(einrasten(-11.98, 5.0), -12.0);
     }
 }
