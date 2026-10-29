@@ -40,7 +40,7 @@ jobs:
       - name: Systembibliotheken
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libjack-jackd2-dev libpipewire-0.3-dev libspa-0.1-dev libclang-dev pkg-config
+          sudo apt-get install -y -qq libjack-jackd2-dev libpipewire-0.3-dev libclang-dev pkg-config
       # Gestartet wird im CI nichts: kein PipeWire, kein Audio.
       - name: Clippy (nur echte Fehler blockieren)
         run: cargo clippy --all-targets --locked --workspace -- -D clippy::correctness
