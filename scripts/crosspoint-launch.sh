@@ -27,6 +27,14 @@ done
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIR="$(cd "$HIER/.." && pwd)"
 URL="http://127.0.0.1:8770/"
+
+# Wenn die Flatpak-App installiert ist, hat sie das native Fenster (WebKitGTK)
+# und braucht keinen Browser. Der Browser-Weg bleibt die Rueckfallebene und
+# laesst sich mit CROSSPOINT_HOST_WINDOW=1 erzwingen.
+if [ -z "${CROSSPOINT_HOST_WINDOW:-}" ] && command -v flatpak >/dev/null 2>&1 \
+   && flatpak info de.weppelmann.Crosspoint >/dev/null 2>&1; then
+  exec flatpak run de.weppelmann.Crosspoint ${MINIMIERT:+--minimized}
+fi
 PORT="${CROSSPOINT_DEBUG_PORT:-9223}"
 GRACE="${CROSSPOINT_START_GRACE:-60}"
 LOG="${XDG_RUNTIME_DIR:-/tmp}/crosspoint-engine.log"
