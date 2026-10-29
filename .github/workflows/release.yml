@@ -118,7 +118,9 @@ jobs:
       - name: JACK-Bibliothek
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libjack-jackd2-dev
+          # pipewire-sys braucht Header und libclang, sonst scheitert der Bau
+          # von crosspoint-core (Geraeteschicht seit 0.3.0 ueber die Crate).
+          sudo apt-get install -y -qq libjack-jackd2-dev libpipewire-0.3-dev libclang-dev pkg-config
       - name: Bauen
         run: cargo build --release --locked
       - name: Paket schnueren
