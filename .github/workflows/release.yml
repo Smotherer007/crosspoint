@@ -94,9 +94,19 @@ jobs:
             org.flatpak.Builder org.gnome.Platform//51 org.gnome.Sdk//51
       - name: Bauen
         run: |
-          sudo flatpak run --command=flatpak-builder org.flatpak.Builder \
+          # Log mitschreiben und bei Fehlschlag an das Release haengen: die
+          # Actions-Logs sind ohne Token nicht lesbar, ein Release-Asset schon.
+          set -o pipefail
+          { sudo flatpak run --command=flatpak-builder org.flatpak.Builder \
             --repo=repo --force-clean --disable-rofiles-fuse \
             build-dir flatpak/de.weppelmann.Crosspoint.yml
+          } 2>&1 | tee /tmp/fp.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            gh release view "v${{ needs.prepare.outputs.version }}" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 &&
+              gh release upload "v${{ needs.prepare.outputs.version }}" /tmp/fp.log --clobber -R "$GITHUB_REPOSITORY" || true
+            exit "$status"
+          fi
           sudo chown -R "$(id -u):$(id -g)" repo build-dir
           flatpak build-bundle repo \
             "crosspoint-${{ needs.prepare.outputs.version }}-x86_64.flatpak" \
