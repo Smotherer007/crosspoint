@@ -209,6 +209,9 @@ fn main() {
             "-h" | "--help" => {
                 println!("crosspoint-engine [--client NAME] [--listen ADDR] [--headless]");
                 println!("  startet die Engine und die Web-UI auf 127.0.0.1:8770");
+                println!(
+                    "  CROSSPOINT_NO_RESTORE=1: Zustand nicht wiederherstellen, kein Autosave"
+                );
                 return;
             }
             other => {
@@ -324,6 +327,12 @@ fn main() {
     let devices = Arc::new(std::sync::Mutex::new(
         crosspoint::devices::DeviceMap::load_default(),
     ));
+    // Ergebnis der letzten Wiederherstellung; die API liest es, der Start
+    // schreibt es hinein.
+    let restore_ergebnis = Arc::new(std::sync::Mutex::new(
+        crosspoint::restore::Ergebnis::default(),
+    ));
+    let preset_pfad = preset.clone();
 
     {
         let listen_owned = listen.clone();
@@ -333,6 +342,7 @@ fn main() {
         let vban_recv_ui = vban_recv.clone();
         let macro_ui = macroctl.clone();
         let dev_ui = devices.clone();
+        let restore_ui = restore_ergebnis.clone();
         thread::spawn(move || {
             if let Err(e) = crosspoint::http::serve(
                 listen_owned,
@@ -343,6 +353,7 @@ fn main() {
                 vban_recv_ui,
                 macro_ui,
                 dev_ui,
+                restore_ui,
             ) {
                 eprintln!("HTTP: {e}");
             }
@@ -350,6 +361,19 @@ fn main() {
     }
 
     wire("up");
+
+    // Jetzt stehen die Busports im Graphen: gemerkte Zuordnungen anwenden.
+    if crosspoint::restore::deaktiviert() {
+        println!("Wiederherstellen abgeschaltet (CROSSPOINT_NO_RESTORE)");
+    } else {
+        let ergebnis = crosspoint::restore::beim_start(&params, &devices, &preset_pfad);
+        if let Ok(mut letzte) = restore_ergebnis.lock() {
+            *letzte = ergebnis;
+        }
+    }
+    // Ab hier haelt der Autosave das Preset aktuell (2 s nach der letzten
+    // Aenderung, im eigenen Thread).
+    crosspoint::restore::spawn_autosave(params.clone(), preset_pfad.clone());
 
     // Beenden, wenn die Oberflaeche verschwindet (Fenster zu) - dann raeumt die
     // Engine ihre virtuellen Geraete ab. CROSSPOINT_KEEP_RUNNING=1 schaltet das ab,

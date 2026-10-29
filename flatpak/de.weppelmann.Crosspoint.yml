@@ -34,8 +34,15 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
+  # Tray-Icon: StatusNotifierItem samt dbusmenu auf dem Sitzungsbus. Ohne
+  # diesen Socket kann das Fenster weder ein Icon anmelden noch den
+  # StatusNotifierWatcher des Hosts erreichen.
+  - --socket=session-bus
   # Konfiguration (~/.config/crosspoint) darf angelegt werden
   - --filesystem=~/.config/crosspoint:create
+  # Autostart-Eintrag (~/.config/autostart/de.weppelmann.Crosspoint.desktop)
+  # schreiben und wieder entfernen - POST /api/autostart.
+  - --filesystem=xdg-config/autostart:create
 
 # Kein Rust im Flatpak-Build: die Engine wird im CI-Job "Tarball" gebaut und
 # hier als fertiges Binary eingesetzt (prebuilt/crosspoint-engine). Die

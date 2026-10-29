@@ -14,6 +14,7 @@
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod autostart;
 pub mod devices;
 pub mod dsp;
 pub mod engine;
@@ -26,6 +27,8 @@ pub mod pfade;
 /// PipeWire-Graph (`pw-dump`) als Grundlage der Geräteerkennung.
 pub mod pw;
 pub mod remote_api;
+/// Zustand beim Start wiederherstellen, Änderungen selbsttätig sichern.
+pub mod restore;
 pub mod tape_io;
 pub mod vban_io;
 

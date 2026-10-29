@@ -74,6 +74,55 @@ Beim ersten Start wird ein vorhandenes `~/.config/vm8-linux` einmalig nach
 `~/.config/crosspoint` umbenannt (nur wenn das neue Verzeichnis noch fehlt) –
 Presets, Gerätewahl und Makros bleiben damit erhalten.
 
+Im **Flatpak** zeigt `XDG_CONFIG_HOME` in den Sandbox-Ordner; die Konfiguration
+liegt dort unter `~/.var/app/de.weppelmann.Crosspoint/config/crosspoint`. Der
+Autostart-Eintrag dagegen gehört dem Host und landet immer in
+`~/.config/autostart`.
+
+## Zustand beim Start, Autosave, Autostart, Tray
+
+Beim Start wird der gemerkte Zustand **wiederhergestellt**, nicht nur gelesen:
+
+1. `devices.json` – jeder Bus wird über denselben Weg wie `POST /api/devices`
+   neu verdrahtet (`pw-link` setzen, alte Links lösen).
+2. `inputs.conf` – Streifen-Eingänge über `inputs::assign`.
+3. `preset.json` – das vollständige Parameterbild.
+
+Das läuft, nachdem die virtuellen Geräte stehen (`crosspoint-wire.sh up`), und
+steht danach im Engine-Protokoll:
+`Zustand wiederhergestellt: 1 Bus(se), 1 Streifen-Eingang, Preset geladen`.
+Geräte, die gerade nicht da sind, werden gezählt und gemeldet, aber nicht als
+Fehler behandelt.
+
+**Autosave:** jede Änderung über `POST /api/set` setzt nur einen Zeitstempel;
+2 s nach der letzten Änderung schreibt ein eigener Thread das komplette
+Parameterbild nach `preset.json` (kein Lock, keine Datei-Arbeit im
+Audio-Callback). Eine Faderfahrt erzeugt so genau einen Schreibvorgang.
+
+`CROSSPOINT_NO_RESTORE=1` schaltet Wiederherstellen **und** Autosave ab.
+
+**Autostart:** `POST /api/autostart {"enabled":true}` schreibt
+`~/.config/autostart/de.weppelmann.Crosspoint.desktop`, `false` entfernt sie
+wieder. Der Startbefehl ist im Flatpak
+`flatpak run de.weppelmann.Crosspoint --minimized`, auf dem Host
+`<repo>/scripts/crosspoint-launch.sh --minimized`. Beide starten ohne Fenster,
+nur mit Tray-Icon.
+
+**Tray:** `crosspoint-fenster` meldet ein StatusNotifierItem über GDBus an
+(keine Zusatzbibliothek, `gio` kommt mit GTK) samt `com.canonical.dbusmenu`:
+
+| Menüpunkt | Wirkung |
+|---|---|
+| Fenster zeigen | Fenster einblenden |
+| Alles stumm | alle Streifen-Mutes umschalten (`POST /api/set`) |
+| Letztes Preset laden | `POST /api/preset {"action":"load"}` |
+| Autostart ein/aus | `POST /api/autostart`, Haken zeigt den Zustand |
+| Beenden | Programm und Engine beenden |
+
+Wird das Fenster bei laufendem Tray geschlossen, verschwindet es nur ins Icon
+(„Beenden“ bleibt im Menü). Ohne Tray beendet das Schließen wie bisher das
+Programm.
+
 ## Steuer-API
 
 ```bash
@@ -82,6 +131,10 @@ curl -X POST http://127.0.0.1:8770/api/set \
 curl http://127.0.0.1:8770/api/state     # kompletter Zustand
 curl http://127.0.0.1:8770/api/levels    # Pegel in dB
 curl -X POST http://127.0.0.1:8770/api/preset -d '{"action":"save"}'
+curl http://127.0.0.1:8770/api/restore   # {"devices":n,"inputs":n,"preset":bool}
+curl -X POST http://127.0.0.1:8770/api/restore -d '{"preset":true,"devices":true,"inputs":false}'
+curl http://127.0.0.1:8770/api/autostart # {"enabled":…,"path":…,"exec":…}
+curl -X POST http://127.0.0.1:8770/api/autostart -d '{"enabled":true}'
 ```
 
 Parameter: `gain`, `pan`, `mute`, `solo`, `mono`, `eq`, `comp`, `gate`, `denoiser`,
@@ -129,7 +182,9 @@ Finish-Args und warum sie da sind:
 | `--share=ipc`, `--share=network` | Steuer-API auf `127.0.0.1:8770` bleibt von außen erreichbar (VBAN, Steuerung) |
 | `--socket=wayland`, `--socket=fallback-x11` | das Fenster ist ein Wayland-Client, X11 als Rückfall |
 | `--device=dri` | WebKit zeichnet die Oberfläche beschleunigt |
+| `--socket=session-bus` | Tray-Icon (StatusNotifierItem + dbusmenu) am Sitzungsbus |
 | `--filesystem=~/.config/crosspoint:create` | Konfiguration/Presets |
+| `--filesystem=xdg-config/autostart:create` | Autostart-Datei in `~/.config/autostart` schreiben/entfernen |
 
 Die Oberfläche ist im Flatpak ein eigenes Fenster (`crosspoint-fenster`, GTK3 +
 WebKitGTK, 1760×980, Titel `Crosspoint`), das dieselbe Seite von

@@ -19,6 +19,15 @@
 # es startet die Oberflaeche im Browser der Wahl.
 set -uo pipefail
 
+# --minimized: ohne Fenster starten, nur Tray-Icon (Autostart).
+MINIMIERT=""
+for argument in "$@"; do
+  case "$argument" in
+    --minimized|-m) MINIMIERT=1 ;;
+    *) echo "crosspoint-start: unbekanntes Argument: $argument" >&2; exit 2 ;;
+  esac
+done
+
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 URL="${CROSSPOINT_URL:-http://127.0.0.1:8770/}"
 LOG="${XDG_RUNTIME_DIR:-/tmp}/crosspoint-engine.log"
@@ -90,6 +99,11 @@ if antwortet; then
   echo "crosspoint-start: Engine laeuft bereits" >&2
 else
   echo "crosspoint-start: starte $ENGINE" >&2
+  # Im Tray-Betrieb gibt es keine sichtbare Seite, die die Engine am Leben
+  # haelt (sie beendet sich sonst nach ihrer Leerlaufzeit) - also Dauerbetrieb.
+  if [ -n "$MINIMIERT" ]; then
+    export CROSSPOINT_KEEP_RUNNING=1
+  fi
   # setsid: eigenes Prozessgruppen-Handle, damit die Engine das Ende des
   # Startskripts ueberlebt, bis das Fenster geschlossen ist.
   if command -v setsid >/dev/null 2>&1; then
@@ -113,8 +127,14 @@ if [ -z "$bereit" ]; then
   exit 1
 fi
 
-# Fenster im Vordergrund: es laeuft, bis der Benutzer es schliesst.
-"$FENSTER" &
+# Fenster im Vordergrund: es laeuft, bis der Benutzer es schliesst (bzw. im
+# Tray-Betrieb bis "Beenden" im Tray-Menue).
+FENSTER_ARGUMENTE=()
+if [ -n "$MINIMIERT" ]; then
+  FENSTER_ARGUMENTE+=(--minimized)
+  echo "crosspoint-start: minimiert (nur Tray-Icon)" >&2
+fi
+"$FENSTER" "${FENSTER_ARGUMENTE[@]}" &
 FENSTER_PID=$!
 wait "$FENSTER_PID"
 FENSTER_STATUS=$?

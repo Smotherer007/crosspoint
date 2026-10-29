@@ -14,6 +14,16 @@
 #   CROSSPOINT_DEBUG_PORT   Port der Fenstererkennung (Vorgabe 9223)
 #   CROSSPOINT_START_GRACE  Sekunden, die das Fenster zum Erscheinen hat (Vorgabe 60)
 set -uo pipefail
+
+# --minimized: ohne Fenster starten, nur Tray-Icon (Autostart-Eintrag).
+MINIMIERT=""
+for argument in "$@"; do
+  case "$argument" in
+    --minimized|-m) MINIMIERT=1 ;;
+    *) echo "crosspoint-launch: unbekanntes Argument: $argument" >&2; exit 2 ;;
+  esac
+done
+
 HIER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIR="$(cd "$HIER/.." && pwd)"
 URL="http://127.0.0.1:8770/"
@@ -42,6 +52,17 @@ engine() {
   if [ -x "$DIR/target/release/crosspoint-engine" ]; then echo "$DIR/target/release/crosspoint-engine"; return; fi
   if [ -x "$HIER/crosspoint-engine" ]; then echo "$HIER/crosspoint-engine"; return; fi
   echo "$DIR/target/release/crosspoint-engine"
+}
+
+# Fenster mit Tray (WebKitGTK) - auf dem Host nur, wenn gebaut.
+fenster_binaer() {
+  if [ -n "${CROSSPOINT_FENSTER:-}" ] && [ -x "${CROSSPOINT_FENSTER}" ]; then
+    echo "$CROSSPOINT_FENSTER"; return
+  fi
+  local kandidat
+  for kandidat in "$HIER/crosspoint-fenster" "$DIR/target/release/crosspoint-fenster"; do
+    [ -x "$kandidat" ] && { echo "$kandidat"; return; }
+  done
 }
 
 # Fensterbefehl: im Flatpak auf dem Host, sonst direkt.
@@ -91,6 +112,11 @@ beende_engine() {
   echo "Engine beendet, virtuelle Geraete entfernt" >&2
 }
 
+if [ -n "$MINIMIERT" ]; then
+  # Ohne sichtbare Seite haelt nichts die Engine am Leben (Leerlaufzeit).
+  export CROSSPOINT_KEEP_RUNNING=1
+fi
+
 if ! alive; then
   cd "$DIR" || exit 1
   setsid "$(engine)" >"$LOG" 2>&1 &
@@ -100,6 +126,22 @@ fi
 if ! alive; then
   echo "Engine antwortet nicht – siehe $LOG" >&2
   exit 1
+fi
+
+# Minimiert: kein Browserfenster, nur das Tray-Icon. Das kann nur
+# crosspoint-fenster (WebKitGTK, StatusNotifierItem) - der Browser nicht.
+if [ -n "$MINIMIERT" ]; then
+  FENSTER_BIN="$(fenster_binaer)"
+  if [ -z "$FENSTER_BIN" ]; then
+    echo "crosspoint-launch: crosspoint-fenster ist nicht gebaut - Engine laeuft im Hintergrund" >&2
+    echo "  Oberflaeche spaeter: scripts/crosspoint-launch.sh (ohne --minimized)" >&2
+    exit 0
+  fi
+  echo "crosspoint-launch: minimiert - nur Tray-Icon ($FENSTER_BIN)" >&2
+  "$FENSTER_BIN" --minimized
+  STATUS=$?
+  beende_engine
+  exit "$STATUS"
 fi
 
 # Immer ein frisches Fenster: ein liegengebliebener Browser desselben Profils

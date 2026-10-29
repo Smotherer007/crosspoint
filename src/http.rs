@@ -18,6 +18,7 @@ use crate::devices::{DeviceMap, RealRunner};
 use crate::engine::Params;
 use crate::json::{self, Value};
 use crate::macros_io::MacroControl;
+use crate::restore::Ergebnis;
 use crate::tape_io::TapeControl;
 use crate::vban_io::{VbanControl, VbanRecvControl};
 use std::sync::Mutex;
@@ -33,6 +34,7 @@ pub fn serve(
     vban_recv: Arc<VbanRecvControl>,
     macros: Arc<MacroControl>,
     devices: Arc<Mutex<DeviceMap>>,
+    restore: Arc<Mutex<Ergebnis>>,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(&listen)?;
     println!("UI: http://{listen}/  (Pegel-WebSocket: ws://{listen}/ws/levels)");
@@ -50,6 +52,7 @@ pub fn serve(
         let vban_recv = vban_recv.clone();
         let macros = macros.clone();
         let devices = devices.clone();
+        let restore = restore.clone();
         let hub = hub.clone();
         thread::spawn(move || {
             let _ = handle(
@@ -60,6 +63,7 @@ pub fn serve(
                 &vban_recv,
                 &macros,
                 &devices,
+                &restore,
                 &hub,
                 &mut stream,
             );
@@ -68,6 +72,7 @@ pub fn serve(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle(
     params: &Arc<Params>,
     preset: &PathBuf,
@@ -76,6 +81,7 @@ fn handle(
     vban_recv: &Arc<VbanRecvControl>,
     macros: &Arc<MacroControl>,
     devices: &Arc<Mutex<DeviceMap>>,
+    restore: &Arc<Mutex<Ergebnis>>,
     hub: &Arc<WsHub>,
     stream: &mut TcpStream,
 ) -> io::Result<()> {
@@ -148,6 +154,9 @@ fn handle(
                     let value = v.get("value").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
                     match (target, param) {
                         (Some(t), Some(p)) if params.set(&t, index, &p, value) => {
+                            // Nur merken, geschrieben wird im Autosave-Thread:
+                            // kein Lock, keine Datei-Arbeit im Anfragepfad.
+                            crate::restore::markiere_schmutzig();
                             "{\"ok\":true}".to_string()
                         }
                         (t, p) => format!(
@@ -347,6 +356,56 @@ fn handle(
                 Err(e) => format!("{{\"error\":{}}}", json::quote(&e)),
             };
             reply(stream, "200 OK", "application/json", body.as_bytes())
+        }
+        ("GET", p) if p.starts_with("/api/restore") => {
+            let body = match restore.lock() {
+                Ok(e) => e.to_json(),
+                Err(_) => "{\"devices\":0,\"inputs\":0,\"preset\":false}".to_string(),
+            };
+            reply(stream, "200 OK", "application/json", body.as_bytes())
+        }
+        ("POST", p) if p.starts_with("/api/restore") => {
+            let v = json::parse(&body).unwrap_or(Value::Null);
+            // Ohne Angabe wird alles wiederhergestellt; ein Feld auf false
+            // laesst genau diesen Teil aus.
+            let an = |k: &str| v.get(k).and_then(|x| x.as_bool()).unwrap_or(true);
+            let ergebnis = crate::restore::anwenden(
+                params,
+                devices,
+                preset,
+                an("devices"),
+                an("inputs"),
+                an("preset"),
+            );
+            if let Ok(mut letzte) = restore.lock() {
+                *letzte = ergebnis.clone();
+            }
+            reply(
+                stream,
+                "200 OK",
+                "application/json",
+                ergebnis.to_json().as_bytes(),
+            )
+        }
+        ("GET", p) if p.starts_with("/api/autostart") => {
+            let body = crate::autostart::status_json();
+            reply(stream, "200 OK", "application/json", body.as_bytes())
+        }
+        ("POST", p) if p.starts_with("/api/autostart") => {
+            let wunsch = json::parse(&body)
+                .ok()
+                .and_then(|v| v.get("enabled").and_then(|x| x.as_bool()));
+            let out = match wunsch {
+                Some(an) => match crate::autostart::set(an) {
+                    Ok(_) => crate::autostart::status_json(),
+                    Err(e) => format!("{{\"error\":{}}}", json::quote(&e)),
+                },
+                None => format!(
+                    "{{\"error\":{}}}",
+                    json::quote("\"enabled\" fehlt (true|false)")
+                ),
+            };
+            reply(stream, "200 OK", "application/json", out.as_bytes())
         }
         ("GET", p) if p.starts_with("/api/tape") => {
             let body = format!(
