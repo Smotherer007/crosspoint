@@ -101,7 +101,9 @@ jobs:
           # Log mitschreiben und bei Fehlschlag an das Release haengen: die
           # Actions-Logs sind ohne Token nicht lesbar, ein Release-Asset schon.
           set -o pipefail
-          { sudo flatpak run --command=flatpak-builder org.flatpak.Builder \
+          # Kein sudo davor: flatpak verweigert "sudo flatpak run" ausdruecklich.
+          # Das systemweit installierte SDK ist fuer den Benutzer lesbar.
+          { flatpak run --command=flatpak-builder org.flatpak.Builder \
             --repo=repo --force-clean --disable-rofiles-fuse \
             build-dir flatpak/de.weppelmann.Crosspoint.yml
           } 2>&1 | tee /tmp/fp.log
@@ -111,7 +113,6 @@ jobs:
               gh release upload "v${{ needs.prepare.outputs.version }}" /tmp/fp.log --clobber -R "$GITHUB_REPOSITORY" || true
             exit "$status"
           fi
-          sudo chown -R "$(id -u):$(id -g)" repo build-dir
           flatpak build-bundle repo \
             "crosspoint-${{ needs.prepare.outputs.version }}-x86_64.flatpak" \
             de.weppelmann.Crosspoint
