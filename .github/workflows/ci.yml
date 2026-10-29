@@ -62,13 +62,14 @@ jobs:
   flatpak:
     name: Flatpak bauen
     runs-on: ubuntu-latest
+    # Container mit fertigem flatpak-builder und GNOME-Runtime; ohne ihn
+    # scheitert der Schritt bereits beim Setup (Image/Action-Paar).
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq flatpak flatpak-builder
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          # Das Manifest baut auf org.gnome.Platform//51 (WebKitGTK); der
-          # Rust-Toolchain kommt aus dem GNOME-SDK, keine Extension noetig.
-          flatpak install --user -y flathub org.gnome.Platform//51 org.gnome.Sdk//51
-      - run: flatpak-builder --user --repo=repo --force-clean --disable-tests build-dir flatpak/de.weppelmann.Crosspoint.yml
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: crosspoint-ci.flatpak
+          manifest-path: flatpak/de.weppelmann.Crosspoint.yml

@@ -75,7 +75,10 @@ jobs:
     name: Linux-Pakete
     # 24.04 statt 22.04: das Flatpak in 22.04 ist zu alt fuer Runtimes wie
     # org.gnome.Platform//51 - der Bundle-Schritt scheiterte dort.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
@@ -100,12 +103,10 @@ jobs:
       # fehlten trotz Installation, Logs ohne Token nicht lesbar). Die offizielle
       # Action bringt flatpak-builder im Container mit und holt Runtime und SDK
       # selbst aus dem Flathub-Repo.
-      - uses: flathub-infra/flatpak-github-actions/flatpak-builder@v6
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: flatpak/de.weppelmann.Crosspoint.yml
           bundle: crosspoint-${{ env.VERSION }}-x86_64.flatpak
-          runtime-repo: https://flathub.org/repo/flathub.flatpakrepo
-          cache-key: crosspoint-flatpak
 
       - name: Tarball
         run: |
