@@ -114,3 +114,23 @@ Regeln, die daraus folgen:
 - Der Token-Satz ist ein **Datenformat**, kein GTK-Detail: das Web-UI kann
   dieselbe Datei später lesen, damit es nicht wieder zwei Wahrheiten gibt.
 
+
+## Plattformen: Linux bleibt die Zielplattform
+
+Entschieden am 2026-10-29 nach Aufwandsmessung (`wc -l` über den Code).
+
+**Windows: nicht geplant.** Der Mixer selbst wäre portierbar (≈19 % des Kerns
+ist plattformnah, DSP/VBAN/OSC/HTTP sind plattformneutral), aber virtuelle
+Geräte — also genau das, was einen VoiceMeeter-Ersatz ausmacht — brauchen einen
+**signierten Kernel-Treiber**: 400–800 h Arbeit plus EV-Zertifikat
+(300–700 €/Jahr). Ein Pult ohne virtuelle Kabel (120–200 h) löst den
+Anwendungsfall „Programm X auf Kanal 3" nicht und wäre damit kein Ersatz.
+
+**macOS: nicht geplant, aber machbar.** Kein Treiber nötig (Audio Taps ab
+macOS 13), aber CoreAudio-Backend, Taps, `.app`, Notarisierung (99 €/Jahr) und
+Testhardware ergeben 170–240 h. Nur sinnvoll mit einem Mac zum Belegen und
+einer Gruppe, die es vermisst.
+
+**Regel für später:** Wer die Portierung wieder aufbringt, beginnt mit dem
+Audio-Backend allein (60–80 h) und entscheidet erst danach über Oberfläche und
+Geräte-Routing. Nicht mit dem Treiber anfangen — daran sterben solche Projekte.
