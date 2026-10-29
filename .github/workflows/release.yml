@@ -139,9 +139,9 @@ jobs:
           path: crosspoint-*.tar.gz
 
   attach:
-    # Das Flatpak-Job laeuft unabhaengig; ein Ausfall dort darf das Release
-    # nicht verhindern, sonst gibt es gar kein Paket.
-    needs: [prepare, tarball]
+    # Wartet auf beide Paket-Jobs. Faellt einer aus, wird trotzdem
+    # veroeffentlicht, was da ist (die Pruefung unten verlangt mindestens eins).
+    needs: [prepare, tarball, flatpak]
     if: always() && needs.prepare.result == 'success'
     runs-on: ubuntu-latest
     steps:
