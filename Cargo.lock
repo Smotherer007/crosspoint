@@ -194,7 +194,7 @@ dependencies = [
 
 [[package]]
 name = "crosspoint"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "crosspoint-core",
  "crosspoint-ui",
@@ -202,7 +202,7 @@ dependencies = [
 
 [[package]]
 name = "crosspoint-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "jack",
  "macros",
