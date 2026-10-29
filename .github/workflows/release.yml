@@ -94,7 +94,7 @@ jobs:
           name: engine
           path: prebuilt
       - name: Ausfuehrbar machen
-        run: chmod +x prebuilt/crosspoint-engine && ls -l prebuilt
+        run: chmod +x prebuilt/crosspoint-engine prebuilt/crosspoint && ls -l prebuilt prebuilt
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: crosspoint-${{ needs.prepare.outputs.version }}-x86_64.flatpak
@@ -123,10 +123,15 @@ jobs:
           sudo apt-get install -y -qq libjack-jackd2-dev libpipewire-0.3-dev libclang-dev pkg-config
       - name: Bauen
         run: cargo build --release --locked
+      - name: Oberflaeche bauen
+        run: |
+          sudo apt-get install -y -qq libgtk-4-dev
+          cargo build --release --locked --features ui --bin crosspoint
       - name: Paket schnueren
         run: |
           mkdir -p dist
           cp target/release/crosspoint-engine dist/
+          cp target/release/crosspoint dist/
           cp scripts/crosspoint-launch.sh scripts/crosspoint-start.sh scripts/crosspoint-wire.sh dist/
           cp packaging/linux/de.weppelmann.Crosspoint.desktop dist/
           cp docs/brand/crosspoint-icon-1024.png dist/crosspoint.png
@@ -134,7 +139,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: engine
-          path: target/release/crosspoint-engine
+          path: |
+            target/release/crosspoint-engine
+            target/release/crosspoint
       - uses: actions/upload-artifact@v4
         with:
           name: tarball

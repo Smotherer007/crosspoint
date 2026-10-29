@@ -17,7 +17,7 @@ app-id: de.weppelmann.Crosspoint
 runtime: org.gnome.Platform
 runtime-version: '51'
 sdk: org.gnome.Sdk
-command: crosspoint-start
+command: crosspoint
 
 finish-args:
   # Audio: PulseAudio-Socket des Hosts (PipeWire-Pulse) fuer pactl-Null-Sinks
@@ -89,6 +89,7 @@ modules:
     build-commands:
       # Die Datei-Quelle landet unter ihrem Basisnamen im Build-Verzeichnis.
       - install -Dm755 crosspoint-engine /app/bin/crosspoint-engine
+      - install -Dm755 crosspoint /app/bin/crosspoint
       - install -Dm755 scripts/crosspoint-start.sh /app/bin/crosspoint-start
       - install -Dm755 scripts/crosspoint-wire.sh /app/bin/crosspoint-wire.sh
       # Der Desktop-Eintrag des Repos startet auf dem Host den Browser
@@ -97,7 +98,7 @@ modules:
         # Zielverzeichnis muss existieren, sonst scheitert die Umleitung
         # ("No such file or directory") bevor install ueberhaupt laeuft.
         mkdir -p /app/share/applications
-        sed 's|^Exec=.*|Exec=crosspoint-start|' data/de.weppelmann.Crosspoint.desktop \
+        sed 's|^Exec=.*|Exec=crosspoint|' data/de.weppelmann.Crosspoint.desktop \
           > /app/share/applications/de.weppelmann.Crosspoint.desktop
         chmod 644 /app/share/applications/de.weppelmann.Crosspoint.desktop
       - install -Dm644 packaging/linux/de.weppelmann.Crosspoint.metainfo.xml \
@@ -110,6 +111,11 @@ modules:
     sources:
       - type: file
         path: ../prebuilt/crosspoint-engine
+      # Die native Oberflaeche (GTK4, Feature 'ui'): im GNOME-SDK gebaut,
+      # weil nur dort die Header liegen. Startet Engine und Fenster im EINEN
+      # Prozess.
+      - type: file
+        path: ../prebuilt/crosspoint
       - type: dir
         path: ..
         skip:
